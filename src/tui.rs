@@ -145,7 +145,7 @@ impl App {
 
     fn navigate(&mut self, delta: isize) {
         match self.focus {
-            Focus::Compose => return,
+            Focus::Compose => (),
             Focus::Sessions => {
                 let next = move_index(self.session_index, delta, self.sessions.len());
                 if next != self.session_index {
@@ -169,7 +169,7 @@ impl App {
 
     fn select_end(&mut self, last: bool) {
         match self.focus {
-            Focus::Compose => return,
+            Focus::Compose => (),
             Focus::Sessions => {
                 let next = if last { self.sessions.len().saturating_sub(1) } else { 0 };
                 if next != self.session_index {
@@ -462,10 +462,11 @@ impl App {
                     self.composer.push('\n');
                 }
                 KeyCode::Backspace => { self.composer.pop(); }
-                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if self.composer.len() < 8_192 {
-                        self.composer.push(c);
-                    }
+                KeyCode::Char(c)
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && self.composer.len() < 8_192 =>
+                {
+                    self.composer.push(c);
                 }
                 _ => {}
             }
