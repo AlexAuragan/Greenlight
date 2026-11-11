@@ -4,6 +4,7 @@ mod config;
 mod engine;
 mod provider;
 mod restore;
+mod sandbox;
 mod store;
 mod tools;
 
@@ -23,6 +24,8 @@ struct Cli {
 enum Commands {
     /// Validate a workflow and referenced step files
     Validate { workflow: String },
+    /// Verify Linux shell sandbox requirements and isolation
+    SandboxCheck,
     /// Start a new session, then execute
     Start {
         workflow: String,
@@ -107,6 +110,21 @@ async fn main() -> Result<()> {
             config::load_config(&root)?;
             let wf = config::load_workflow(&root, &workflow)?;
             println!("Valid: {} ({} steps)", wf.definition.title, wf.steps.len());
+        }
+        Commands::SandboxCheck => {
+            let output = sandbox::Sandbox::open(&root)?
+                .run("test ! -w /workspace && test -w /tmp && test -w /cache && \
+                      test ! -e /workspace/.stepwright/state/history.db && \
+                      printf 'Sandbox ready: project read-only, cache and tmp writable\\n'")
+                .await?;
+            if !output.status.success() {
+                bail!(
+                    "sandbox health check failed (exit {:?}): {}",
+                    output.status.code(),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            print!("{}", String::from_utf8_lossy(&output.stdout));
         }
         Commands::Start {
             workflow,
