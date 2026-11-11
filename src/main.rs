@@ -7,6 +7,7 @@ mod restore;
 mod sandbox;
 mod store;
 mod tools;
+mod tui;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -42,6 +43,8 @@ enum Commands {
         #[arg(long)]
         model: Option<String>,
     },
+    /// Open the live, read-only session viewer (optional session ID)
+    Tui { session: Option<String> },
     /// List saved sessions
     Sessions,
     /// Show event history, including current branch ancestry
@@ -159,6 +162,9 @@ async fn main() -> Result<()> {
             engine
                 .run(&session, instruction.as_deref(), model.as_deref())
                 .await?;
+        }
+        Commands::Tui { session } => {
+            tui::run(&root, session.as_deref())?;
         }
         Commands::Sessions => {
             let engine = engine::Engine::open(&root)?;
