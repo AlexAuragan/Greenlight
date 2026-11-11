@@ -33,7 +33,7 @@ Available actions:
   action: finish
   summary: |
     Description and evidence that step is complete
-Use exactly one action per response. An artifact action registers a session artifact, it does NOT modify code. Each step is one stage of a multi-step workflow with its own fresh context and tools, and `finish` completes only the current step: the harness then advances to the next step, which continues the work. Finish this step as soon as its required outputs are registered, even when the overall session goal is not yet fully achieved, and only request the tools this step enables. Commands and edits require authorization. Tool failure is a fact; don't hide it. If a tool fails, describe it instead of working around an environment mismatch.
+Use exactly one action per response. An artifact action registers a session artifact, it does NOT modify code. Each step is one stage of a multi-step workflow with its own fresh context and tools, and `finish` completes only the current step: the harness then advances to the next step, which continues the work. Finish this step as soon as its required outputs are registered, even when the overall session goal is not yet fully achieved, and only request the tools this step enables. Commands and edits require authorization. Shell commands run without network or host HOME access, with project files read-only. Use the native write tool for all source edits; shell writes cannot alter project files. Tool failure is a fact; don't hide it. If a tool fails, describe it instead of working around an environment mismatch.
 No invented tool results. If blocked, report a deviation. Keep outputs concise.
 "#;
 

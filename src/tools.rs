@@ -1,7 +1,6 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, io::{self, Write}, path::{Path, PathBuf}, time::Duration};
-use tokio::process::Command;
+use std::{collections::HashSet, io::{self, Write}, path::{Path, PathBuf}};
 use crate::{approvals::{ApprovalStore, Scope}, config::Permissions};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -70,6 +69,7 @@ impl Tools {
         println!("\n[approval required: {kind}]\n{detail}");
         match kind {
             "shell" => {
+                println!("Shell is sandboxed: read-only project, no network, isolated HOME.");
                 println!("Scope: this exact command only (including its arguments and shell operators).");
                 println!("[y] once / [a] this process / [p] this project / [g] globally / [n] deny (default)");
             }
@@ -128,10 +128,7 @@ impl Tools {
     }
     pub async fn shell(&mut self,command:&str)->Result<String> {
         self.permission("shell",command)?;
-        let mut process=Command::new("sh");
-        process.arg("-c").arg(command).current_dir(&self.root).kill_on_drop(true);
-        let output=tokio::time::timeout(Duration::from_secs(120),process.output()).await
-            .context("command timed out after 120s")??;
+        let output = crate::sandbox::Sandbox::open(&self.root)?.run(command).await?;
         let stdout=String::from_utf8_lossy(&output.stdout);
         let stderr=String::from_utf8_lossy(&output.stderr);
         let mut result=format!("exit_code: {}\nstdout:\n{}\nstderr:\n{}",output.status.code().unwrap_or(-1),stdout,stderr);

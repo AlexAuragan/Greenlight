@@ -32,8 +32,9 @@ For the first live session, use a disposable, trusted Git repository, and keep t
 
 ## Security checks before wider use
 
-- Deny reading `.env`, `.git`, `.ssh` and `.stepwright/state` through built-in file tools. The shell is an unrestricted OS operation when approved, and may still access them.
-- Inspect command permissions and avoid process-wide approvals during first smoke tests.
-- Confirm that leaked credentials are not included in model output, tool results, event logs, artifacts or webhook messages.
-- Test Ctrl-C while a shell command runs; timeout kills the immediate shell child, but not necessarily every descendant process.
-- Do not assume that changing the active execution branch restores code files.
+- Install Bubblewrap and run `cargo run -- sandbox-check`; the sandbox must refuse to start when user namespaces are unavailable.
+- Verify sandboxed commands cannot write project source files and do not inherit `DEEPINFRA_API_KEY`, the host home directory or its SSH credentials.
+- Check that pre-approved shell commands still run with network isolation; use native write for project edits.
+- Project source files remain readable; masking known secret filenames is not comprehensive secret scanning. Avoid embedding secrets in source.
+- Test Ctrl-C during a sandboxed process and verify descendants terminate.
+- A successful restore does not certify files modified by processes outside the harness.
