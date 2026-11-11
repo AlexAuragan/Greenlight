@@ -133,10 +133,10 @@ impl RestorePlan {
         self.items.is_empty()
     }
 
-    pub fn preview(&self) {
-        println!("\n[workspace restore preview at event #{}]", self.event);
+    pub fn preview_text(&self) -> String {
+        let mut output = format!("Workspace restore preview at event #{}\n", self.event);
         if self.items.is_empty() {
-            println!("Tracked workspace files already match this event.");
+            output.push_str("Tracked workspace files already match this event.\n");
         }
         for item in &self.items {
             let operation = match (&item.current, &item.desired) {
@@ -144,7 +144,7 @@ impl RestorePlan {
                 (Some(_), None) => "delete",
                 _ => "modify",
             };
-            println!("\n[{operation}: {}]", item.relative);
+            output.push_str(&format!("\n[{operation}: {}]\n", item.relative));
             let mut diff = changes::unified(
                 &item.relative, item.current.as_deref(), item.desired.as_deref().unwrap_or(""),
             );
@@ -153,14 +153,28 @@ impl RestorePlan {
                     &format!("+++ b/{}\n", item.relative), "+++ /dev/null\n", 1,
                 );
             }
-            print!("{diff}");
+            output.push_str(&diff);
         }
-        println!(
-            "\nOnly recorded native writes and prior explicit restores are covered. Shell and manual changes cannot be reconstructed."
+        output.push_str(
+            "\nOnly recorded native writes and prior restores are covered. Shell/manual changes cannot be reconstructed.\n"
         );
+        output
+    }
+
+    pub fn preview(&self) {
+        print!("{}", self.preview_text());
     }
 
     pub fn apply(self, root: &Path, store: &Store, session: &Session) -> Result<()> {
+        self.apply_inner(root, store, session, true)
+    }
+
+    /// Use the same guarded restore transaction while a TUI owns stdout.
+    pub fn apply_silent(self, root: &Path, store: &Store, session: &Session) -> Result<()> {
+        self.apply_inner(root, store, session, false)
+    }
+
+    fn apply_inner(self, root: &Path, store: &Store, session: &Session, verbose: bool) -> Result<()> {
         // Verify again after the user has examined the preview.
         for item in &self.items {
             if snapshot(root, &item.relative)? != item.current {
@@ -191,9 +205,9 @@ impl RestorePlan {
                 item.relative
             ))?;
             applied += 1;
-            println!("[restored] {}", item.relative);
+            if verbose { println!("[restored] {}", item.relative); }
         }
-        println!("Restore complete: {applied} tracked file(s) updated.");
+        if verbose { println!("Restore complete: {applied} tracked file(s) updated."); }
         Ok(())
     }
 }

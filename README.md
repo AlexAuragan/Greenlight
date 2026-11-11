@@ -2,7 +2,7 @@
 
 A **human-supervised, step-centric AI harness in Rust**. Each workflow is a directory containing a `workflow.yaml` and one Markdown-with-YAML-frontmatter file per step. Every step starts with fresh model context, explicitly selects artifacts, and cannot advance until its verification policy has passed.
 
-This is an **experimental harness**, not a production-ready agent. DeepInfra is the first provider. The CLI remains available, alongside an initial read-only Ratatui dashboard for session and event inspection. Linux with Bubblewrap is now required for shell execution. See `docs/10-shell-sandbox.md`.
+This is an **experimental harness**, not a production-ready agent. DeepInfra is the first provider. The CLI remains available, alongside a Ratatui conversation TUI that can resume blocked work, present approvals, and restart from earlier recorded steps. Linux with Bubblewrap is now required for shell execution. See `docs/10-shell-sandbox.md`.
 
 ## Requirements
 
@@ -45,8 +45,8 @@ stepwright start fix-bug --goal "..."
 stepwright start add-feature --goal "..." --model "provider/model"
 stepwright resume SESSION_ID --instruction "Do not change dependencies"
 stepwright sessions
-stepwright tui                  # interactive session and event viewer
-stepwright tui SESSION_ID       # focus on one session
+stepwright tui                  # interactive session conversation
+stepwright tui SESSION_ID       # focus on a session, resume or restart
 stepwright history SESSION_ID
 stepwright branches SESSION_ID
 stepwright switch SESSION_ID --branch BRANCH_ID --step implement
@@ -61,7 +61,7 @@ For a globally installed binary, run `stepwright ...` instead of `cargo run -- .
 
 Run with `--root /path/to/project` to select the project directory containing `stepwright.yaml`, `workflows/` and `.stepwright/instructions.md`. Workflows may use includes in `shared/`. Config and workflow reload for each *new step run*.
 
-For an interactive view of sessions, step statuses, event history, and saved edit diffs, run `stepwright tui` in a terminal. It polls the existing event database, so it can follow a workflow running in another terminal. It does **not** execute workflows or approve actions yet; see `docs/11-tui.md`.
+Use `stepwright tui` to open a session conversation, send instructions to resume blocked work, approve tools and human gates, inspect edit diffs and restart an earlier workflow step. The TUI polls the existing event database, so it can also observe a workflow running in another terminal. To restart, type `/restart`, choose a recorded step and confirm the guarded workspace restore before forking; see `docs/11-tui.md`.
 
 When execution blocks, use `history`, inspect artifacts and then `resume --instruction`. If an attempt should be superseded without losing history, use `fork` from the desired event. Forking offers to restore **tracked native edits** first. Shell-only or manual changes cannot be reconstructed; preview with `restore --dry-run`.
 
@@ -79,7 +79,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 ## Caveats (read before use)
 
-This MVP has deliberately limited capabilities: no cross-platform shell sandbox, no TUI-driven execution or approvals, no full Git checkpoint/restore, no parallel/subworkflow execution, no remote Discord decisions, no MCP, no streaming, no provider-specific reasoning parameters, no adaptive context compaction, and no transactional code edits. The YAML protocol is a best-effort model instruction validated by the runtime, not a guarantee that every model responds correctly. Bubblewrap does not provide resource quotas, comprehensive project-source secret scanning or immunity from kernel vulnerabilities.
+This MVP has deliberately limited capabilities: no cross-platform shell sandbox, no full Git checkpoint/restore, no parallel/subworkflow execution, no remote Discord decisions, no MCP, no streaming, no provider-specific reasoning parameters, no adaptive context compaction, and no transactional code edits. The YAML protocol is a best-effort model instruction validated by the runtime, not a guarantee that every model responds correctly. Bubblewrap does not provide resource quotas, comprehensive project-source secret scanning or immunity from kernel vulnerabilities.
 
 The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the prompts, workflow files and *model-generated structured actions* use YAML. The latter is not JSON on the agent-facing surface.
 

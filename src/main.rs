@@ -8,6 +8,7 @@ mod sandbox;
 mod store;
 mod tools;
 mod tui;
+mod tui_actions;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};

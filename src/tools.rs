@@ -1,6 +1,9 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, io::{self, Write}, path::{Path, PathBuf}};
+use std::{
+    collections::HashSet, io::{self, Write}, path::{Path, PathBuf},
+    sync::mpsc::{Receiver, Sender},
+};
 use crate::{approvals::{ApprovalStore, Scope}, config::Permissions};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -30,6 +33,31 @@ pub fn parse_action(text:&str)->Result<AgentAction> {
 
 pub struct NativeEdit { pub path: String, pub before: Option<String>, pub after: String }
 
+/// All human decisions flow through the same harness permission logic.
+pub enum PromptDriver {
+    Terminal,
+    Tui { requests: Sender<String>, answers: Receiver<String> },
+}
+
+impl PromptDriver {
+    fn ask(&mut self, prompt: &str) -> Result<String> {
+        match self {
+            Self::Terminal => {
+                println!("{prompt}");
+                print!("> ");
+                io::stdout().flush()?;
+                let mut answer = String::new();
+                io::stdin().read_line(&mut answer)?;
+                Ok(answer.trim().to_string())
+            }
+            Self::Tui { requests, answers } => {
+                requests.send(prompt.to_string()).context("TUI approval channel closed")?;
+                answers.recv().context("TUI approval response channel closed")
+            }
+        }
+    }
+}
+
 pub struct Tools {
     pub root: PathBuf,
     pub policies: Permissions,
@@ -38,6 +66,8 @@ pub struct Tools {
     pub decisions: Vec<String>,
     pub client: reqwest::Client,
     pub pending_edit: Option<NativeEdit>,
+    prompt_driver: PromptDriver,
+    prompt_context: Option<String>,
 }
 impl Tools {
     pub fn new(root: PathBuf, policies: Permissions) -> Result<Self> {
@@ -45,8 +75,22 @@ impl Tools {
         Ok(Self {
             root, policies, approved: HashSet::new(), approvals,
             decisions: Vec::new(), client: reqwest::Client::new(), pending_edit: None,
+            prompt_driver: PromptDriver::Terminal, prompt_context: None,
         })
     }
+    pub fn use_tui(&mut self, requests: Sender<String>, answers: Receiver<String>) {
+        self.prompt_driver = PromptDriver::Tui { requests, answers };
+    }
+
+    pub fn is_tui(&self) -> bool {
+        matches!(self.prompt_driver, PromptDriver::Tui { .. })
+    }
+
+    pub fn ask_yes(&mut self, message: &str) -> Result<bool> {
+        let answer = self.prompt_driver.ask(&format!("{message}\n[y] approve / [n] deny (default)"))?;
+        Ok(answer.trim().eq_ignore_ascii_case("y"))
+    }
+
     pub fn permission(&mut self,kind:&str,detail:&str)->Result<()> {
         let policy=match kind {"shell"=>&self.policies.shell,"read"=>&self.policies.read,"write"=>&self.policies.write,"web"=>&self.policies.web,_=>bail!("unknown tool")}.clone();
         if policy=="deny" {
@@ -66,23 +110,24 @@ impl Tools {
             self.decisions.push(format!("{kind}: authorized by {scope:?} whitelist"));
             return Ok(());
         }
-        println!("\n[approval required: {kind}]\n{detail}");
+        let mut prompt = format!("[approval required: {kind}]\n{detail}\n");
+        if let Some(context) = self.prompt_context.take() {
+            prompt.push_str(&context);
+            prompt.push('\n');
+        }
         match kind {
             "shell" => {
-                println!("Shell is sandboxed: read-only project, no network, isolated HOME.");
-                println!("Scope: this exact command only (including its arguments and shell operators).");
-                println!("[y] once / [a] this process / [p] this project / [g] globally / [n] deny (default)");
+                prompt.push_str("Shell is isolated: read-only project, no network, private HOME.\n");
+                prompt.push_str("Scope: this exact command (including arguments and operators).\n");
+                prompt.push_str("[y] once / [a] this process / [p] this project / [g] globally / [n] deny (default)");
             }
             "write" => {
-                println!("Scope: native writes to ANY permitted file, not only the displayed path.");
-                println!("[y] once / [a] this process / [p] all writes in this project / [g] all projects / [n] deny (default)");
+                prompt.push_str("Scope: ANY native write (not just the shown path).\n");
+                prompt.push_str("[y] once / [a] this process / [p] all writes in project / [g] globally / [n] deny (default)");
             }
-            _ => println!("[y] once / [a] this process / [n] deny (default)"),
+            _ => prompt.push_str("[y] once / [a] this process / [n] deny (default)"),
         }
-        print!("> ");
-        io::stdout().flush()?;
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer)?;
+        let answer = self.prompt_driver.ask(&prompt)?;
         match answer.trim().to_lowercase().as_str() {
             "y" => {
                 self.decisions.push(format!("{kind}: approved once — {detail}"));
@@ -165,8 +210,13 @@ impl Tools {
                     return Ok(format!("unchanged {path}"));
                 }
                 let preview = crate::changes::unified(path, before.as_deref(), content);
-                println!("\n[proposed write: {path}]\n{preview}");
-                self.permission("write",&format!("path: {path}\nbytes: {}",content.len()))?;
+                if !self.is_tui() {
+                    println!("\n[proposed write: {path}]\n{preview}");
+                }
+                self.prompt_context = Some(format!("[proposed write: {path}]\n{preview}"));
+                let approval = self.permission("write",&format!("path: {path}\nbytes: {}",content.len()));
+                self.prompt_context = None;
+                approval?;
                 // Recheck to avoid overwriting changes made while approval was pending.
                 let current = match tokio::fs::read(&file).await {
                     Ok(bytes) => Some(String::from_utf8(bytes).context("file changed to non-UTF-8")?),
