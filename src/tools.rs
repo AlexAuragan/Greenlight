@@ -215,4 +215,25 @@ mod tests {
         let tools=Tools::new(d.path().to_path_buf(),Permissions::default()).unwrap();
         assert!(tools.safe_path("../secret").is_err());
     }
+    #[test]
+    fn deny_policy_overrides_persistent_approval() {
+        let d = tempfile::tempdir().unwrap();
+        let mut policy = Permissions::default();
+        policy.shell = "deny".into();
+        let mut tools = Tools::new(d.path().to_path_buf(), policy).unwrap();
+        tools.approvals.grant(Scope::Project, "shell", "ls").unwrap();
+        assert!(tools.permission("shell", "ls").is_err());
+    }
+    #[test]
+    fn project_grants_skip_interactive_permission_prompts() {
+        let d = tempfile::tempdir().unwrap();
+        let mut tools = Tools::new(d.path().to_path_buf(), Permissions::default()).unwrap();
+        tools.approvals.grant(Scope::Project, "shell", "ls -la").unwrap();
+        tools.approvals.grant(Scope::Project, "write", "").unwrap();
+        assert!(tools.permission("shell", "ls -la").is_ok());
+        assert!(tools.permission("write", "path: calculator.py").is_ok());
+        assert_eq!(tools.decisions.len(), 2);
+        assert!(tools.decisions[0].contains("Project whitelist"));
+        assert!(tools.decisions[1].contains("Project whitelist"));
+    }
 }

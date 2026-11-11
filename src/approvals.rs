@@ -91,20 +91,15 @@ impl ApprovalStore {
     }
 
     pub fn grant(&mut self, scope: Scope, kind: &str, detail: &str) -> Result<()> {
-        let (path, current) = match scope {
-            Scope::Project => (&self.project_path, &self.project),
-            Scope::Global => (
-                self.global_path.as_ref().context(
-                    "global approvals unavailable: set HOME or an absolute XDG_CONFIG_HOME"
-                )?,
-                &self.global,
-            ),
+        let path = match scope {
+            Scope::Project => &self.project_path,
+            Scope::Global => self.global_path.as_ref().context(
+                "global approvals unavailable: set HOME or an absolute XDG_CONFIG_HOME",
+            )?,
         };
         // Reload before editing so independent processes do not normally drop
         // each other's grants. Concurrent writes still need locking eventually.
         let mut updated = Self::read(path)?;
-        // Keep the last loaded config on this instance in sync.
-        let _ = current;
         match kind {
             "shell" => {
                 if detail.is_empty() {
