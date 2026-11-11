@@ -252,7 +252,8 @@ impl App {
                 Err(TryRecvError::Disconnected | TryRecvError::Empty) => {}
             }
         }
-        if let Ok(result) = runner.finished.try_recv() {
+        let completion = runner.finished.try_recv();
+        if let Ok(result) = completion {
             self.notice = match result {
                 Ok(()) => "Workflow stopped or completed. See its latest events.".into(),
                 Err(error) => format!("Runner error: {error}"),
@@ -453,6 +454,7 @@ impl App {
 
         if self.focus == Focus::Compose {
             match key.code {
+                KeyCode::Tab => self.focus = Focus::Sessions,
                 KeyCode::Esc => self.focus = Focus::Events,
                 KeyCode::Enter => self.submit(root, store),
                 KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -686,8 +688,15 @@ fn draw(frame: &mut Frame, app: &App) {
         .block(border(input_title, app.focus == Focus::Compose));
     frame.render_widget(composer, outer[2]);
 
-    let footer = if app.approval.is_some() {
-        format!("Approval: y once / a process / p project / g global / n deny  ·  selected: {}  ·  Enter to confirm", app.approval_choice)
+    let footer = if let Some(prompt) = &app.approval {
+        let options = if prompt.contains("[p]") {
+            "y once / a process / p project / g global / n deny"
+        } else if prompt.contains("[a]") {
+            "y once / a process / n deny"
+        } else {
+            "y approve / n deny"
+        };
+        format!("Approval: {options}  ·  selected: {}  ·  Enter to confirm", app.approval_choice)
     } else if app.restart_plan.is_some() {
         "Restoration uses the recorded edit journal  ·  y confirm / n cancel  ·  PgUp/PgDn scroll".into()
     } else if !app.restart_choices.is_empty() {
@@ -736,6 +745,50 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enter_opens_composer_and_text_is_editable() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("example", "goal", "plan").unwrap();
+        let mut app = App::new(Some(&session.id));
+        app.refresh(&store).unwrap();
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Compose);
+        app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.composer, "x");
+    }
+
+    #[test]
+    fn restart_confirmation_restores_and_creates_fork() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let mut session = store.create("example", "goal", "plan").unwrap();
+        let checkpoint = store.event(&session, Some("plan"), "step.completed", "ok").unwrap();
+        store.event(&session, Some("implement"), "step.started", "model").unwrap();
+        store.add_change(&session, "implement", "file.txt", Some("before\n"), "after\n").unwrap();
+        std::fs::write(root.path().join("file.txt"), "after\n").unwrap();
+        session.status = "blocked".into();
+        store.save(&session).unwrap();
+        let previous_branch = session.active_branch.clone();
+        let mut app = App::new(Some(&session.id));
+        app.refresh(&store).unwrap();
+        app.restart_choices = vec![RestartCandidate {
+            step: "implement".into(), prior_event: checkpoint,
+        }];
+        app.prepare_restart(root.path(), &store);
+        assert!(app.restart_plan.is_some(), "{}", app.notice);
+        app.confirm_restart(root.path(), &store);
+        assert_eq!(std::fs::read_to_string(root.path().join("file.txt")).unwrap(), "before\n");
+        let fork = store.session(&session.id).unwrap();
+        assert_ne!(fork.active_branch, previous_branch);
+        assert_eq!(fork.current_step, "implement");
+        assert_eq!(fork.status, "ready");
+        assert!(app.restart_choices.is_empty());
+        assert_eq!(app.focus, Focus::Compose);
+    }
 
     #[test]
     fn navigation_clamps_at_boundaries() {

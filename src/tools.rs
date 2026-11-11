@@ -83,7 +83,7 @@ impl Tools {
     }
 
     pub fn is_tui(&self) -> bool {
-        matches!(self.prompt_driver, PromptDriver::Tui { .. })
+        matches!(&self.prompt_driver, PromptDriver::Tui { .. })
     }
 
     pub fn ask_yes(&mut self, message: &str) -> Result<bool> {
@@ -249,6 +249,21 @@ impl Tools {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tui_permission_decision_uses_the_same_policy() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tools = Tools::new(root.path().to_path_buf(), Permissions::default()).unwrap();
+        let (question_tx, question_rx) = std::sync::mpsc::channel();
+        let (answer_tx, answer_rx) = std::sync::mpsc::channel();
+        tools.use_tui(question_tx, answer_rx);
+        let worker = std::thread::spawn(move || tools.permission("web", "example query"));
+        let prompt = question_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(prompt.contains("[approval required: web]"));
+        answer_tx.send("n".into()).unwrap();
+        assert!(worker.join().unwrap().is_err());
+    }
+
+
     #[test]
     fn parse_yaml_action() {
         let a=parse_action("```yaml\naction: finish\nsummary: Done\n```").unwrap();

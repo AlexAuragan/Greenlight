@@ -45,6 +45,14 @@ macro_rules! console_println {
     };
 }
 
+macro_rules! console_eprintln {
+    ($engine:expr, $($arg:tt)*) => {
+        if !$engine.tools.is_tui() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 pub struct Engine {
     pub root: std::path::PathBuf,
     pub cfg: Config,
@@ -235,7 +243,7 @@ impl Engine {
                 Err(e) => {
                     let msg = format!("{e:#}");
                     self.store.event(&s, Some(&step.id), "step.error", &msg)?;
-                    eprintln!("[step error] {msg}");
+                    console_eprintln!(self, "[step error] {msg}");
                     self.block(&mut s, &msg, &step.id).await?;
                     break;
                 }
@@ -275,8 +283,8 @@ impl Engine {
         let payload = json!({"content":format!("Stepwright [{}] {}",s.id,message).chars().take(1900).collect::<String>()});
         match self.tools.client.post(url).json(&payload).send().await {
             Ok(r) if r.status().is_success() => {}
-            Ok(r) => eprintln!("[notification error] Discord HTTP {}", r.status()),
-            Err(e) => eprintln!("[notification error] {e}"),
+            Ok(r) => console_eprintln!(self, "[notification error] Discord HTTP {}", r.status()),
+            Err(e) => console_eprintln!(self, "[notification error] {e}"),
         }
     }
     async fn execute_step(
