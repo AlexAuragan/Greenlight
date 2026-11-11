@@ -474,20 +474,93 @@ impl Engine {
                     messages
                         .push(json!({"role":"user","content":format!("Artifact {name} stored.")}));
                 }
+
                 "deviation" => {
                     let id = action
                         .deviation_id
                         .as_deref()
-                        .context("deviation missing deviation_id")?;
+                        .context("deviation missing deviation_id")?
+                        .to_owned();
+
                     let summary = action.summary.unwrap_or_default();
-                    if !step.deviations.iter().any(|d| d.id == id) {
+
+                    let Some(rule) = step.deviations.iter().find(|d| d.id == id) else {
                         return Ok(Outcome::Deviation(
                             "unconfigured_deviation".into(),
                             format!("{id}: {summary}"),
                         ));
+                    };
+
+                    if let Some(prompt) = &rule.prompt {
+                        let check = config::render_includes(
+                            &format!("{{{{ include \"{prompt}\" }}}}"),
+                            &self.root,
+                            &wf.folder,
+                        )?;
+
+                        let query = format!(
+                            "Evaluate whether this deviation is supported \
+                             by the available evidence.\n\
+                             Rule: {id}\n\
+                             Instructions: {check}\n\
+                             Agent report: {summary}\n\
+                             Return YAML only:\n\
+                             detected: true|false\n\
+                             reason: explanation"
+                        );
+
+                        let raw = self
+                            .provider
+                            .complete(model, &[json!({"role": "user", "content": query})])
+                            .await?;
+
+                        self.store
+                            .event(s, Some(&step.id), "deviation.detector", &raw)?;
+
+                        #[derive(Deserialize)]
+                        struct Detection {
+                            detected: bool,
+                            reason: String,
+                        }
+
+                        let yaml = raw
+                            .trim()
+                            .trim_start_matches("```yaml")
+                            .trim_start_matches("```yml")
+                            .trim_end_matches("```")
+                            .trim();
+
+                        let verdict: Detection = serde_yaml::from_str(yaml)
+                            .context("invalid deviation detector output")?;
+
+                        if !verdict.detected {
+                            self.store.event(
+                                s,
+                                Some(&step.id),
+                                "deviation.rejected",
+                                &format!("{id}: {}", verdict.reason),
+                            )?;
+
+                            messages.push(json!({
+                                "role": "user",
+                                "content": format!(
+                                    "Deviation '{id}' was rejected by the \
+                                     independent detector: {}\n\
+                                     Continue the current step. Do not report \
+                                     this deviation again without new evidence. \
+                                     If the required outputs are ready, \
+                                     respond with action: finish.",
+                                    verdict.reason
+                                )
+                            }));
+
+                            continue;
+                        }
                     }
-                    return Ok(Outcome::Deviation(id.into(), summary));
+
+                    return Ok(Outcome::Deviation(id, summary));
                 }
+
                 "finish" => {
                     let artifacts = self.store.current_run_artifacts(s, &step.id)?;
                     for needed in &step.outputs.required {
