@@ -91,9 +91,10 @@ impl App {
         let changed_session = old_session.as_deref() != self.session().map(|s| s.id.as_str());
         if let Some(session) = self.session() {
             let history = store.history(session)?;
+            let show_all = self.show_all;
             self.events = history
                 .into_iter()
-                .filter(|(_, _, kind, _)| self.show_all || !is_chatter(kind))
+                .filter(|(_, _, kind, _)| show_all || !is_chatter(kind))
                 .map(|(id, step, kind, data)| EventRow { id, step, kind, data })
                 .collect();
         } else {
