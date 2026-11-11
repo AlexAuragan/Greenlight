@@ -15,7 +15,7 @@ Example instruction: `Fix the existing add() bug and rerun verification.`
 
 The TUI executes resumed sessions in a background worker thread with a separate Tokio runtime and database connection. It does **not** fork a CLI process or bypass the Engine. All shell commands still use the mandatory Bubblewrap sandbox.
 
-When the Engine requests permission to execute a shell command, write a file, use a tool, or approve a human verification gate, it sends the **same** permission prompt to the TUI. The foreground TUI captures a decision and sends it back over channels. For shell and write prompts, choose `y` once, `a` for the process, `p` for the project or `g` globally (where offered), or `n` to deny; press **Enter** to confirm your selection. The default is **n**. For human verification, only `y/n` apply. Proposed native file diffs and required human review artifacts are shown in the approval pane.
+When the Engine requests permission to execute a shell command, write a file, use a tool, or approve a human verification gate, it sends the **same** permission prompt to the TUI. The foreground TUI captures a decision and sends it back over channels. The TUI now shows a separate color-coded choice menu. Press **`y`** to approve once, **`a`** for the process, **`p`** for the project or **`g`** globally (where offered), or **`n`** to deny. **A keypress submits immediately; Enter does not approve or deny.** Escape denies. Only `y/n` are valid for human verification. The available choices are enforced from typed permission metadata rather than inferred from tool text. Proposed native file diffs and required human review artifacts are shown in the approval pane.
 
 ## Restart from a historical step
 

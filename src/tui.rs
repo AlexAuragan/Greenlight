@@ -4,6 +4,7 @@ use crate::{
     changes,
     restore::RestorePlan,
     store::{Session, Store},
+    tools::{ApprovalMode, ApprovalPrompt},
     tui_actions::{self, RestartCandidate, Runner},
 };
 use anyhow::{bail, Context, Result};
@@ -11,7 +12,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
@@ -50,8 +51,7 @@ struct App {
     composer: String,
     notice: String,
     runner: Option<Runner>,
-    approval: Option<String>,
-    approval_choice: char,
+    approval: Option<ApprovalPrompt>,
     restart_choices: Vec<RestartCandidate>,
     restart_cursor: usize,
     restart_plan: Option<RestorePlan>,
@@ -79,7 +79,6 @@ impl App {
             notice: "Enter: compose  /restart: choose a step  Tab: navigate".into(),
             runner: None,
             approval: None,
-            approval_choice: 'n',
             restart_choices: Vec::new(),
             restart_cursor: 0,
             restart_plan: None,
@@ -246,7 +245,6 @@ impl App {
             match runner.prompts.try_recv() {
                 Ok(question) => {
                     self.approval = Some(question);
-                    self.approval_choice = 'n';
                     self.detail_scroll = 0;
                 }
                 Err(TryRecvError::Disconnected | TryRecvError::Empty) => {}
@@ -387,28 +385,42 @@ impl App {
         self.detail_scroll = 0;
     }
 
+    fn deliver_approval(&mut self, choice: char) -> Result<()> {
+        let request = self.approval.as_ref().context("no pending approval")?;
+        if !request.mode.accepts(choice) {
+            bail!("approval option {choice} is unavailable for this request");
+        }
+        let runner = self.runner.as_ref().context("approval worker missing")?;
+        runner.answers.send(choice.to_string()).context("approval worker disconnected")?;
+        self.approval = None;
+        self.notice = match choice {
+            'y' => "Sent one-time approval to the engine.".into(),
+            'a' => "Sent process-wide approval to the engine.".into(),
+            'p' => "Requested project-wide grant; awaiting engine result.".into(),
+            'g' => "Requested global grant; awaiting engine result.".into(),
+            'n' => "Denied this request; the agent may attempt another action.".into(),
+            _ => unreachable!("choices validated above"),
+        };
+        Ok(())
+    }
+
     fn on_key(&mut self, key: KeyEvent, root: &Path, store: &Store) -> Result<bool> {
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
             return Ok(false);
         }
 
-        if self.approval.is_some() {
+        if let Some(mode) = self.approval.as_ref().map(|request| request.mode) {
             match key.code {
-                KeyCode::Char(choice) if "yapgn".contains(choice) => {
-                    self.approval_choice = choice;
+                KeyCode::Char(choice)
+                    if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                        && mode.accepts(choice.to_ascii_lowercase()) =>
+                {
+                    self.deliver_approval(choice.to_ascii_lowercase())?;
                 }
-                KeyCode::Enter | KeyCode::Esc => {
-                    let answer = if key.code == KeyCode::Esc {
-                        "n".to_string()
-                    } else {
-                        self.approval_choice.to_string()
-                    };
-                    if let Some(runner) = &self.runner {
-                        runner.answers.send(answer).context("approval worker disconnected")?;
-                    }
-                    self.approval = None;
-                    self.notice = "Decision sent to the engine.".into();
-                }
+                KeyCode::Esc => self.deliver_approval('n')?,
+                // Enter is intentionally inert. Approval must be an explicit
+                // choice, never an accidental confirmation of a default.
+                KeyCode::Enter => {}
                 KeyCode::PageDown => self.detail_scroll = self.detail_scroll.saturating_add(10),
                 KeyCode::PageUp => self.detail_scroll = self.detail_scroll.saturating_sub(10),
                 _ => {}
@@ -548,6 +560,33 @@ fn conversational_label(kind: &str) -> &str {
     }
 }
 
+fn approval_line(key: char, description: &'static str, color: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("  [{key}] "),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(description),
+    ])
+}
+
+fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
+    let mut options = vec![approval_line('y', "Allow once", Color::Green)];
+    if mode != ApprovalMode::Human {
+        options.push(approval_line('a', "Allow for this process", Color::Cyan));
+    }
+    if mode == ApprovalMode::Persistent {
+        options.push(approval_line('p', "Remember for this project", Color::Yellow));
+        options.push(approval_line('g', "Remember globally", Color::Yellow));
+    }
+    options.push(approval_line('n', "Deny (Esc also denies)", Color::Red));
+    options.push(Line::styled(
+        "  Each key sends immediately. Enter has no effect.",
+        Style::default().fg(Color::DarkGray),
+    ));
+    options
+}
+
 fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
     let outer = Layout::vertical([
@@ -602,12 +641,35 @@ fn draw(frame: &mut Frame, app: &App) {
     frame.render_stateful_widget(sessions_list, columns[0], &mut session_state);
 
     if let Some(prompt) = &app.approval {
+        let choices_height = match prompt.mode {
+            ApprovalMode::Human => 5,
+            ApprovalMode::Tool => 6,
+            ApprovalMode::Persistent => 8,
+        };
+        let approval_areas = Layout::vertical([
+            Constraint::Min(3),
+            Constraint::Length(choices_height),
+        ]).split(columns[1]);
+        let title = if prompt.mode == ApprovalMode::Human {
+            " Human approval required "
+        } else {
+            " Tool permission required "
+        };
         frame.render_widget(
-            Paragraph::new(prompt.clone())
+            Paragraph::new(
+                prompt.content.rsplit_once("\n[y]")
+                    .map_or(prompt.content.as_str(), |(description, _)| description)
+                    .to_string(),
+            )
                 .wrap(Wrap { trim: false })
                 .scroll((app.detail_scroll, 0))
-                .block(border(" Approval required ", true)),
-            columns[1],
+                .block(border(title, true)),
+            approval_areas[0],
+        );
+        frame.render_widget(
+            Paragraph::new(approval_options(prompt.mode))
+                .block(border(" Press a key to decide — no Enter needed ", true)),
+            approval_areas[1],
         );
     } else if app.restart_plan.is_some() {
         frame.render_widget(
@@ -696,15 +758,8 @@ fn draw(frame: &mut Frame, app: &App) {
         .block(border(input_title, app.focus == Focus::Compose));
     frame.render_widget(composer, outer[2]);
 
-    let footer = if let Some(prompt) = &app.approval {
-        let options = if prompt.contains("[p]") {
-            "y once / a process / p project / g global / n deny"
-        } else if prompt.contains("[a]") {
-            "y once / a process / n deny"
-        } else {
-            "y approve / n deny"
-        };
-        format!("Approval: {options}  ·  selected: {}  ·  Enter to confirm", app.approval_choice)
+    let footer = if app.approval.is_some() {
+        "Press the key shown in the decision menu · Esc denies · Enter does nothing · PgUp/PgDn scroll request".into()
     } else if app.restart_plan.is_some() {
         "Restoration uses the recorded edit journal  ·  y confirm / n cancel  ·  PgUp/PgDn scroll".into()
     } else if !app.restart_choices.is_empty() {
@@ -796,6 +851,58 @@ mod tests {
         assert_eq!(fork.status, "ready");
         assert!(app.restart_choices.is_empty());
         assert_eq!(app.focus, Focus::Compose);
+    }
+
+    #[test]
+    fn approval_shortcuts_submit_immediately_but_enter_does_not() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let (prompts_tx, prompts_rx) = std::sync::mpsc::channel();
+        let (answer_tx, answer_rx) = std::sync::mpsc::channel();
+        let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let mut app = App::new(None);
+        app.runner = Some(Runner {
+            prompts: prompts_rx, answers: answer_tx, finished: finish_rx,
+        });
+        app.approval = Some(ApprovalPrompt {
+            content: "Approve a shell command".into(),
+            mode: ApprovalMode::Persistent,
+        });
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert!(answer_rx.try_recv().is_err());
+        assert!(app.approval.is_some());
+        app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(answer_rx.try_recv().unwrap(), "g");
+        assert!(app.approval.is_none());
+        drop(prompts_tx);
+    }
+
+    #[test]
+    fn human_approval_rejects_global_scope_and_escape_denies() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let (_prompts_tx, prompts_rx) = std::sync::mpsc::channel();
+        let (answer_tx, answer_rx) = std::sync::mpsc::channel();
+        let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let mut app = App::new(None);
+        app.runner = Some(Runner {
+            prompts: prompts_rx, answers: answer_tx, finished: finish_rx,
+        });
+        app.approval = Some(ApprovalPrompt {
+            content: "Human checkpoint".into(),
+            mode: ApprovalMode::Human,
+        });
+        app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert!(answer_rx.try_recv().is_err());
+        assert!(app.approval.is_some());
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(answer_rx.try_recv().unwrap(), "n");
+        app.approval = Some(ApprovalPrompt {
+            content: "Another human checkpoint".into(),
+            mode: ApprovalMode::Human,
+        });
+        app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(answer_rx.try_recv().unwrap(), "y");
     }
 
     #[test]

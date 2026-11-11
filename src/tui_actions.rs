@@ -4,6 +4,7 @@ use crate::{
     config::{self, LoadedWorkflow},
     engine::Engine,
     store::{Session, Store},
+    tools::ApprovalPrompt,
 };
 use anyhow::{bail, Result};
 use std::{
@@ -12,7 +13,7 @@ use std::{
 };
 
 pub struct Runner {
-    pub prompts: Receiver<String>,
+    pub prompts: Receiver<ApprovalPrompt>,
     pub finished: Receiver<Result<(), String>>,
     pub answers: Sender<String>,
 }

@@ -33,14 +33,39 @@ pub fn parse_action(text:&str)->Result<AgentAction> {
 
 pub struct NativeEdit { pub path: String, pub before: Option<String>, pub after: String }
 
+/// Explicit request metadata prevents the TUI from guessing which grants
+/// are allowed by parsing model/tool-controlled prompt text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApprovalMode {
+    Human,
+    Tool,
+    Persistent,
+}
+
+impl ApprovalMode {
+    pub fn accepts(self, answer: char) -> bool {
+        match self {
+            Self::Human => matches!(answer, 'y' | 'n'),
+            Self::Tool => matches!(answer, 'y' | 'a' | 'n'),
+            Self::Persistent => matches!(answer, 'y' | 'a' | 'p' | 'g' | 'n'),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ApprovalPrompt {
+    pub content: String,
+    pub mode: ApprovalMode,
+}
+
 /// All human decisions flow through the same harness permission logic.
 pub enum PromptDriver {
     Terminal,
-    Tui { requests: Sender<String>, answers: Receiver<String> },
+    Tui { requests: Sender<ApprovalPrompt>, answers: Receiver<String> },
 }
 
 impl PromptDriver {
-    fn ask(&mut self, prompt: &str) -> Result<String> {
+    fn ask(&mut self, prompt: &str, mode: ApprovalMode) -> Result<String> {
         match self {
             Self::Terminal => {
                 println!("{prompt}");
@@ -51,7 +76,8 @@ impl PromptDriver {
                 Ok(answer.trim().to_string())
             }
             Self::Tui { requests, answers } => {
-                requests.send(prompt.to_string()).context("TUI approval channel closed")?;
+                requests.send(ApprovalPrompt { content: prompt.to_string(), mode })
+                    .context("TUI approval channel closed")?;
                 answers.recv().context("TUI approval response channel closed")
             }
         }
@@ -78,7 +104,7 @@ impl Tools {
             prompt_driver: PromptDriver::Terminal, prompt_context: None,
         })
     }
-    pub fn use_tui(&mut self, requests: Sender<String>, answers: Receiver<String>) {
+    pub fn use_tui(&mut self, requests: Sender<ApprovalPrompt>, answers: Receiver<String>) {
         self.prompt_driver = PromptDriver::Tui { requests, answers };
     }
 
@@ -87,7 +113,9 @@ impl Tools {
     }
 
     pub fn ask_yes(&mut self, message: &str) -> Result<bool> {
-        let answer = self.prompt_driver.ask(&format!("{message}\n[y] approve / [n] deny (default)"))?;
+        let answer = self.prompt_driver.ask(
+            &format!("{message}\n[y] approve / [n] deny (default)"), ApprovalMode::Human,
+        )?;
         Ok(answer.trim().eq_ignore_ascii_case("y"))
     }
 
@@ -127,7 +155,12 @@ impl Tools {
             }
             _ => prompt.push_str("[y] once / [a] this process / [n] deny (default)"),
         }
-        let answer = self.prompt_driver.ask(&prompt)?;
+        let mode = if matches!(kind, "shell" | "write") {
+            ApprovalMode::Persistent
+        } else {
+            ApprovalMode::Tool
+        };
+        let answer = self.prompt_driver.ask(&prompt, mode)?;
         match answer.trim().to_lowercase().as_str() {
             "y" => {
                 self.decisions.push(format!("{kind}: approved once — {detail}"));
@@ -258,11 +291,20 @@ mod tests {
         tools.use_tui(question_tx, answer_rx);
         let worker = std::thread::spawn(move || tools.permission("web", "example query"));
         let prompt = question_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
-        assert!(prompt.contains("[approval required: web]"));
+        assert!(prompt.content.contains("[approval required: web]"));
+        assert_eq!(prompt.mode, ApprovalMode::Tool);
         answer_tx.send("n".into()).unwrap();
         assert!(worker.join().unwrap().is_err());
     }
 
+
+    #[test]
+    fn typed_approval_modes_restrict_persistent_choices() {
+        assert!(ApprovalMode::Persistent.accepts('g'));
+        assert!(!ApprovalMode::Tool.accepts('g'));
+        assert!(!ApprovalMode::Human.accepts('a'));
+        assert!(ApprovalMode::Human.accepts('n'));
+    }
 
     #[test]
     fn parse_yaml_action() {
