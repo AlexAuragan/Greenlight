@@ -20,6 +20,13 @@ pub struct FileChange {
     pub after: String,
 }
 #[derive(Debug, Clone)]
+pub struct WorkspaceEdit {
+    pub event_id: i64,
+    pub path: String,
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+#[derive(Debug, Clone)]
 pub struct Artifact { pub name: String, pub content: String, pub step: String }
 
 pub struct Store { db: Connection, pub directory: PathBuf }
@@ -46,6 +53,10 @@ impl Store {
            CREATE TABLE IF NOT EXISTS file_changes (
              event_id INTEGER PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              step TEXT NOT NULL, path TEXT NOT NULL, before_blob TEXT, after_blob TEXT NOT NULL);
+           CREATE TABLE IF NOT EXISTS restore_changes (
+             event_id INTEGER PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
+             path TEXT NOT NULL, before_blob TEXT, after_blob TEXT);
+           CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
            CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);")?;
@@ -178,6 +189,71 @@ impl Store {
         }
         Ok(result)
     }
+    /// All native writes and explicit restores visible on this branch, in event order.
+    /// Restores are kept separate because they may remove a file entirely.
+    pub fn workspace_edits(&self, s: &Session) -> Result<Vec<WorkspaceEdit>> {
+        let mut edits: Vec<WorkspaceEdit> = self.changes(s)?
+            .into_iter()
+            .map(|change| WorkspaceEdit {
+                event_id: change.event_id,
+                path: change.path,
+                before: change.before,
+                after: Some(change.after),
+            })
+            .collect();
+        for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            let mut stmt = self.db.prepare(
+                "SELECT event_id,path,before_blob,after_blob
+                 FROM restore_changes WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id"
+            )?;
+            let rows = stmt.query_map(params![s.id, branch, cutoff], |r| Ok((
+                r.get::<_,i64>(0)?,
+                r.get::<_,String>(1)?,
+                r.get::<_,Option<String>>(2)?,
+                r.get::<_,Option<String>>(3)?,
+            )))?;
+            for row in rows {
+                let (event_id, path, before_blob, after_blob) = row?;
+                let before = before_blob
+                    .map(|blob| fs::read_to_string(self.directory.join("blobs").join(blob)))
+                    .transpose()?;
+                let after = after_blob
+                    .map(|blob| fs::read_to_string(self.directory.join("blobs").join(blob)))
+                    .transpose()?;
+                edits.push(WorkspaceEdit { event_id, path, before, after });
+            }
+        }
+        edits.sort_by_key(|edit| edit.event_id);
+        Ok(edits)
+    }
+
+    /// Journal one already-applied workspace restore, including file deletions.
+    pub fn add_restoration(
+        &self, s: &Session, path: &str, before: Option<&str>, after: Option<&str>,
+    ) -> Result<i64> {
+        let dir = self.directory.join("blobs");
+        fs::create_dir_all(&dir)?;
+        let save = |content: Option<&str>| -> Result<Option<String>> {
+            match content {
+                Some(text) => {
+                    let name = format!("restore-{}.txt", Uuid::new_v4());
+                    fs::write(dir.join(&name), text)?;
+                    Ok(Some(name))
+                }
+                None => Ok(None),
+            }
+        };
+        let before_blob = save(before)?;
+        let after_blob = save(after)?;
+        let event_id = self.event(s, None, "workspace.restored", path)?;
+        self.db.execute(
+            "INSERT INTO restore_changes(event_id,session,branch,path,before_blob,after_blob)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![event_id, s.id, s.active_branch, path, before_blob, after_blob],
+        )?;
+        Ok(event_id)
+    }
+
     pub fn current_run_artifacts(&self,s:&Session,step:&str)->Result<Vec<String>> {
         let marker:i64=self.db.query_row("SELECT id FROM events WHERE session=?1 AND branch=?2 AND step=?3 AND kind='step.started' ORDER BY id DESC LIMIT 1",
             params![s.id,s.active_branch,step],|r|r.get(0)).optional()?.unwrap_or(i64::MAX);
