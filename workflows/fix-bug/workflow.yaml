@@ -1,0 +1,9 @@
+id: fix-bug
+title: Investigate, diagnose and repair a bug
+start: investigate
+steps: [investigate, diagnose, implement, verify]
+defaults:
+  tools: [read, shell, web]
+  max_turns: 16
+  verification:
+    type: none

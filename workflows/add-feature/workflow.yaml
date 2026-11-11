@@ -1,0 +1,9 @@
+id: add-feature
+title: Plan, approve, implement and review a feature
+start: explore
+steps: [explore, plan, approve, implement, review]
+defaults:
+  tools: [read, shell, web]
+  max_turns: 16
+  verification:
+    type: none

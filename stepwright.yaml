@@ -1,0 +1,15 @@
+provider:
+  base_url: https://api.deepinfra.com/v1/openai
+  api_key_env: DEEPINFRA_API_KEY
+  model: deepseek-ai/DeepSeek-V4-Flash-0731
+  max_tokens: 4096
+session:
+  max_turns_per_attempt: 18
+  max_artifact_bytes: 100000
+permissions:
+  shell: ask
+  write: ask
+  read: allow
+  web: ask
+notifications:
+  discord_webhook_env: STEPRIGHT_DISCORD_WEBHOOK

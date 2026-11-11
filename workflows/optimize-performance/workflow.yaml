@@ -1,0 +1,9 @@
+id: optimize-performance
+title: Baseline, optimize, benchmark and evaluate
+start: baseline
+steps: [baseline, optimize, benchmark, evaluate]
+defaults:
+  tools: [read, shell, web]
+  max_turns: 16
+  verification:
+    type: none
