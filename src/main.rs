@@ -3,6 +3,7 @@ mod changes;
 mod config;
 mod engine;
 mod provider;
+mod restore;
 mod store;
 mod tools;
 
@@ -63,13 +64,24 @@ enum Commands {
         #[arg(long)]
         file: PathBuf,
     },
-    /// Create a new execution branch from an existing history event. Does NOT restore project files.
+    /// Preview and optionally restore the tracked workspace at a history event
+    Restore {
+        session: String,
+        #[arg(long)]
+        event: i64,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Fork from an event, offering to restore tracked files first
     Fork {
         session: String,
         #[arg(long)]
         event: i64,
         #[arg(long)]
         step: String,
+        /// Skip workspace inspection/restoration; files remain unchanged
+        #[arg(long)]
+        no_restore: bool,
     },
     /// Show the project/global persistent approvals and their file paths
     Approvals,
@@ -218,22 +230,41 @@ async fn main() -> Result<()> {
                 .event(&s, Some(&s.current_step), "user.artifact_edited", &name)?;
             println!("Registered new artifact version: {name}");
         }
-        Commands::Fork {
-            session,
-            event,
-            step,
-        } => {
+        Commands::Restore { session, event, dry_run } => {
+            let engine = engine::Engine::open(&root)?;
+            let state = engine.store.session(&session)?;
+            let plan = restore::RestorePlan::prepare(&root, &engine.store, &state, event)?;
+            plan.preview();
+            if !dry_run && !plan.is_empty() {
+                if restore::confirm("Apply this restore?")? {
+                    plan.apply(&root, &engine.store, &state)?;
+                } else {
+                    println!("Restore cancelled; no files changed.");
+                }
+            }
+        }
+        Commands::Fork { session, event, step, no_restore } => {
             let engine = engine::Engine::open(&root)?;
             let mut state = engine.store.session(&session)?;
             let wf = config::load_workflow(&root, &state.workflow)?;
             if !wf.steps.contains_key(&step) {
                 bail!("unknown step {step}");
             }
+            if !no_restore {
+                let plan = restore::RestorePlan::prepare(&root, &engine.store, &state, event)?;
+                plan.preview();
+                if !plan.is_empty() {
+                    if restore::confirm("Restore these tracked files before forking?")? {
+                        plan.apply(&root, &engine.store, &state)?;
+                    } else {
+                        println!("WARNING: forking without restoration; workspace may not match history.");
+                    }
+                }
+            } else {
+                println!("WARNING: skipping workspace checks; fork does not restore files.");
+            }
             engine.store.fork(&mut state, event, &step)?;
-            println!(
-                "New branch {} at step {step}; filesystem not restored",
-                state.active_branch
-            );
+            println!("New branch {} at step {step}.", state.active_branch);
         }
         Commands::Approvals => {
             let approvals = approvals::ApprovalStore::open(&root)?;

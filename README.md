@@ -28,6 +28,8 @@ cargo run -- start fix-bug --goal 'Find and fix the intermittent test failure'
 
 Instead of exporting these, you can put them in a `.env` file (in the current directory or the project root). It is loaded automatically at startup and never overrides variables that already exist in the environment.
 
+Run `stepwright restore SESSION_ID --event EVENT_ID --dry-run` to preview restoring tracked files to a historical event. `fork` now offers workspace restoration before creating a new execution branch; see `docs/09-workspace-restore.md` for limitations.
+
 `stepwright.yaml` specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. `stepwright approvals` shows stored grants and their paths (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
 
 **Important:** By default, commands execute on your real host in the specified project directory, with its normal environment. Each shell command is approved interactively unless policy says otherwise. This is not a sandbox. Only use this version with projects and workflow files you trust.
