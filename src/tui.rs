@@ -1,9 +1,9 @@
-//! Read-only live session viewer. The engine remains the sole writer of
-//! session history and the sole owner of human approval prompts.
+//! Interactive session viewer: conversation, artifacts and human decisions.
+//! The engine and store remain the authorities for tool execution and history.
 use crate::{
     changes,
     restore::RestorePlan,
-    store::{Session, Store},
+    store::{Artifact, Session, Store},
     tools::{ApprovalMode, ApprovalPrompt},
     tui_actions::{self, RestartCandidate, Runner},
 };
@@ -20,7 +20,7 @@ use std::{
     io::{self, IsTerminal},
     path::{Path, PathBuf},
     sync::mpsc::TryRecvError,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug)]
@@ -35,7 +35,14 @@ struct EventRow {
 enum Focus {
     Sessions,
     Events,
+    Artifacts,
     Compose,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum View {
+    Conversation,
+    Artifacts,
 }
 
 struct App {
@@ -43,6 +50,9 @@ struct App {
     session_index: usize,
     events: Vec<EventRow>,
     event_index: usize,
+    artifacts: Vec<Artifact>,
+    artifact_index: usize,
+    view: View,
     focus: Focus,
     show_all: bool,
     detail_scroll: u16,
@@ -66,6 +76,9 @@ impl App {
             session_index: 0,
             events: Vec::new(),
             event_index: 0,
+            artifacts: Vec::new(),
+            artifact_index: 0,
+            view: View::Conversation,
             focus: if initial_session.is_some() {
                 Focus::Events
             } else {
@@ -95,9 +108,35 @@ impl App {
         self.events.get(self.event_index)
     }
 
+    fn artifact(&self) -> Option<&Artifact> {
+        self.artifacts.get(self.artifact_index)
+    }
+
+    fn switch_view(&mut self, view: View) {
+        if self.view == view {
+            return;
+        }
+        self.view = view;
+        if self.focus != Focus::Compose {
+            self.focus = match view {
+                View::Conversation => Focus::Events,
+                View::Artifacts => Focus::Artifacts,
+            };
+        }
+        self.detail_scroll = 0;
+    }
+
+    fn main_focus(&self) -> Focus {
+        match self.view {
+            View::Conversation => Focus::Events,
+            View::Artifacts => Focus::Artifacts,
+        }
+    }
+
     fn refresh(&mut self, store: &Store) -> Result<()> {
         let old_session = self.session().map(|s| s.id.clone());
         let old_event = self.event().map(|e| e.id);
+        let old_artifact = self.artifact().map(|a| a.name.clone());
         let following_tail = self.events.len().checked_sub(1) == Some(self.event_index);
 
         self.sessions = store.list()?;
@@ -120,12 +159,25 @@ impl App {
                 .filter(|(_, _, kind, _)| show_all || !is_chatter(kind))
                 .map(|(id, step, kind, data)| EventRow { id, step, kind, data })
                 .collect();
+            self.artifacts = store.artifacts(session, "session")?;
         } else {
             self.events.clear();
+            self.artifacts.clear();
+        }
+        if changed_session {
+            self.artifact_index = 0;
+        } else if let Some(name) = old_artifact {
+            self.artifact_index = self.artifacts.iter()
+                .position(|artifact| artifact.name == name)
+                .unwrap_or(0);
+        } else {
+            self.artifact_index = 0;
         }
         if changed_session || following_tail {
             self.event_index = self.events.len().saturating_sub(1);
-            self.detail_scroll = 0;
+            if changed_session || self.view == View::Conversation {
+                self.detail_scroll = 0;
+            }
             self.diff = None;
         } else if let Some(id) = old_event {
             self.event_index = self
@@ -151,6 +203,8 @@ impl App {
                     self.session_index = next;
                     self.events.clear();
                     self.event_index = 0;
+                    self.artifacts.clear();
+                    self.artifact_index = 0;
                     self.detail_scroll = 0;
                     self.diff = None;
                 }
@@ -161,6 +215,13 @@ impl App {
                     self.event_index = next;
                     self.detail_scroll = 0;
                     self.diff = None;
+                }
+            }
+            Focus::Artifacts => {
+                let next = move_index(self.artifact_index, delta, self.artifacts.len());
+                if next != self.artifact_index {
+                    self.artifact_index = next;
+                    self.detail_scroll = 0;
                 }
             }
         }
@@ -175,6 +236,8 @@ impl App {
                     self.session_index = next;
                     self.events.clear();
                     self.event_index = 0;
+                    self.artifacts.clear();
+                    self.artifact_index = 0;
                     self.detail_scroll = 0;
                     self.diff = None;
                 }
@@ -183,6 +246,10 @@ impl App {
                 self.event_index = if last { self.events.len().saturating_sub(1) } else { 0 };
                 self.detail_scroll = 0;
                 self.diff = None;
+            }
+            Focus::Artifacts => {
+                self.artifact_index = if last { self.artifacts.len().saturating_sub(1) } else { 0 };
+                self.detail_scroll = 0;
             }
         }
     }
@@ -307,7 +374,7 @@ impl App {
         ));
         self.composer.clear();
         self.notice = "Running agent. Incoming approvals will appear here.".into();
-        self.focus = Focus::Events;
+        self.focus = self.main_focus();
     }
 
     fn open_restart(&mut self, root: &Path, store: &Store) {
@@ -468,7 +535,7 @@ impl App {
         if self.focus == Focus::Compose {
             match key.code {
                 KeyCode::Tab => self.focus = Focus::Sessions,
-                KeyCode::Esc => self.focus = Focus::Events,
+                KeyCode::Esc => self.focus = self.main_focus(),
                 KeyCode::Enter => self.submit(root, store),
                 KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     self.composer.push('\n');
@@ -490,13 +557,15 @@ impl App {
             KeyCode::Char('q') => self.notice = "Agent running; wait for its result before exiting.".into(),
             KeyCode::Tab => {
                 self.focus = match self.focus {
-                    Focus::Sessions => Focus::Events,
-                    Focus::Events => Focus::Compose,
+                    Focus::Sessions => self.main_focus(),
+                    Focus::Events | Focus::Artifacts => Focus::Compose,
                     Focus::Compose => Focus::Sessions,
                 };
             }
             KeyCode::Esc | KeyCode::Left => self.focus = Focus::Sessions,
-            KeyCode::Right => self.focus = Focus::Events,
+            KeyCode::Right => self.focus = self.main_focus(),
+            KeyCode::Char('1') => self.switch_view(View::Conversation),
+            KeyCode::Char('2') => self.switch_view(View::Artifacts),
             KeyCode::Enter | KeyCode::Char('i') => self.focus = Focus::Compose,
             KeyCode::Char('/') => {
                 self.focus = Focus::Compose;
@@ -508,8 +577,8 @@ impl App {
             KeyCode::Char('G') | KeyCode::End => self.select_end(true),
             KeyCode::PageDown => self.detail_scroll = self.detail_scroll.saturating_add(10),
             KeyCode::PageUp => self.detail_scroll = self.detail_scroll.saturating_sub(10),
-            KeyCode::Char('v') => self.toggle_verbose(),
-            KeyCode::Char('d') => self.toggle_diff(store)?,
+            KeyCode::Char('v') if self.view == View::Conversation => self.toggle_verbose(),
+            KeyCode::Char('d') if self.view == View::Conversation => self.toggle_diff(store)?,
             KeyCode::Char('r') => self.refresh(store)?,
             _ => {}
         }
@@ -590,7 +659,7 @@ fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
 fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
     let outer = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(4),
         Constraint::Min(5),
         Constraint::Length(5),
         Constraint::Length(2),
@@ -604,12 +673,25 @@ fn draw(frame: &mut Frame, app: &App) {
         ),
         None => ("No session", "idle", "-"),
     };
+    let active_tab = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let inactive_tab = Style::default().fg(Color::DarkGray);
     frame.render_widget(
-        Paragraph::new(format!(
-            " Greenlight  │  {workflow}  │  {}  │  step: {step}",
-            status.to_uppercase()
-        ))
-        .block(border(" Workflow ", false)),
+        Paragraph::new(vec![
+            Line::from(format!(
+                " Greenlight  │  {workflow}  │  {}  │  step: {step}",
+                status.to_uppercase()
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "  [1] Conversation  ",
+                    if app.view == View::Conversation { active_tab } else { inactive_tab },
+                ),
+                Span::styled(
+                    "  [2] Artifacts  ",
+                    if app.view == View::Artifacts { active_tab } else { inactive_tab },
+                ),
+            ]),
+        ]).block(border(" Workflow ", false)),
         outer[0],
     );
 
@@ -693,6 +775,47 @@ fn draw(frame: &mut Frame, app: &App) {
         let mut state = ListState::default();
         state.select(Some(app.restart_cursor));
         frame.render_stateful_widget(choices_widget, columns[1], &mut state);
+    } else if app.view == View::Artifacts {
+        let panes = Layout::horizontal([
+            Constraint::Percentage(38),
+            Constraint::Percentage(62),
+        ]).split(columns[1]);
+        let items = app.artifacts.iter().map(|artifact| {
+            ListItem::new(format!(
+                "{}\n  step: {}  ·  {} bytes",
+                artifact.name, artifact.step, artifact.content.len()
+            ))
+        });
+        let artifacts = List::new(items)
+            .block(
+                border(" Artifacts · latest versions ", app.focus == Focus::Artifacts)
+                    .title(format!(" {} saved ", app.artifacts.len())),
+            )
+            .highlight_symbol("▶ ")
+            .highlight_style(
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
+        let mut state = ListState::default();
+        if !app.artifacts.is_empty() {
+            state.select(Some(app.artifact_index));
+        }
+        frame.render_stateful_widget(artifacts, panes[0], &mut state);
+
+        let content = match app.artifact() {
+            Some(artifact) => format!(
+                "{}\nProduced by: {}\nSize: {} bytes\n\n{}",
+                artifact.name, artifact.step, artifact.content.len(), artifact.content
+            ),
+            None => "No artifacts on this branch yet.\n\nArtifact actions and put-artifact register documents for later steps and human review.".to_owned(),
+        };
+        frame.render_widget(
+            Paragraph::new(content)
+                .wrap(Wrap { trim: false })
+                .scroll((app.detail_scroll, 0))
+                .block(border(" Artifact content · PgUp/PgDn scroll ", false)),
+            panes[1],
+        );
     } else {
         let right = Layout::vertical([
             Constraint::Percentage(54),
@@ -766,7 +889,7 @@ fn draw(frame: &mut Frame, app: &App) {
         "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
     } else {
         format!(
-            "{}   │   Tab panes  Enter compose  /restart  d diff  v detail  q quit",
+            "{}   │   1 Conversation  2 Artifacts  Tab focus  j/k select  PgUp/PgDn scroll  /restart",
             app.notice
         )
     };
@@ -788,9 +911,13 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
         app.focus = Focus::Compose;
     }
     ratatui::run(|terminal| -> Result<()> {
+        let mut last_refresh = Instant::now();
         loop {
             app.tick();
-            app.refresh(&store)?;
+            if last_refresh.elapsed() >= Duration::from_millis(600) {
+                app.refresh(&store)?;
+                last_refresh = Instant::now();
+            }
             terminal.draw(|frame| draw(frame, &app))?;
             if event::poll(Duration::from_millis(150))? {
                 if let Event::Key(key) = event::read()? {
@@ -903,6 +1030,50 @@ mod tests {
         });
         app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(answer_rx.try_recv().unwrap(), "y");
+    }
+
+    #[test]
+    fn artifact_tab_displays_latest_branch_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("example", "goal", "plan").unwrap();
+        store.add_artifact(&session, "plan", "plan.md", "first version").unwrap();
+        store.add_artifact(&session, "plan", "plan.md", "revised version").unwrap();
+        store.add_artifact(&session, "plan", "notes.md", "Notes").unwrap();
+
+        let mut app = App::new(Some(&session.id));
+        app.refresh(&store).unwrap();
+        app.on_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.view, View::Artifacts);
+        assert_eq!(app.focus, Focus::Artifacts);
+        assert_eq!(app.artifacts.len(), 2);
+        let plan_index = app.artifacts.iter().position(|a| a.name == "plan.md").unwrap();
+        app.artifact_index = plan_index;
+        assert_eq!(app.artifact().unwrap().content, "revised version");
+        store.add_artifact(&session, "plan", "plan.md", "third version").unwrap();
+        app.refresh(&store).unwrap();
+        assert_eq!(app.artifact().unwrap().name, "plan.md");
+        assert_eq!(app.artifact().unwrap().content, "third version");
+        let backend = ratatui::backend::TestBackend::new(110, 32);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        app.on_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.view, View::Conversation);
+        assert_eq!(app.focus, Focus::Events);
+    }
+
+    #[test]
+    fn artifact_tab_handles_no_saved_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        store.create("example", "goal", "plan").unwrap();
+        let mut app = App::new(None);
+        app.refresh(&store).unwrap();
+        app.switch_view(View::Artifacts);
+        let backend = ratatui::backend::TestBackend::new(100, 26);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        assert!(app.artifact().is_none());
     }
 
     #[test]
