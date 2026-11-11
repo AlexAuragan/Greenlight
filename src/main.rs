@@ -1,3 +1,4 @@
+mod changes;
 mod config;
 mod engine;
 mod provider;
@@ -69,6 +70,10 @@ enum Commands {
         #[arg(long)]
         step: String,
     },
+    /// List native agent edits on the active branch
+    Changes { session: String },
+    /// Show a unified diff for one native agent write
+    Diff { session: String, #[arg(long)] edit: i64 },
     /// List models through configured provider
     Models,
 }
@@ -226,6 +231,21 @@ async fn main() -> Result<()> {
                 "New branch {} at step {step}; filesystem not restored",
                 state.active_branch
             );
+        }
+        Commands::Changes { session } => {
+            let engine = engine::Engine::open(&root)?;
+            let s = engine.store.session(&session)?;
+            for change in engine.store.changes(&s)? {
+                println!("#{}  [{}]  {}", change.event_id, change.step, change.path);
+            }
+        }
+        Commands::Diff { session, edit } => {
+            let engine = engine::Engine::open(&root)?;
+            let s = engine.store.session(&session)?;
+            let changes = engine.store.changes(&s)?;
+            let change = changes.iter().find(|c| c.event_id == edit)
+                .context("edit not found in active branch history")?;
+            print!("{}", changes::unified(&change.path, change.before.as_deref(), &change.after));
         }
         Commands::Models => {
             let engine = engine::Engine::open(&root)?;
