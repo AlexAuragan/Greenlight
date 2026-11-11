@@ -685,7 +685,13 @@ fn draw(frame: &mut Frame, app: &App) {
     } else {
         " Message agent · Enter sends / Ctrl+J newline "
     };
+    let composer_style = if app.composer.is_empty() {
+        Style::default().fg(Color::Rgb(85, 85, 85))
+    } else {
+        Style::default()
+    };
     let composer = Paragraph::new(input)
+        .style(composer_style)
         .wrap(Wrap { trim: false })
         .block(border(input_title, app.focus == Focus::Compose));
     frame.render_widget(composer, outer[2]);
