@@ -50,7 +50,7 @@ impl Engine {
         let cfg = config::load_config(&root)?;
         let store = Store::open(&root)?;
         let provider = Provider::new(cfg.provider.clone());
-        let tools = Tools::new(root.clone(), cfg.permissions.clone());
+        let tools = Tools::new(root.clone(), cfg.permissions.clone())?;
         Ok(Self {
             root,
             cfg,

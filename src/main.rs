@@ -1,3 +1,4 @@
+mod approvals;
 mod changes;
 mod config;
 mod engine;
@@ -70,6 +71,8 @@ enum Commands {
         #[arg(long)]
         step: String,
     },
+    /// Show the project/global persistent approvals and their file paths
+    Approvals,
     /// List native agent edits on the active branch
     Changes { session: String },
     /// Show a unified diff for one native agent write
@@ -231,6 +234,10 @@ async fn main() -> Result<()> {
                 "New branch {} at step {step}; filesystem not restored",
                 state.active_branch
             );
+        }
+        Commands::Approvals => {
+            let approvals = approvals::ApprovalStore::open(&root)?;
+            print!("{}", approvals.describe()?);
         }
         Commands::Changes { session } => {
             let engine = engine::Engine::open(&root)?;

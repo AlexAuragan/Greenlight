@@ -28,7 +28,7 @@ cargo run -- start fix-bug --goal 'Find and fix the intermittent test failure'
 
 Instead of exporting these, you can put them in a `.env` file (in the current directory or the project root). It is loaded automatically at startup and never overrides variables that already exist in the environment.
 
-`stepwright.yaml` specifies the provider model and host tool approvals. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
+`stepwright.yaml` specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. `stepwright approvals` shows stored grants and their paths (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
 
 **Important:** By default, commands execute on your real host in the specified project directory, with its normal environment. Each shell command is approved interactively unless policy says otherwise. This is not a sandbox. Only use this version with projects and workflow files you trust.
 
@@ -63,7 +63,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - Required artifacts checked per attempt; additional artifacts are always allowed.
 - Explicit verification, including `type: none`; composite `all` and `any` supported at one level.
 - Deviations named by step, actions `pause`, `goto`, or bounded `retry`; optional independent model-based detector prompt.
-- Human approval for risky tools, with once or process-lifetime approval; no automatic hidden error recovery.
+- Human approval for risky tools, with once, process, project or global trust scopes; no automatic hidden error recovery.
 - Append-only SQLite event stream with fork ancestry, artifact snapshots and immutable historical branches.
 - DeepInfra/OpenAI-compatible chat-completions transport and model listing.
 - Host shell, project read/write, and optional Brave web search. Opt-in Discord webhook notifications.

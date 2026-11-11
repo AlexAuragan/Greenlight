@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, io::{self, Write}, path::{Path, PathBuf}, time::Duration};
 use tokio::process::Command;
-use crate::config::Permissions;
+use crate::{approvals::{ApprovalStore, Scope}, config::Permissions};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -31,26 +31,79 @@ pub fn parse_action(text:&str)->Result<AgentAction> {
 
 pub struct NativeEdit { pub path: String, pub before: Option<String>, pub after: String }
 
-pub struct Tools { pub root:PathBuf, pub policies:Permissions, approved:HashSet<String>, pub decisions:Vec<String>, pub client:reqwest::Client, pub pending_edit: Option<NativeEdit> }
+pub struct Tools {
+    pub root: PathBuf,
+    pub policies: Permissions,
+    approved: HashSet<String>,
+    pub approvals: ApprovalStore,
+    pub decisions: Vec<String>,
+    pub client: reqwest::Client,
+    pub pending_edit: Option<NativeEdit>,
+}
 impl Tools {
-    pub fn new(root:PathBuf,policies:Permissions)->Self { Self {root,policies,approved:HashSet::new(),decisions:Vec::new(),client:reqwest::Client::new(),pending_edit:None} }
+    pub fn new(root: PathBuf, policies: Permissions) -> Result<Self> {
+        let approvals = ApprovalStore::open(&root)?;
+        Ok(Self {
+            root, policies, approved: HashSet::new(), approvals,
+            decisions: Vec::new(), client: reqwest::Client::new(), pending_edit: None,
+        })
+    }
     pub fn permission(&mut self,kind:&str,detail:&str)->Result<()> {
         let policy=match kind {"shell"=>&self.policies.shell,"read"=>&self.policies.read,"write"=>&self.policies.write,"web"=>&self.policies.web,_=>bail!("unknown tool")}.clone();
         if policy=="deny" {
             self.decisions.push(format!("{kind}: denied by configuration"));
             bail!("{kind} forbidden by policy");
         }
-        if policy=="allow" || self.approved.contains(kind) {
-            self.decisions.push(format!("{kind}: authorized by {}",if policy=="allow"{"configuration"}else{"process approval"}));
+        if policy == "allow" {
+            self.decisions.push(format!("{kind}: authorized by configuration"));
             return Ok(());
         }
-        println!("\n[approval required: {kind}]\n{detail}\n[y] once / [a] for this process / [n] deny (default)");
-        print!("> ");io::stdout().flush()?;
-        let mut answer=String::new();io::stdin().read_line(&mut answer)?;
+        let process_key = if kind == "shell" { format!("shell:{detail}") } else { kind.to_string() };
+        if self.approved.contains(&process_key) {
+            self.decisions.push(format!("{kind}: authorized for this process"));
+            return Ok(());
+        }
+        if let Some(scope) = self.approvals.matched_scope(kind, detail) {
+            self.decisions.push(format!("{kind}: authorized by {scope:?} whitelist"));
+            return Ok(());
+        }
+        println!("\n[approval required: {kind}]\n{detail}");
+        match kind {
+            "shell" => {
+                println!("Scope: this exact command only (including its arguments and shell operators).");
+                println!("[y] once / [a] this process / [p] this project / [g] globally / [n] deny (default)");
+            }
+            "write" => {
+                println!("Scope: native writes to ANY permitted file, not only the displayed path.");
+                println!("[y] once / [a] this process / [p] all writes in this project / [g] all projects / [n] deny (default)");
+            }
+            _ => println!("[y] once / [a] this process / [n] deny (default)"),
+        }
+        print!("> ");
+        io::stdout().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
         match answer.trim().to_lowercase().as_str() {
-            "y"=>{self.decisions.push(format!("{kind}: approved once — {detail}"));Ok(())},
-            "a"=>{self.approved.insert(kind.into());self.decisions.push(format!("{kind}: approved for process — {detail}"));Ok(())},
-            _=>{self.decisions.push(format!("{kind}: denied by user — {detail}"));bail!("user denied {kind}")},
+            "y" => {
+                self.decisions.push(format!("{kind}: approved once — {detail}"));
+                Ok(())
+            }
+            "a" => {
+                self.approved.insert(process_key);
+                self.decisions.push(format!("{kind}: approved for this process — {detail}"));
+                Ok(())
+            }
+            "p" | "g" if kind == "shell" || kind == "write" => {
+                let scope = if answer.trim().eq_ignore_ascii_case("p") { Scope::Project } else { Scope::Global };
+                // Do not run the tool if saving the grant failed.
+                self.approvals.grant(scope, kind, detail)?;
+                self.decisions.push(format!("{kind}: approved in {scope:?} whitelist — {detail}"));
+                Ok(())
+            }
+            _ => {
+                self.decisions.push(format!("{kind}: denied by user — {detail}"));
+                bail!("user denied {kind}")
+            }
         }
     }
     fn safe_path(&self,relative:&str)->Result<PathBuf> {
@@ -159,7 +212,7 @@ mod tests {
     #[test]
     fn reject_path_traversal() {
         let d=tempfile::tempdir().unwrap();
-        let tools=Tools::new(d.path().to_path_buf(),Permissions::default());
+        let tools=Tools::new(d.path().to_path_buf(),Permissions::default()).unwrap();
         assert!(tools.safe_path("../secret").is_err());
     }
 }
