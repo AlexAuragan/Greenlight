@@ -77,6 +77,55 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - DeepInfra/OpenAI-compatible chat-completions transport and model listing.
 - Read-only, network-disabled sandboxed shell; project read/journaled native write tools; optional Brave web search and Discord notifications.
 
+## Roadmap / TODO
+
+> **Status:** proposed, prioritized backlog — not a list of finished features. PR #6 is an evolving TUI baseline, **not** the end-state UX. The detailed product rationale, hot paths, interaction rules and acceptance criteria live in [the TUI UX analysis](docs/12-tui-ux-analysis.md).
+
+### P0 — stabilize the current interactive baseline
+
+- [ ] Finish local PR #6 validation: tests, Clippy, format check, generated Cargo.lock, and real-terminal smoke tests of the composer, permissions, artifacts and restore/fork.
+- [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval.
+- [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
+- [ ] Add robust per-session execution ownership and stale-run recovery; prevent simultaneous CLI/TUI resumes of the same session.
+- [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
+
+### P1 — TUI redesign for daily use
+
+- [ ] Replace the raw log-centric layout with a session workspace: **status + stepper + context + primary action**, backed by typed events.
+- [ ] Add a session home/picker with readable names, blocked-first visibility, last activity, search and an in-TUI start flow.
+- [ ] Implement contextual blocked-state cards: show reason/evidence, inspect related artifacts, retry, resume or restart safely.
+- [ ] Make focus, keyboard shortcuts, composer mode, help, scroll-follow behavior and pane resizing coherent and discoverable.
+- [ ] Render artifacts as **terminal Markdown** (headings, lists, code, tables, links); support Preview/Raw, search, safe escaping and long documents.
+- [ ] Add artifact version history and provenance (step, branch, attempt/event, timestamp), with version diffs and pinned review/approval evidence.
+- [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
+- [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
+- [ ] Introduce durable step/attempt IDs, typed pending decisions and reliable interruption/reconnection semantics.
+- [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.
+
+### P2 — supervised intelligence and stronger recovery
+
+- [ ] Add an optional **summarizer** model role: cache evidence-linked step/workflow summaries, clearly distinguish claims from verified results, and fall back to facts when unavailable.
+- [ ] Add an optional read-only **manager** model role: answer questions using relevant code, artifact versions, workflow definitions and event evidence, with sources.
+- [ ] Let the manager **propose** retry/goto/restart actions via a typed schema; require Rust-side validation, guarded restore previews and explicit user confirmation. No direct manager tool execution or permission grants.
+- [ ] Make the message recipient explicit (**Instruct coding agent** vs **Ask manager**) to avoid unexpected mutations.
+- [ ] Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
+- [ ] Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
+- [ ] Improve diff review (file list, hunk navigation, copied patch), final workflow recap and exportable verification evidence.
+- [ ] Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
+
+### P3 — longer-term capabilities
+
+- [ ] Model response streaming, clean cancel/interrupt/queue semantics and resumable sessions across process restarts.
+- [ ] Safe Git-aware checkpoints and patch export; do not imply native restore captures arbitrary workspace changes.
+- [ ] Parallel/subworkflow orchestration with explicit session ownership and approval routing.
+- [ ] Provider flexibility, context compaction, bounded code retrieval/indexing and opt-in MCP tool integrations.
+- [ ] More complete sandbox resource limits and secret-handling defenses, plus security regression tests.
+- [ ] Optional desktop/Discord notifications, authenticated remote decisions and customizable keybindings/themes.
+- [ ] Branch graph/time-travel visualization, saved views, accessibility/contrast testing and performance profiling.
+- [ ] Consolidate older v0.1 docs whose pre-sandbox/pre-TUI wording is now obsolete.
+
+**Prioritization rule:** reliable execution and human decisions before UI polish; usable artifact/recovery paths before optional AI-manager autonomy. Anything that can alter permissions, workflow history, or files requires clear provenance and a deliberate user decision.
+
 ## Caveats (read before use)
 
 This MVP has deliberately limited capabilities: no cross-platform shell sandbox, no full Git checkpoint/restore, no parallel/subworkflow execution, no remote Discord decisions, no MCP, no streaming, no provider-specific reasoning parameters, no adaptive context compaction, and no transactional code edits. The YAML protocol is a best-effort model instruction validated by the runtime, not a guarantee that every model responds correctly. Bubblewrap does not provide resource quotas, comprehensive project-source secret scanning or immunity from kernel vulnerabilities.
