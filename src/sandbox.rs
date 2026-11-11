@@ -25,6 +25,16 @@ impl Sandbox {
         bail!("shell execution requires Linux and bubblewrap; no unsandboxed fallback");
 
         let root = root.canonicalize().context("sandbox project root does not exist")?;
+        // Reject roots that would expose unrelated host directories.
+        if root == Path::new("/") {
+            bail!("refusing to sandbox the entire host filesystem as a project");
+        }
+        if let Some(home) = env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            if home.is_absolute() && home.starts_with(&root) {
+                bail!("project root contains the host HOME; select a narrower project");
+            }
+        }
         // Check each component before creating the next, to prevent a symlink
         // under the project from redirecting the writable sandbox cache.
         let project_state = root.join(".stepwright");
@@ -300,7 +310,7 @@ mod tests {
         let output = sandbox.run(
             "test ! -w /workspace && test -w /tmp && test -w /cache && \
              test ! -s /workspace/.env && test ! -e /workspace/.stepwright/state/history.db && \
-             test ! -e /home/agent/.ssh && python -c \"print('ok')\""
+             test ! -e /home/agent/.ssh && test -z \"${DEEPINFRA_API_KEY:-}\" && printf 'ok\\n'"
         ).await.unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     }
