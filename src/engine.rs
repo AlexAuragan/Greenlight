@@ -611,17 +611,44 @@ impl Engine {
             }
             Verify::Agent { prompt } => {
                 let full = config::render_includes(
-                    &format!("{{{{ include \"{prompt}\" }}}}"),
+                    &format!("{{include \"{}\"}}", prompt),
                     &self.root,
                     &wf.folder,
                 )?;
-                let artifacts = self.store.artifacts(s, &step.id)?;
-                let evidence = artifacts
+
+                // Collect artifacts from current step
+                let step_artifacts = self.store.artifacts(s, &step.id)?;
+                let artifact_evidence = step_artifacts
                     .iter()
                     .map(|a| format!("## {}\n{}", a.name, a.content))
                     .collect::<Vec<_>>()
-                    .join("\n");
-                let query=format!("{full}\n\nGoal: {}\nStep: {}\nEvidence:\n{evidence}\nRespond only YAML:\npassed: true|false\nreason: concise explanation",s.goal,step.id);
+                    .join("\n\n");
+
+                // Collect relevant tool execution history from recent steps
+                let history = self.store.history(s)?;
+                let tool_results = history
+                    .iter()
+                    .rev()
+                    .filter_map(|(_, step_id, event_type, data)| {
+                        if event_type == "tool.result" {
+                            // Extract just the first few lines to keep context manageable
+                            let preview = data.lines().take(10).collect::<Vec<_>>().join("\n");
+                            Some(format!(
+                                "### Tool result from step '{}'\n{}",
+                                step_id, preview
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .take(10) // Limit to last 10 relevant tool results
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+
+                // Combine artifacts and tool results
+                let evidence = format!("{}\n\n{}", artifact_evidence, tool_results);
+
+                let query=format!("{}\n\nGoal: {}\nStep: {}\nEvidence:\n{}\nRespond only YAML:\npassed: true|false\nreason: concise explanation", full, s.goal, step.id, evidence);
                 let raw = self
                     .provider
                     .complete(model, &[json!({"role":"user","content":query})])
