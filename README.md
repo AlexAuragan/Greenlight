@@ -18,7 +18,7 @@ export DEEPINFRA_API_KEY='...'
 # Optional web search:
 export BRAVE_SEARCH_API_KEY='...'
 # Optional outgoing Discord notifications:
-export STEPRIGHT_DISCORD_WEBHOOK='https://discord.com/api/webhooks/...'
+export DISCORD_WEBHOOK='https://discord.com/api/webhooks/...'
 
 cargo build
 cargo test

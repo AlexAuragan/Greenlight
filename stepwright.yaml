@@ -12,4 +12,4 @@ permissions:
   read: allow
   web: ask
 notifications:
-  discord_webhook_env: STEPRIGHT_DISCORD_WEBHOOK
+  discord_webhook_env: DISCORD_WEBHOOK
