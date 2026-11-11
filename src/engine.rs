@@ -289,6 +289,13 @@ impl Engine {
             "human" => {
                 let prompt = config::render_includes(&step.prompt, &self.root, &wf.folder)?;
                 println!("{prompt}\n{extra}");
+                // Approval must include the actual artifacts, not merely a filename.
+                let available = self.store.artifacts(s, "session")?;
+                for name in &step.inputs.required {
+                    let artifact = available.iter().find(|a| &a.name == name)
+                        .with_context(|| format!("required approval artifact {name} missing"))?;
+                    println!("\n--- {name} ---\n{}\n--- end {name} ---", artifact.content);
+                }
                 if !ask_yes("Approve and continue?")? {
                     self.store.event(s, Some(&step.id), "human.declined", "")?;
                     return Ok(Outcome::Deviation(
@@ -440,6 +447,12 @@ impl Engine {
                     };
                     match execution {
                         Ok(result) => {
+                            if let Some(edit) = self.tools.pending_edit.take() {
+                                let edit_id = self.store.add_change(
+                                    s, &step.id, &edit.path, edit.before.as_deref(), &edit.after
+                                )?;
+                                println!("[edit recorded] #{edit_id} {}", edit.path);
+                            }
                             println!(
                                 "[tool {kind}] {}",
                                 result.chars().take(350).collect::<String>()

@@ -12,6 +12,14 @@ pub struct Session {
 #[derive(Debug, Clone)]
 pub struct Branch { pub id: String, pub parent: Option<String>, pub fork_event: Option<i64> }
 #[derive(Debug, Clone)]
+pub struct FileChange {
+    pub event_id: i64,
+    pub step: String,
+    pub path: String,
+    pub before: Option<String>,
+    pub after: String,
+}
+#[derive(Debug, Clone)]
 pub struct Artifact { pub name: String, pub content: String, pub step: String }
 
 pub struct Store { db: Connection, pub directory: PathBuf }
@@ -35,6 +43,10 @@ impl Store {
              id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, branch TEXT NOT NULL,
              event_id INTEGER NOT NULL, step TEXT NOT NULL, name TEXT NOT NULL,
              blob_path TEXT NOT NULL);
+           CREATE TABLE IF NOT EXISTS file_changes (
+             event_id INTEGER PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
+             step TEXT NOT NULL, path TEXT NOT NULL, before_blob TEXT, after_blob TEXT NOT NULL);
+           CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
            CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);")?;
         Ok(Self { db, directory })
@@ -129,6 +141,42 @@ impl Store {
         fs::write(dir.join(&blob),content)?;
         self.db.execute("INSERT INTO artifacts(session,branch,event_id,step,name,blob_path) VALUES (?1,?2,?3,?4,?5,?6)", params![s.id,s.active_branch,ev,step,name,blob])?;
         Ok(())
+    }
+    pub fn add_change(&self, s: &Session, step: &str, path: &str, before: Option<&str>, after: &str) -> Result<i64> {
+        let dir = self.directory.join("blobs");
+        fs::create_dir_all(&dir)?;
+        let before_name = before.map(|_| format!("edit-before-{}.txt", Uuid::new_v4()));
+        let after_name = format!("edit-after-{}.txt", Uuid::new_v4());
+        if let (Some(content), Some(name)) = (before, &before_name) {
+            fs::write(dir.join(name), content)?;
+        }
+        fs::write(dir.join(&after_name), after)?;
+        let event_id = self.event(s, Some(step), "file.changed", path)?;
+        self.db.execute(
+            "INSERT INTO file_changes(event_id,session,branch,step,path,before_blob,after_blob) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![event_id, s.id, s.active_branch, step, path, before_name, after_name],
+        )?;
+        Ok(event_id)
+    }
+
+    pub fn changes(&self, s: &Session) -> Result<Vec<FileChange>> {
+        let mut result = Vec::new();
+        for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            let mut stmt = self.db.prepare(
+                "SELECT event_id,step,path,before_blob,after_blob FROM file_changes WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id"
+            )?;
+            let rows = stmt.query_map(params![s.id,branch,cutoff], |r| Ok((
+                r.get::<_,i64>(0)?, r.get::<_,String>(1)?, r.get::<_,String>(2)?,
+                r.get::<_,Option<String>>(3)?, r.get::<_,String>(4)?
+            )))?;
+            for row in rows {
+                let (event_id,step,path,before_blob,after_blob) = row?;
+                let before = before_blob.map(|b| fs::read_to_string(self.directory.join("blobs").join(b))).transpose()?;
+                let after = fs::read_to_string(self.directory.join("blobs").join(after_blob))?;
+                result.push(FileChange { event_id,step,path,before,after });
+            }
+        }
+        Ok(result)
     }
     pub fn current_run_artifacts(&self,s:&Session,step:&str)->Result<Vec<String>> {
         let marker:i64=self.db.query_row("SELECT id FROM events WHERE session=?1 AND branch=?2 AND step=?3 AND kind='step.started' ORDER BY id DESC LIMIT 1",

@@ -29,9 +29,11 @@ pub fn parse_action(text:&str)->Result<AgentAction> {
     Ok(action)
 }
 
-pub struct Tools { pub root:PathBuf, pub policies:Permissions, approved:HashSet<String>, pub decisions:Vec<String>, pub client:reqwest::Client }
+pub struct NativeEdit { pub path: String, pub before: Option<String>, pub after: String }
+
+pub struct Tools { pub root:PathBuf, pub policies:Permissions, approved:HashSet<String>, pub decisions:Vec<String>, pub client:reqwest::Client, pub pending_edit: Option<NativeEdit> }
 impl Tools {
-    pub fn new(root:PathBuf,policies:Permissions)->Self { Self {root,policies,approved:HashSet::new(),decisions:Vec::new(),client:reqwest::Client::new()} }
+    pub fn new(root:PathBuf,policies:Permissions)->Self { Self {root,policies,approved:HashSet::new(),decisions:Vec::new(),client:reqwest::Client::new(),pending_edit:None} }
     pub fn permission(&mut self,kind:&str,detail:&str)->Result<()> {
         let policy=match kind {"shell"=>&self.policies.shell,"read"=>&self.policies.read,"write"=>&self.policies.write,"web"=>&self.policies.web,_=>bail!("unknown tool")}.clone();
         if policy=="deny" {
@@ -102,10 +104,28 @@ impl Tools {
             "write"=>{
                 let path=action.path.as_deref().context("write path required")?;
                 let content=action.content.as_deref().context("write content required")?;
+                let file = self.safe_path(path)?;
+                if content.len() > 100_000 { bail!("write exceeds 100KB limit"); }
+                let before = match tokio::fs::read(&file).await {
+                    Ok(bytes) => Some(String::from_utf8(bytes).context("write journaling requires UTF-8 original file")?),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(e.into()),
+                };
+                if before.as_deref() == Some(content) {
+                    return Ok(format!("unchanged {path}"));
+                }
+                let preview = crate::changes::unified(path, before.as_deref(), content);
+                println!("\n[proposed write: {path}]\n{preview}");
                 self.permission("write",&format!("path: {path}\nbytes: {}",content.len()))?;
-                let file=self.safe_path(path)?;
-                if content.len()>100_000 {bail!("write exceeds 100KB limit");}
-                tokio::fs::write(file,content).await?;
+                // Recheck to avoid overwriting changes made while approval was pending.
+                let current = match tokio::fs::read(&file).await {
+                    Ok(bytes) => Some(String::from_utf8(bytes).context("file changed to non-UTF-8")?),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(e.into()),
+                };
+                if current != before { bail!("file changed during write approval; edit not applied"); }
+                tokio::fs::write(&file, content).await?;
+                self.pending_edit = Some(NativeEdit { path: path.to_owned(), before, after: content.to_owned() });
                 Ok(format!("wrote {path} ({} bytes)",content.len()))
             },
             "web"=>{

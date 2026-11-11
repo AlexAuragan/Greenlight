@@ -83,13 +83,13 @@ pub struct StepDefaults {
     pub verification: Option<Verify>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Inputs {
     #[serde(default)] pub required: Vec<String>,
     #[serde(default)] pub from: Vec<ArtifactSelector>,
 }
-impl Default for Inputs { fn default() -> Self { Self { required: vec![], from: vec![] } } }
+
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -127,12 +127,12 @@ pub struct Deviation {
 }
 fn pause() -> String { "pause".into() }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Transition {
     pub success: Option<String>, // omitted = workflow completed
 }
-impl Default for Transition { fn default() -> Self { Self { success: None } } }
+
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
