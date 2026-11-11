@@ -2,7 +2,7 @@
 //! session history and the sole owner of human approval prompts.
 use crate::{
     changes,
-    restore::{self, RestorePlan},
+    restore::RestorePlan,
     store::{Session, Store},
     tui_actions::{self, RestartCandidate, Runner},
 };
@@ -336,13 +336,14 @@ impl App {
     fn prepare_restart(&mut self, root: &Path, store: &Store) {
         let Some(candidate) = self.restart_choices.get(self.restart_cursor).cloned() else { return };
         let Some(session) = self.session() else { return };
+        let branch = session.active_branch.clone();
         match RestorePlan::prepare(root, store, session, candidate.prior_event) {
             Ok(plan) => {
                 self.restart_preview = format!(
                     "Restart '{}' from event #{} (the previous checkpoint).\n\n{}",
                     candidate.step, candidate.prior_event, plan.preview_text(),
                 );
-                self.restart_branch = Some(session.active_branch.clone());
+                self.restart_branch = Some(branch);
                 self.restart_plan = Some(plan);
                 self.detail_scroll = 0;
                 self.notice = "Review the entire diff, then y confirms / n cancels.".into();
