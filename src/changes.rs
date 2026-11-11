@@ -22,10 +22,13 @@ pub fn unified(path: &str, before: Option<&str>, after: &str) -> String {
     let new_end = (new.len() - suffix + 3).min(new.len());
     let old_start_line = if old_end == left { left } else { left + 1 };
     let new_start_line = if new_end == left { left } else { left + 1 };
+    let original = if before.is_some() {
+        format!("a/{path}")
+    } else {
+        String::from("/dev/null")
+    };
     let mut out = format!(
-        "--- {}\n+++ {}\n@@ -{},{} +{},{} @@\n",
-        if before.is_some() { format!("a/{path}") } else { "/dev/null".into() },
-        format!("b/{path}"),
+        "--- {original}\n+++ b/{path}\n@@ -{},{} +{},{} @@\n",
         old_start_line,
         old_end - left,
         new_start_line,
