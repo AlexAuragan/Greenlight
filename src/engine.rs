@@ -3,6 +3,7 @@ use crate::{
     provider::Provider,
     store::{Session, Store},
     tools::{parse_action, Tools},
+    workspace,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
@@ -107,9 +108,41 @@ impl Engine {
             s.status = "running".into();
             self.store.save(&s)?;
             console_println!(self, "\n=== {} / {} ===", s.workflow, step.id);
+            let before = match workspace::record(
+                &self.root, &self.store, &s, &step.id, "before",
+            ) {
+                Ok((_, manifest)) => manifest,
+                Err(error) => {
+                    self.block(
+                        &mut s, &format!("workspace recording failed: {error:#}"), &step.id,
+                    ).await?;
+                    break;
+                }
+            };
             let outcome = self
                 .execute_step(&s, &workflow, &step, override_prompt, &resolved_model)
                 .await;
+            // Record even failed/blocked attempts, so an external edit cannot
+            // disappear from the observed step's workspace history.
+            let audit = workspace::record(
+                &self.root, &self.store, &s, &step.id, "after",
+            ).and_then(|(_, after)| {
+                let changes = workspace::differences(&before, &after);
+                if !changes.is_empty() {
+                    self.store.event(
+                        &s, Some(&step.id), "workspace.delta",
+                        &serde_json::to_string(&changes)?,
+                    )?;
+                }
+                Ok(())
+            });
+            let outcome = match (outcome, audit) {
+                (result, Ok(())) => result,
+                (Ok(_), Err(error)) => Err(error.context("workspace recording failed after step")),
+                (Err(error), Err(audit_error)) => Err(error.context(
+                    format!("workspace recording also failed: {audit_error:#}"),
+                )),
+            };
             match outcome {
                 Ok(Outcome::Done(summary)) => {
                     self.store
