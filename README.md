@@ -79,7 +79,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 ## Roadmap / TODO
 
-> **Status:** proposed, prioritized backlog — not a list of finished features. PR #6 is an evolving TUI baseline, **not** the end-state UX. The detailed product rationale, hot paths, interaction rules and acceptance criteria live in [the TUI UX analysis](docs/12-tui-ux-analysis.md).
+> **Status:** proposed, prioritized backlog — not a list of finished features. PR #6 is an evolving TUI baseline, **not** the end-state UX. The detailed product rationale, hot paths, interaction rules, [competitive harness benchmark](docs/12-tui-ux-analysis.md#15-external-harness-benchmark-research-snapshot-2026-11-12) and acceptance criteria live in [the TUI UX analysis](docs/12-tui-ux-analysis.md).
 
 ### P0 — stabilize the current interactive baseline
 
@@ -87,6 +87,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval.
 - [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
 - [ ] Add robust per-session execution ownership and stale-run recovery; prevent simultaneous CLI/TUI resumes of the same session.
+- [ ] Give each pending approval a durable request ID, decision receipt, and safe reconnection/replay behavior; reject stale/duplicate decisions.
 - [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
 
 ### P1 — TUI redesign for daily use
@@ -100,6 +101,9 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
 - [ ] Introduce durable step/attempt IDs, typed pending decisions and reliable interruption/reconnection semantics.
+- [ ] Provide a per-attempt **context manifest**: exact step definition, selected artifact versions, code/evidence sources and accepted plan version.
+- [ ] Define explicit **Ask / Instruct / Steer / Queue / Stop** composer behavior, with safe boundaries and no wrong-branch delivery.
+- [ ] Split the large TUI controller into tested focus routing, activity, Markdown reader, approval and recovery components; cache/lazily render long content.
 - [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.
 
 ### P2 — supervised intelligence and stronger recovery
@@ -108,9 +112,11 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Add an optional read-only **manager** model role: answer questions using relevant code, artifact versions, workflow definitions and event evidence, with sources.
 - [ ] Let the manager **propose** retry/goto/restart actions via a typed schema; require Rust-side validation, guarded restore previews and explicit user confirmation. No direct manager tool execution or permission grants.
 - [ ] Make the message recipient explicit (**Instruct coding agent** vs **Ask manager**) to avoid unexpected mutations.
+- [ ] Add read-only manager **side questions** that cite a consistent evidence snapshot without changing the coding-agent context or silently persisting private questions.
 - [ ] Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
 - [ ] Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
 - [ ] Improve diff review (file list, hunk navigation, copied patch), final workflow recap and exportable verification evidence.
+- [ ] Evaluate optional **staged multi-file changesets** with preview, review, conflict-checked apply and verified-result linkage; keep the native edit journal.
 - [ ] Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
 
 ### P3 — longer-term capabilities

@@ -498,6 +498,103 @@ These are **decisions to resolve during implementation**, not reasons to defer d
 9. When multiple sessions are visible, who owns an approval? Recommendation: durable per-session owner; TUI can observe but never impersonate another runner.
 10. Should the default view collapse technical tools or include everything? Recommendation: semantic summaries by default, raw logs one deliberate action away.
 
+
+## 15. External harness benchmark (research snapshot: 2026-11-12)
+
+This research compares public UX behavior and source-code contracts, **not** benchmark scores or model quality. Greenlight's strength is the explicit step/verification/artifact contract. Competitors are references for particular interactions and implementation seams—not a feature checklist to copy wholesale. Links below are first-party documentation or repository sources and should be rechecked before implementing a particular design.
+
+### 15.1 Comparative lessons
+
+| Harness | Relevant design | Greenlight difference | What to learn |
+| --- | --- | --- | --- |
+| [OpenCode](https://opencode.ai/docs/cli/tui/) | Discoverable commands, queue vs steer while running, contextual file mentions, and a side question (/btw) that does not join the ongoing agent conversation. [Permission API](https://opencode.ai/docs/build/plugins/server/) exposes pending requests and decisions. | Our composer currently resumes only idle/blocked steps; the proposed manager is not implemented. | Explicit **Ask / Instruct / Queue** semantics and a typed pending-request lifecycle. |
+| [Codex CLI](https://github.com/openai/codex/blob/main/codex-rs/tui/src/bottom_pane/approval_overlay.rs) | Typed command/patch/permission/elicitation approval variants, request IDs, action-specific choices and a queue. Its [app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md) describes replaying pending approvals after reconnect. | Our TUI uses typed permission *modes* but process-local channels, without durable request identities, queues or replay. | **P0:** persist identity/outcome of approvals; treat cancel, deny and disconnect differently. |
+| [Pi](https://pi.dev/docs/latest/session-format) | Session JSONL forms a branchable tree through entry IDs and parent IDs; [active context](https://pi.dev/docs/latest/how-pi-works) is rebuilt from the selected branch and compaction preserves original history. | Our SQLite branch history exists, but attempts/checkpoints/context inputs are not visible as navigable objects. | **P1:** step attempt browser, branch bookmarks and an exact **context inputs** view. |
+| [Plandex](https://github.com/plandex-ai/plandex/blob/main/docs/docs/cli-reference.md) | Accumulates proposed edits separately from working-tree files until review/apply, supports [autonomy levels](https://github.com/plandex-ai/plandex/blob/main/docs/docs/core-concepts/autonomy.md) and multiple [model roles](https://github.com/plandex-ai/plandex/blob/main/docs/docs/models/roles.md). | Our native journal records edits applied immediately, then supports guarded restore. This is not a staging area. | **P2:** study optional proposal → review → apply → verify for multi-file changes. |
+| [Aider](https://aider.chat/docs/usage/modes.html) | Explicit ask/code/architect modes; [architect/editor](https://aider.chat/docs/usage/modes.html) can use two LLMs, and [Git integration](https://aider.chat/docs/git.html) supports review and undo. | Our proposed manager is non-mutating; Aider architect mode is part of the editing pipeline. | **P1:** visibly label recipient and side effects. **P2:** evaluate multi-model roles empirically. |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/plan-mode.md) | Read-only planning mode with a deliberate transition to implementation; [session browser](https://geminicli.com/docs/cli/session-management/) has search and checkpoints. | Our hard workflow steps already separate planning/implementation, but the UI does not clearly display what plan version is *approved*. | **P1:** accepted plan evidence, review state and searchable sessions. |
+| [Crush](https://github.com/charmbracelet/crush/blob/main/internal/ui/AGENTS.md) | Separate main state machine, dialogs, scroll-follow and lazy render components; [UI source](https://github.com/charmbracelet/crush/blob/main/internal/ui/model/ui.go) also caches rendered Markdown/diffs. | Our TUI is concentrated in one App source with interleaved state, event routing and rendering. | **P1:** extract testable UI components before increasing layout complexity. |
+| [OpenHands](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-agent-server/openhands/agent_server/README.md) | Typed event/action/observation state, persisted session history and WebSocket event streaming. Its [server source](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-agent-server/openhands/agent_server/event_service.py) separates durable events from ephemeral token deltas. | Our UI polls SQLite and only owns the runtime worker started by the TUI. | **P1:** durable event replay plus ephemeral progress signals; do not mistake a token stream for an authoritative state transition. |
+| [Cline](https://docs.cline.bot/core-workflows/task-management) | Task-centric history with execution, cost and decision metadata; [ClineCore](https://docs.cline.bot/cline-sdk/sessions) exposes reusable sessions and approval callbacks. | We have an audit trail but limited human-readable session metadata. | **P1:** session names, summaries, search and stable frontend contracts. |
+
+### 15.2 What the upstream code changes in our architectural priorities
+
+1. **Approval lifecycle is more than keyboard shortcuts (Codex).** An approval should have a stable ID, parent tool call, session, branch, attempt, allowed decisions, current state and final decision receipt. The runtime must reject stale or duplicate responses and permit a reattached UI to inspect pending decisions. An unavailable UI must not be interpreted as consent. A grant persisted globally deserves explicit additional confirmation.
+2. **Separate UI projection and event ownership (OpenHands).** Durable step/tool/verification/artifact facts must be replayable from the store. Transient token and progress frames can update the screen quickly but should not be treated as authoritative history. Unknown event types must render safely rather than crash the viewer.
+3. **UI composition matters as the view grows (Crush).** Introduce focused parts (SessionPicker, Stepper, ActivityList, ArtifactReader, ApprovalDialog, Composer, RecoveryDialog) with a single explicit focus router, renderer caches, terminal resize handling and tests. Do not keep expanding one massive draw/key-handler function.
+4. **There are three distinct histories (Pi and Plandex).** Conversation/context branches, registered artifact versions, and the actual workspace are not interchangeable. The UI should show which historical checkpoint, which versioned evidence and which on-disk files an action refers to.
+5. **Reasoning roles have different jobs (Aider, Plandex).** Architect/editor is an editing pipeline; summarizer can reduce context; Greenlight's manager is a human-facing read-only advisor. These can share a model endpoint, but should never share tool authority merely because they use the same model.
+
+### 15.3 Three additional hot paths
+
+#### HP-09 — Ask a side question without changing the run
+
+User expectation: “Why did the previous verification fail?” must **not** secretly become an instruction to the coding agent.
+
+- Show recipient **Ask manager (read-only)** or **Instruct coding agent** explicitly.
+- Use a bounded snapshot of the selected session/branch, artifact versions, verification events and permitted code. Display evidence links and the snapshot cutoff.
+- No workflow transition, tool execution, file write, permission grant, or mutation of the coding agent's subsequent prompt.
+- Do not silently persist a private side question forever; make its retention behavior visible. Fall back to deterministic navigation when the manager is disabled.
+
+**Acceptance:** the same agent work and permissions result whether or not the user asks a side question.
+
+#### HP-10 — Steer now, queue for later, or stop
+
+User expectation: “I found a mistake during execution” is different from “do this after verification.”
+
+- Distinguish **Steer current turn**, **Queue for next safe boundary**, **Stop attempt** and **Keep editing draft**.
+- Show whether cancellation actually succeeded. Never report a completed stop while a tool is still executing.
+- Queue entries must carry session, target step/attempt, branch and delivery rules; a fork or session switch must not send instructions to the wrong branch.
+- Pending approvals take precedence. A queued message cannot implicitly accept an approval or become a different kind of instruction.
+- Restore drafts on safe cancellation and record what happened.
+
+**Acceptance:** changing branch or denying a permission cannot cause a queued instruction to execute unexpectedly.
+
+#### HP-11 — Inspect a proposed change set before applying it
+
+User expectation: “Show me the overall patch before it touches my files.”
+
+- Investigate an **optional staging area** for combined changes. Display file/hunk diffs, expected tests, and the exact relation to the approved plan artifact.
+- Distinguish *proposed*, *approved*, *applied*, and *verified*. A tool grant is not blanket approval of the whole proposed plan.
+- Recheck original file state at apply time. Surface partial apply explicitly, and only claim atomicity when actually guaranteed.
+- Preserve links between the proposal, review decision, actual edit-journal entries, artifact versions and verification evidence.
+- Don't force staging on exploratory workflows; this is a separate design experiment from native write approvals and restore.
+
+**Acceptance:** the user can determine exactly which proposed files were applied and which were verified.
+
+### 15.4 New quality-of-life and safety requirements
+
+| Requirement | Priority | Rationale |
+| --- | --- | --- |
+| Approval request ID, queue, reconnect/replay and decision receipt | **P0** | Avoid stranded prompts and ambiguous consent across CLI/TUI/process restart |
+| Per-attempt **context manifest** (step definition, selected artifact versions, retrieved evidence) | **P1** | Explain what the model actually saw rather than relying on its memory |
+| Visible **accepted plan version** alongside latest/superseded artifacts | **P1** | A later edit must not silently change the approved evidence |
+| Explicit ask/steer/queue/stop semantics and persistent per-session drafts | **P1** | Messages should not be delivered to the wrong model, phase or branch |
+| Componentized TUI with lazy lists, render caching, resize/accessibility tests | **P1** | Large Markdown and event histories should remain responsive |
+| Branch/attempt bookmarks, searchable sessions and context-compaction provenance | **P1** | Make navigable history understandable and reproducible |
+| Optional staged changeset with conflict-checked review/apply boundary | **P2** | Better multi-file supervision, without claiming that native restore is full rollback |
+| Measure role-specific costs/quality/latency before adding more models | **P2** | Separate capability and permissions from provider/model choice |
+
+### 15.5 What *not* to copy
+
+- **No uncontrolled chat-first autonomy.** Every approved transition, required artifact and verification gate still belongs to the harness.
+- **No implicit mode switching.** Asking a question does not become an execution instruction when the session changes status.
+- **No automatic Git commits by default.** Git integration is useful, but the user should own the commit policy and Greenlight's native journal remains distinct.
+- **No broad unreviewed “auto allow everything” profile.** Keep deny-overrides, explicit tool scopes and clear lifetime of grants.
+- **No premature server rewrite.** A stable typed frontend/engine contract, ownership and replay are prerequisites; a separate daemon is optional.
+- **No claim that branch navigation restores all filesystem state.** Context history, artifact history and workspace recovery have separate limitations.
+
+### 15.6 Additional acceptance scenarios
+
+- Disconnect the TUI during a permission prompt; reattach to the *same* request ID and prevent double-decision or stale approval.
+- Ask a read-only side question during execution; verify no changes to agent context, pending approvals or workflow state.
+- Queue instructions while a tool runs, then stop/fork: no instruction should leak into a different branch/attempt.
+- Show the exact approved artifact version and context manifest for an attempt after that artifact has been updated.
+- Exercise proposed multi-file staging against manual drift and partial apply failures.
+- Render thousands of events and a very large Markdown artifact in a narrow/resized terminal without losing scroll, focus or responsiveness.
+
+**Research-driven order of work:** typed interaction lifecycle → readable, navigable evidence → provenance/context inspection → optional manager and summaries → staged multi-file change sets.
+
 ---
 
 **Definition of UX success:** Greenlight should feel like a reliable supervisor's workbench: the user can delegate, observe, read evidence, decide, recover, and audit every outcome without losing control of the underlying workflow.
