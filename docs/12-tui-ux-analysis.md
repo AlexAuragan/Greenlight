@@ -765,6 +765,46 @@ We should call both behaviors what they are, show when the instruction actually 
 **Build one feature at a time; retain valuable ideas without inventing needless prerequisites.** Greenlight should offer attractive workflow navigation, good artifact presentation, short activity titles, supervised manager coordination, explicit saved permissions and native-write restoration. The harness—not a model's phrasing—remains the authority for recorded facts, permission enforcement and state transitions.
 
 
+## 18. Workspace recording before broader rollback
+
+**Agreed approach:** keep native `write` journaling as the basis of restoration. Before expanding rollback to user/external edits, instrument the actual workspace and measure what the journal misses.
+
+### Recording layers
+
+| Layer | Captures | Can restore old contents? | Priority |
+| --- | --- | --- | --- |
+| **Native journal (already implemented)** | Before/after UTF-8 for native writes and explicit restores | Yes, for recorded writes and restores | Maintain and harden |
+| **Step-boundary file manifest** | Relative path, existence, file type/size, content hash, exclusion policy at session start and step boundaries | **No**; hashes detect changed files, not their old contents | First experiment |
+| **Optional delta snapshots** | Old/new bytes for selected files that changed between checkpoints | Potentially, with retention and privacy restrictions | Defer until measured need |
+
+**A hash detects that a file changed; it does not identify whether a human, Git, another process or a tool made the change.** Baseline and after-step hashes cannot detect edits created and then undone between scans. Recording only after a user edit also cannot reconstruct the file's earlier bytes unless a prior snapshot exists.
+
+### Suggested experiment
+
+1. At session creation, capture a **baseline** for agreed project files. At each step start/end, capture a new manifest with the session/branch/attempt/event cutoff and compare it with the last recorded state.
+2. Prefer a limited source scope: Git-tracked files plus an explicit allowlist for additional project files, or a clearly documented project-root scan. Exclude `.git`, internal state, credentials, build directories, caches, symlinks and oversized/binary files by policy. Don't store secret file bodies. Measure scan cost rather than assuming it's too high.
+3. Compare file changes with native `file.changed` and `workspace.restored` events; classify known journaled changes, out-of-band changes, creations/deletions and excluded/unscanned paths.
+4. Show user/out-of-band drift **before rollback**. Start by refusing to overwrite it or requiring an explicit reconciliation. Do not promise rollback of bytes that were never saved.
+5. Independently fix native-write crash consistency: current `write` changes disk bytes before the engine records the journal entry. Consider a pre-write intent/preimage and a recoverable committed/failed state.
+6. If manifests show substantial drift, evaluate snapshotting selected changed file contents with retention/deduplication and a conflict policy; only afterward consider restoring unjournaled user edits.
+
+### Why multi-file restoration may be partial
+
+`RestorePlan::apply_inner` validates all tracked targets, then **modifies each file and journals that operation in sequence**. File replacement can be atomic individually without making an entire set of file edits atomic. For instance, a later file might be changed concurrently, an I/O or disk-full error may happen, or the journal write may fail after a prior file was updated. The code reports such failures, but cannot undo all prior mutations automatically. A SQLite transaction alone doesn't make the filesystem atomic.
+
+This does not invalidate native-write restoration for normal supervised workflows. It describes an engineering limit to test on a representative project before choosing whether to add a recoverable multi-file transaction mechanism.
+
+### Exit criteria for recording work
+
+- Detect a manual edit, a new untracked project file and a deletion between steps within the declared scan scope.
+- Identify which changes are already explained by the native journal.
+- Make excluded paths and missing snapshots explicit.
+- Keep prior restore/fork behaviors intact, including changes recorded before the recording feature.
+- Test crash after native write but before journal commit, plus partial restore errors.
+- Show measured scan time/storage size for realistic small and medium repositories.
+
+**Decision:** no whole-project rollback engine is authorized by this research task. Workspace recording goes on the TODO first; the heavier rollback ideas can remain optional.
+
 ---
 
 **Definition of UX success:** Greenlight should feel like a reliable supervisor's workbench: the user can delegate, observe, read evidence, decide, recover, and audit every outcome without losing control of the underlying workflow.

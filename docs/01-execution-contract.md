@@ -48,6 +48,8 @@ stateDiagram-v2
 
 ## Agent protocol
 
+The **authoritative field-by-field reference** for coding-agent YAML responses is [Agent action protocol](13-agent-action-protocol.md), grounded in the implemented `AgentAction` parser, tool handlers and engine dispatch. Examples below are illustrative and should not be treated as an additional schema.
+
 Actions are single YAML mappings. Content fields may contain multiline Markdown.
 
 ```yaml

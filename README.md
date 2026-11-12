@@ -67,7 +67,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 ## Design summary
 
-- YAML frontmatter, YAML agent action protocol, Markdown prompt bodies.
+- YAML frontmatter, YAML agent action protocol, Markdown prompt bodies. **Agent output fields and semantics:** [docs/13-agent-action-protocol.md](docs/13-agent-action-protocol.md) (current parser is the enforcement authority).
 - Fresh model context for each step, populated with selected registered artifacts.
 - Required artifacts checked per attempt; additional artifacts are always allowed.
 - Explicit verification, including `type: none`; composite `all` and `any` supported at one level.
@@ -87,8 +87,9 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval; require an extra explicit confirmation for persistent project/global grants.
 - [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
 - [ ] Add robust per-session execution ownership and stale-run recovery; prevent simultaneous CLI/TUI resumes of the same session.
-- [ ] Separate **saved permission grants** (session/project/global) from **pending requests**: persist the former according to scope; discard pending requests on worker death/crash, with an audit record but no replay. Add real session-scoped grants (current `a` is process-only).
+- [ ] On a worker crash, discard unanswered permission requests; preserve already-saved grants according to scope. A real durable session grant (today `a` only covers the process) is a separate lower-priority task.
 - [ ] Make artifact publication and its event consistent under write failure/crash; test recoverable failure instead of trusting a dangling `artifact.created` event.
+- [ ] Close the native-write **apply-before-journal** crash window: record intent/preimage before writing and reconcile any interrupted writes.
 - [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
 
 ### P1 — TUI redesign for daily use
@@ -102,8 +103,9 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
 - [ ] Explore model-authored **activity titles** at each response/action boundary (e.g. `Exploring call sites`, `Testing first fix`); record titles as annotations, not as verified execution facts. Optionally allow multiple logical phases within one workflow step.
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
-- [ ] Introduce durable step/attempt IDs and explicit disconnected/expired request states; don't promise resuming in-flight tool calls after a crash.
+- [ ] Introduce durable step/attempt IDs and clear worker-crash recovery; pending permission requests are discarded, not resumed.
 - [ ] Capture each step's **actual resolved context manifest at execution time**: definition, selected artifact versions and accepted plan; a future UI must never reconstruct this from latest-by-name state.
+- [ ] **Workspace recording first:** at session start and step boundaries capture bounded project-file manifests (paths, existence, hashes and exclusions); compare against the native-write journal to detect out-of-band changes and assess restore coverage. Start with recording, not automatic rollback.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.
 - [ ] Split the large TUI controller incrementally into tested focus routing, activity, Markdown reader, approval and recovery components; render artifacts without blocking input.
 - [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.
@@ -111,10 +113,13 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 ### P2 — supervised intelligence and stronger recovery
 
 - [ ] Consider an inexpensive **optional summarizer** for long steps or completed workflows, run asynchronously and display evidence-linked output when ready; compare it against coding-agent-authored short activity titles. Never block execution on summarization.
+- [ ] Maintain the [agent YAML contract reference](docs/13-agent-action-protocol.md), embedded model prompt, runtime parser and protocol tests together; implement optional `activity_title` only after formalizing its validation.
 - [ ] Add a **manager/coordinator** role that answers grounded questions, forwards coding requests, and suggests valid workflow navigation; actual transitions remain checked by the harness. Implement separately from the TUI foundation.
 - [ ] Make the message recipient explicit (**Instruct coding agent** vs **Ask manager**) to avoid unexpected mutations.
 - [ ] Support manager **side questions** that cite a consistent evidence snapshot without changing the coding-agent context; make question history/retention explicit.
 - [ ] Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
+- [ ] Evaluate **snapshotting changed file bodies** at step boundaries only after hash manifests reveal a useful gap; define size/privacy/caches policy and whether external edits should be restored or simply protected from overwrite.
+- [ ] Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
 - [ ] Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
 - [ ] Improve diff review (file list, hunk navigation, copied patch), final workflow recap and exportable verification evidence.
 - [ ] Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
@@ -124,6 +129,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 - [ ] Implement **manager-proposed** retry/goto/restart after deterministic recovery actions are available; validate proposed target/checkpoint in Rust and show the normal restore/confirmation screen.
 - [ ] Optimize artifact loading when profiling warrants it: fetch lightweight metadata, load the selected body on demand, and cache by immutable version ID. Keep as a documented scaling task, not an immediate blocker.
+- [ ] Revisit full-workspace / multi-file atomic rollback only if measured drift and restoration failures justify the extra complexity; document the current restore's partial-error handling.
 
 - [ ] Model response streaming, clean cancel/interrupt/queue semantics and resumable sessions across process restarts.
 - [ ] Safe Git-aware checkpoints and patch export; do not imply native restore captures arbitrary workspace changes.
@@ -134,7 +140,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Branch graph/time-travel visualization, saved views, accessibility/contrast testing and performance profiling.
 - [ ] Consolidate older v0.1 docs whose pre-sandbox/pre-TUI wording is now obsolete.
 
-**Prioritization rule:** build and validate one feature at a time. Keep the ambitious TUI direction, but distinguish execution facts from model-authored UI titles, preserve saved grants while dropping pending requests after crashes, and keep the existing native-write rollback scope explicit. Models may coordinate, summarize and propose; the harness applies permissions, verification and transitions.
+**Prioritization rule:** build and validate one feature at a time. Start with native write reliability and project-file recording; broader restoration can wait until we understand real coverage gaps. Keep the ambitious TUI direction, but distinguish execution facts from model-authored UI titles, preserve saved grants while dropping pending requests after crashes, and keep the existing native-write rollback scope explicit. Models may coordinate, summarize and propose; the harness applies permissions, verification and transitions.
 
 ## Caveats (read before use)
 
