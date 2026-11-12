@@ -79,15 +79,16 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 ## Roadmap / TODO
 
-> **Status:** proposed, prioritized backlog — not a list of finished features. PR #6 is an evolving TUI baseline, **not** the end-state UX. The detailed product rationale, hot paths, interaction rules, [competitive harness benchmark](docs/12-tui-ux-analysis.md#15-external-harness-benchmark-research-snapshot-2026-11-12) and acceptance criteria live in [the TUI UX analysis](docs/12-tui-ux-analysis.md).
+> **Status:** proposed, prioritized backlog — not a list of finished features. PR #6 is an evolving TUI baseline, **not** the end-state UX. The detailed product rationale, hot paths, interaction rules, [competitive harness benchmark](docs/12-tui-ux-analysis.md#15-external-harness-benchmark-research-snapshot-2026-11-12) and acceptance criteria live in [the TUI UX analysis](docs/12-tui-ux-analysis.md). Read its [critical design review](docs/12-tui-ux-analysis.md#16-critical-design-review--what-could-go-wrong-2026-11-12) before adding new subsystems.
 
 ### P0 — stabilize the current interactive baseline
 
 - [ ] Finish local PR #6 validation: tests, Clippy, format check, generated Cargo.lock, and real-terminal smoke tests of the composer, permissions, artifacts and restore/fork.
-- [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval.
+- [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval; require an extra explicit confirmation for persistent project/global grants.
 - [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
 - [ ] Add robust per-session execution ownership and stale-run recovery; prevent simultaneous CLI/TUI resumes of the same session.
-- [ ] Give each pending approval a durable request ID, decision receipt, and safe reconnection/replay behavior; reject stale/duplicate decisions.
+- [ ] Give pending approvals a stable request ID and decision receipt; expire interrupted requests safely and reject stale/duplicate replies. **Do not replay an approval after the worker that requested it has died.**
+- [ ] Make artifact publication and its event consistent under write failure/crash; test recoverable failure instead of trusting a dangling `artifact.created` event.
 - [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
 
 ### P1 — TUI redesign for daily use
@@ -96,30 +97,32 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Add a session home/picker with readable names, blocked-first visibility, last activity, search and an in-TUI start flow.
 - [ ] Implement contextual blocked-state cards: show reason/evidence, inspect related artifacts, retry, resume or restart safely.
 - [ ] Make focus, keyboard shortcuts, composer mode, help, scroll-follow behavior and pane resizing coherent and discoverable.
-- [ ] Render artifacts as **terminal Markdown** (headings, lists, code, tables, links); support Preview/Raw, search, safe escaping and long documents.
-- [ ] Add artifact version history and provenance (step, branch, attempt/event, timestamp), with version diffs and pinned review/approval evidence.
+- [ ] Render a safe **minimal Markdown** subset (headings, lists, emphasis, code, links as inert text) with Preview/Raw, robust wrapping and escaped terminal controls. Defer complete GFM, syntax highlighting and images.
+- [ ] First persist stable artifact version identities and selected-input manifests; then add history/provenance, version diffs and **exact pinned approval evidence** (not merely the latest artifact).
 - [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
-- [ ] Introduce durable step/attempt IDs, typed pending decisions and reliable interruption/reconnection semantics.
-- [ ] Provide a per-attempt **context manifest**: exact step definition, selected artifact versions, code/evidence sources and accepted plan version.
-- [ ] Define explicit **Ask / Instruct / Steer / Queue / Stop** composer behavior, with safe boundaries and no wrong-branch delivery.
-- [ ] Split the large TUI controller into tested focus routing, activity, Markdown reader, approval and recovery components; cache/lazily render long content.
+- [ ] Introduce durable step/attempt IDs and explicit disconnected/expired request states; don't promise resuming in-flight tool calls after a crash.
+- [ ] Capture each step's **actual resolved context manifest at execution time**: definition, selected artifact versions and accepted plan; a future UI must never reconstruct this from latest-by-name state.
+- [ ] Make the current composer explicitly **Instruct agent**; design but **defer** Ask/Steer/Queue/Stop until each mode has safe authority, cancellation and branch-delivery semantics.
+- [ ] Split the large TUI controller incrementally into tested focus routing, activity, Markdown reader, approval and recovery components; fetch artifact metadata before loading selected bodies, and lazily render long content.
 - [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.
 
 ### P2 — supervised intelligence and stronger recovery
 
-- [ ] Add an optional **summarizer** model role: cache evidence-linked step/workflow summaries, clearly distinguish claims from verified results, and fall back to facts when unavailable.
-- [ ] Add an optional read-only **manager** model role: answer questions using relevant code, artifact versions, workflow definitions and event evidence, with sources.
-- [ ] Let the manager **propose** retry/goto/restart actions via a typed schema; require Rust-side validation, guarded restore previews and explicit user confirmation. No direct manager tool execution or permission grants.
+- [ ] **Validate demand first** for an optional summarizer: ship deterministic factual step cards, then test whether model summaries improve comprehension enough to justify latency, cost, privacy and stale-cache risks.
+- [ ] **Prototype only if needed** a read-only manager: answer questions from bounded, cited evidence with no tool/transition authority; measure value versus deterministic recovery/evidence controls.
 - [ ] Make the message recipient explicit (**Instruct coding agent** vs **Ask manager**) to avoid unexpected mutations.
 - [ ] Add read-only manager **side questions** that cite a consistent evidence snapshot without changing the coding-agent context or silently persisting private questions.
 - [ ] Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
 - [ ] Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
 - [ ] Improve diff review (file list, hunk navigation, copied patch), final workflow recap and exportable verification evidence.
-- [ ] Evaluate optional **staged multi-file changesets** with preview, review, conflict-checked apply and verified-result linkage; keep the native edit journal.
+- [ ] **Feasibility study only:** is there enough review value to justify staged multi-file changesets, including staged verification, conflict-aware apply and the existing native journal?
 - [ ] Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
 
 ### P3 — longer-term capabilities
+
+- [ ] Reconsider **manager-proposed** retry/goto/restart only after deterministic recovery has proven insufficient; enforce typed validation, explicit preview and confirmation, with no manager execution permission.
+- [ ] Consider complete GFM tables, syntax-highlighting and in-terminal images only after the minimal Markdown reader passes usability/performance tests.
 
 - [ ] Model response streaming, clean cancel/interrupt/queue semantics and resumable sessions across process restarts.
 - [ ] Safe Git-aware checkpoints and patch export; do not imply native restore captures arbitrary workspace changes.
@@ -130,7 +133,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Branch graph/time-travel visualization, saved views, accessibility/contrast testing and performance profiling.
 - [ ] Consolidate older v0.1 docs whose pre-sandbox/pre-TUI wording is now obsolete.
 
-**Prioritization rule:** reliable execution and human decisions before UI polish; usable artifact/recovery paths before optional AI-manager autonomy. Anything that can alter permissions, workflow history, or files requires clear provenance and a deliberate user decision.
+**Prioritization rule:** ship the *smallest trustworthy supervised workflow* first: inspect evidence → review artifacts → decide → resume or guarded restart. Reliable execution and human decisions before visual polish; deterministic status before model summaries. No full rollback promises, transparent crash-time approval expiry, and no additional LLM role or staging engine without demonstrated user value.
 
 ## Caveats (read before use)
 

@@ -595,6 +595,80 @@ User expectation: “Show me the overall patch before it touches my files.”
 
 **Research-driven order of work:** typed interaction lifecycle → readable, navigable evidence → provenance/context inspection → optional manager and summaries → staged multi-file change sets.
 
+## 16. Critical design review — what could go wrong? (2026-11-12)
+
+**Purpose:** challenge our own roadmap before committing to a large TUI rewrite or additional models. These are **technical findings plus design judgments**, not evidence from usability trials. Severity is about consequences if we implement the idea naively; it is not a prediction that a particular failure will occur.
+
+### 16.1 Risk register
+
+| Idea | Substantial drawback / failure mode | What current code tells us | Recommendation and evidence required |
+| --- | --- | --- | --- |
+| **Manager model controls flow** | A proposed transition can be valid but inappropriate; an LLM can misunderstand artifact provenance, carry prompt injection from code, or accidentally become a second source of authority. Human confirmation can become rubber-stamping. | The workflow engine applies strict transitions; models are not currently a trusted policy engine ([engine.rs](../src/engine.rs)). | **Defer manager-driven transitions.** First make deterministic Retry, Resume, Inspect and Restart genuinely usable. Prototype Q&A read-only. Adopt proposals only after tests show a clear usability gain over a conventional recovery menu. |
+| **Summarize every step** | Additional latency, token spend, external data transfer, and plausible-but-wrong narrative. Cached summaries may describe old artifacts; a summary can become more visible than the real verification result. | Events and required artifacts already provide factual checkpoints, but no stable attempt IDs or summary provenance. | **Do not auto-summarize every action.** Start with deterministic status cards from events; consider opt-in summaries on completed/blocked attempts, with linked evidence/version IDs and a measured cost budget. |
+| **Rewind/restart as a primary action** | “Go back” can sound like full rollback, including dependencies, external APIs, Git and manual edits. A multi-file restore can partially succeed before error, leaving mixed state. | [restore.rs](../src/restore.rs) only handles journaled native edits/restores and applies files one at a time. | **Separate workflow fork, code restoration and retry.** Call out coverage before confirmation, provide detailed diff, stop on conflicts, offer an explicit *no-restore fork* path only with clear warnings. Do not present it as full time travel. |
+| **Persistent approvals that replay after a crash** | A restored prompt is not a restored in-flight tool call. Without exact action identity and atomic decision consumption, an old approval could authorize a new call or be consumed twice. | [tui_actions.rs](../src/tui_actions.rs) uses thread-local channels and [tools.rs](../src/tools.rs) awaits a blocking receiver; those vanish with the process. | **P0: identify and audit live requests.** On crash, mark pending requests *expired*, require new execution/approval; **defer transparent replay** until a durable runner/action protocol exists. Exactly-once *effects* are a separate unsolved problem. |
+| **One-key project/global approval** | Typing a single `g` can silently create a long-lived, broad grant; native write grants authorize **any permitted project path**, not necessarily the displayed diff. The convenience can defeat the whole purpose of human supervision. | [tools.rs](../src/tools.rs) persists project/global `write` grants; TUI sends recognized keys immediately. | **P0: add a second, explicit confirmation** for persistent scope grants (especially global writes), with scope warning. Keep single-key one-time approval. Record whether persistence succeeded; never report a grant until acknowledged. |
+| **Full Markdown renderer** | GFM tables, nested syntax, ANSI/OSC escape injection, wide Unicode, links, images, huge fenced blocks and reflow create both security and performance work. It is easy to spend weeks polishing a renderer that does not improve the actual human decision. | [tui.rs](../src/tui.rs) currently shows raw UTF-8; artifacts can contain model-generated untrusted text. | Start with **safe headings, lists, emphasis, blockquotes, code and wrapping**, plus Preview/Raw. Delay syntax highlighting, full GFM and images. Preserve a raw fallback and test terminal control escapes before shipping. |
+| **Complete artifact version history and context manifest** | “Which version did the agent see?” cannot be reconstructed reliably if the exact selected artifact IDs were never recorded. Showing the latest artifact next to an old approval may misrepresent the decision. More metadata joins/IDs add persistence complexity. | [store.rs](../src/store.rs) returns latest-by-name `Artifact { name, content, step }`, without exposed event/version identity; [engine.rs](../src/engine.rs) selects artifacts to build context. | First record the **resolved input manifest per attempt** and version IDs **at selection time**; only then build historical provenance and pinned approval UI. Never silently substitute a newer artifact. |
+| **Artifact browser as always-live, full-text view** | Polling and parsing every artifact version creates unnecessary disk/CPU work; large histories and UI rendering can stall keyboard response. | [tui.rs](../src/tui.rs) refreshes the session and [store.rs](../src/store.rs) reads all branch-visible artifact blob bodies to pick latest by name; it currently re-reads even when the artifact tab is not selected. | Fetch **metadata/index incrementally**, load only the selected artifact body on demand, and cache by immutable version ID. Treat this as an early performance prerequisite, not a future visual nice-to-have. |
+| **Immutable artifacts guarantee clean provenance** | A generated event can claim “artifact created” before the content blob/database entry exists, producing a misleading success event on I/O failure. | [store.rs](../src/store.rs) currently calls `event("artifact.created")`, then writes the blob, then inserts the artifact row without one transaction covering publication. | **P0 data integrity:** publish artifact+event coherently, or use a recoverable pending/committed state and reconciliation; test interrupted writes and storage failure. The TUI must distinguish failure from successfully registered evidence. |
+| **Live steer, queue and stop** | Model completions and external tool calls may not be interruptible safely. Cancellation can leave edits and artifacts partially applied; queued instructions may target a step that completed or a branch that was forked. | Greenlight starts a fresh context for each step and the TUI currently controls one worker; there is no interrupt/queue protocol. | **Defer arbitrary mid-turn steering.** Offer “send next-step instruction” only when target and delivery boundary are explicit; design cancellation and partial-effect semantics before claiming a reliable Stop button. |
+| **Linear workflow stepper** | A horizontal progress bar suggests forward-only progress, but workflows have configured goto/retry loops; a step can have multiple attempts and verification can fail after code changes. | [config.rs](../src/config.rs) supports deviation `goto`, bounded `retry`, and graph transitions. | Use a compact **current step + last transition + attempt number** summary; mark previous attempts separately. Show full graph only on demand. A progress percentage is misleading unless it represents an actual bounded plan. |
+| **Staged multi-file changesets** | This changes execution topology, not just the UI: model edits must go into staging, command verification must run against staged content, and the eventual apply must handle drift/conflicts. It may duplicate Git's job and complicate sandbox rules. | Native `write` updates the working tree immediately; Bubblewrap shell views a read-only project, not a separate staged overlay. | **Research spike only, not committed roadmap.** Test whether a Git worktree/temporary workspace prototype can serve the need. Avoid implementing a second change engine unless real use shows the journal + review is inadequate. |
+| **Big multi-pane redesign** | Extra tabs, overlays, modes and shortcuts can increase cognitive load. A wide desktop-like layout can fail in 80×24 terminals. Rewriting the TUI all at once risks breaking a working agent control path. | Current [tui.rs](../src/tui.rs) already combines app state, key routing, engine control and rendering in one large module. | Agree on 3–4 critical screens, one visible primary action and consistent focus. Extract UI components incrementally with terminal snapshot/interaction tests. **Do not implement every proposed panel before testing use.** |
+| **Two additional LLM roles by default** | Expense, latency, duplicated context, model/provider configuration burden, failure and privacy surface. Small projects may get worse UX from unnecessary conversational layers. | Provider currently has one primary configured model; the workflow may override per step. | Keep **zero extra LLM calls by default**. Treat summarizer/manager as independently optional experiments with explicit evidence retrieval, budgets and disable/fallback paths. |
+
+### 16.2 Where the proposed roadmap is internally inconsistent
+
+1. **We promise a “simple, obvious next action” while proposing many modes.** Ask / Instruct / Steer / Queue / Stop / Retry / Fork / Restore are not eight equivalent buttons. The MVP should emphasize **Inspect → Resume with instruction**, with **Restart** available as an advanced, explicit operation. Only introduce Ask/Queue/Stop after validating what users actually need.
+2. **We want instant one-key decisions and careful scope review.** These conflict for persistent `p`/`g` grants. Use instant `y`/`n` for a single request, but require a deliberate extra confirmation for persistent broad grants. Do not add a “remember forever” shortcut purely to save keystrokes.
+3. **We prioritize crash-safe approval replay before durable execution exists.** Persisting an answer does not resume its recipient. Short-term correctness means a pending prompt **expires safely**, not that it is invisibly replayed after a restart.
+4. **We market “human-supervised” but allow artifacts to outrun review.** A step can generate multiple versions of the same plan; a human may approve a snapshot then the agent produces a newer document. Review needs **version pinning** and explicit accepted/superseded state, not merely latest-by-name display.
+5. **We call the TUI an interactive conversation while still running a strict step engine.** Arbitrary ongoing chat may violate the deterministic step/input/verification contract. A composer should state the recipient and operational meaning. Questions must not masquerade as execution instructions.
+6. **We propose real-time summaries alongside a costly polling model.** Before adding inference work, fix the underlying UI data loading and event metadata. Most “what happened?” screens should be populated without contacting any model.
+
+### 16.3 Re-scope into a testable first redesign
+
+A **small but dependable** daily-driver experience should include:
+
+- Session picker, readable status and a truthful **current step / latest attempt** indicator.
+- Activity timeline grouped into step, artifact, tool, verification and error cards; raw log drill-down preserved.
+- Artifact **safe Markdown preview** and raw toggle, selected content loaded on demand.
+- Evidence-first blocked state with **Inspect**, **Resume with instruction**, and clearly guarded **Restart**.
+- Typed approvals with correct scope, explicit outcome, persistent-grant confirmation and safe worker-loss behavior.
+- Small terminal keyboard navigation, persistent selection/scroll, failure messages, deterministic tests.
+
+**Explicitly out of this first redesign:** manager model, automatic summarizer, arbitrary mid-turn steering, queued actions, multi-file staging, rich graph visualizer, embedded Markdown editor, remote decisions and full Git-integrated rollback.
+
+The goal is not feature parity with OpenCode or Codex. It is a **short path from “blocked” to “understand → decide → safely continue”** without any false implication that a model or a checkpoint knows more than it does.
+
+### 16.4 Decision gates before adding complexity
+
+| Candidate feature | Required evidence before implementation |
+| --- | --- |
+| Manager Q&A | Users cannot answer “why blocked?” quickly using structured evidence alone; bounded retrieval can reliably cite exact artifact/event IDs; prompt-injection and privacy tests pass. |
+| Manager action proposals | The deterministic recovery interface already works; proposals improve task completion or time-to-recovery in controlled examples; every operation is validated and confirmed. |
+| Summarizer | Human review of factual activity cards is too slow; a small evaluation set shows faithful, source-linked summaries; cost/latency and failure behavior meet a chosen budget. |
+| Staged changesets | Existing one-file approvals + final diff review fail realistic multi-file review tasks; a prototype proves verification on staged content and safe conflict-aware apply. |
+| Active steer/queue/stop | We have well-defined tool cancellation, disposition of partial writes, branch-targeting, stale queue invalidation and recoverable attempt state. |
+| Persistent approval replay | A durable runner can reattach to an **existing, still-live** request; response is tied to action ID and consumed once. On process death, use expiry and re-execution, not magic continuation. |
+| Full Markdown/GFM support | Core document review is already usable and terminal/layout tests show a real gap; malicious control-code inputs remain harmless. |
+| Complete graph/history UI | Repeated attempts and loops have durable IDs and users need navigation beyond the current step and historical evidence list. |
+
+### 16.5 Stop conditions and measured success
+
+Before making a PR for a major new subsystem, write one scenario it will improve and one failure it must not cause. A feature can be postponed or removed if it adds more approvals, latency, visual complexity or persistent state than the value it delivers.
+
+Start with four checks on the actual current TUI:
+
+1. **Comprehension:** in a blocked session, can a user name the failing step and find evidence in under ~10 seconds without asking an LLM?
+2. **Control:** can they approve once, explicitly decline, and resume with a revised instruction without mistaking one outcome for another?
+3. **Recoverability:** can they explain what a restart will and will not restore after reading its preview?
+4. **Performance:** can they navigate a session with thousands of events and long artifacts without keyboard lag or confusing scroll jumps?
+
+**Change of posture:** these concerns are not arguments against good UX. They are reasons to ship the *smallest trustworthy interaction* first, and make every additional model, pane and execution feature earn its complexity.
+
+
 ---
 
 **Definition of UX success:** Greenlight should feel like a reliable supervisor's workbench: the user can delegate, observe, read evidence, decide, recover, and audit every outcome without losing control of the underlying workflow.
