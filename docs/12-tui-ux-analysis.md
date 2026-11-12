@@ -599,6 +599,8 @@ User expectation: “Show me the overall patch before it touches my files.”
 
 **Purpose:** challenge our own roadmap before committing to a large TUI rewrite or additional models. These are **technical findings plus design judgments**, not evidence from usability trials. Severity is about consequences if we implement the idea naively; it is not a prediction that a particular failure will occur.
 
+**Status note:** this is the original risk analysis. Its assumptions were revisited with the project owner in [Section 17](#17-decisions-after-critique--scope-and-semantics). Where the two differ, Section 17 records the current agreed direction.
+
 ### 16.1 Risk register
 
 | Idea | Substantial drawback / failure mode | What current code tells us | Recommendation and evidence required |
@@ -667,6 +669,100 @@ Start with four checks on the actual current TUI:
 4. **Performance:** can they navigate a session with thousands of events and long artifacts without keyboard lag or confusing scroll jumps?
 
 **Change of posture:** these concerns are not arguments against good UX. They are reasons to ship the *smallest trustworthy interaction* first, and make every additional model, pane and execution feature earn its complexity.
+
+
+## 17. Decisions after critique — scope and semantics
+
+The previous section deliberately over-indexed on failure modes. The ensuing product discussion clarified what Greenlight is trying to accomplish and which concerns are **real technical boundaries** versus **premature reasons to remove a feature**. This section records the revised direction, superseding conflicting recommendations in Section 16.
+
+### 17.1 Keep the manager as a coordinator, but implement it separately
+
+- A **manager/coordinator** may answer questions, help interpret artifacts/code, or suggest retry/restart/step navigation. It need not interfere with an ordinary coding-agent instruction: if the user is addressing the coding agent, the manager (or a deterministic router) can **pass the instruction through unchanged**.
+- The UI should make it understandable whether a response is an explanation, a forwarded instruction, or a **proposed** action. We do not need to force an extra “are you talking to the manager?” confirmation at every turn.
+- The manager need not be weak or unreliable to create a state ambiguity. The real contract is that **the Rust harness validates and commits transitions, permissions and restore operations**, using the same enforcement as direct user actions.
+- Keep the feature on the roadmap. Implement the TUI and deterministic workflow operations first **one feature at a time**; build the manager afterward without reopening the whole interface.
+
+### 17.2 Rollback is intentionally based on recorded native writes
+
+- **The existing rollback works for files edited through Greenlight's native `write` tool.** Every native edit records its before/after contents; the restore planner reconstructs eligible tracked file states from that journal.
+- Shell commands in the Bubblewrap sandbox have a **read-only project view**, so the common agent workflow is far less exposed to untracked in-project script edits than a general host-shell agent. This makes the native-write strategy a reasonable design, not a fundamentally broken rollback system.
+- Exceptions remain: manual/concurrent edits, files never written through the native tool, temp/build caches, external side effects and a **partial multi-file restore**. The practical impact should be measured in actual workflows, not assumed to be disastrous.
+- **Keep the current rollback design** and improve its reliability/tests; do not introduce Git or a staging engine as a prerequisite. A restore confirmation should state its tracked-file coverage without sounding like full environment time travel.
+
+### 17.3 Saved grants survive their scope; pending requests do not
+
+These are different lifecycle concepts:
+
+| Kind | Desired lifetime | Present implementation |
+| --- | --- | --- |
+| Approve once | This specific request | Supported |
+| Process grant (`a`) | This process only | Supported |
+| **Session grant** | A single session across its resumed runs and processes | **Not yet supported; add a durable session-scoped grant** |
+| Project grant (`p`) | Subsequent uses within the project, subject to policy | Supported |
+| Global grant (`g`) | Subsequent uses across projects, subject to policy | Supported |
+| **Pending, unanswered request** | Only while the requesting worker/action is live | In-memory channel today; **discard on crash**, never replay to an unrelated new request |
+
+- **Do not implement persistent pending-approval replay.** On worker death, mark the request interrupted/expired for diagnostics and require a fresh permission check if execution restarts. The saved grants remain; pending requests do not.
+- Tracking a request ID can still be useful during a **live** UI session for correctness and audit. It does not require a durable, resumable worker protocol.
+- Favor convenient one-off decisions, but for broad persistent write grants make the full scope unmistakable. Consider deliberate confirmation for global write trust while avoiding needless friction for `y`.
+
+### 17.4 Prefer coding-agent-authored activity titles; summarization is optional
+
+The target is **short, human-readable progress**, not summarizing every tool call with a second model. Examples:
+
+- “Exploring call sites”
+- “Adding temporary diagnostics”
+- “Trying the first fix”
+- “Verifying behavior”
+
+A practical approach is to let the **coding model emit an optional short `activity_title`** describing the intention of its next action. Greenlight records that text alongside the structured action. If a single workflow step includes several logical phases, subsequent responses can update the title. A second model may provide a concise completed/blocked **step recap** if useful.
+
+**Protocol constraint:** Greenlight currently expects **one YAML action per model response**. Unstructured prose before the YAML or multiple independent action blocks will break that contract. A title should therefore be an **optional validated field** on the action (or a separately typed metadata event), not an instruction to produce free-form preambles. Changing this requires a small, explicit protocol revision and tests.
+
+**Accuracy:** a title is a *model-authored intent label*, not evidence that the step was completed or tests passed. Tool outcomes, artifact creation and verification states still come from harness events.
+
+A lightweight summarizer model is a valid option: model choice can keep cost small, and **running it asynchronously** can avoid blocking execution. It still needs to operate on a defined evidence snapshot; a slow or failed summary must never hold up the step or silently overwrite verified state. We should compare whether the activity-title approach already provides enough clarity before adding another inference pass.
+
+### 17.5 Markdown scope is deliberately modest
+
+The requested artifact UX is **clear headings, bold/italic or highlighted text, readable code and perhaps simple tables**. A small palette of colors and whitespace can make this much easier to scan in a terminal.
+
+- Implement headings, emphasis/highlights, basic lists/code, and optionally modest-width tables.
+- Keep a raw-content toggle and neutralize terminal escape/control sequences from untrusted artifact text.
+- Do not require complete CommonMark/GFM behavior, images, sophisticated syntax coloring or a general-purpose Markdown browser.
+
+This remains a useful early TUI feature, not a reason to postpone the redesign.
+
+### 17.6 Multi-file review means grouped *native* edits, not scripts
+
+The coding agent is directed to use the native **`write` tool** for project source edits; sandbox shell commands cannot write to the project's read-only mount. All native writes are journaled.
+
+“Staged multi-file changes” was a separate, more ambitious idea: *withhold several proposed edits from the real workspace until a combined diff is approved*. That is **not necessary** for normal recorded edits and is **not** part of the current contract.
+
+- We can show a **combined diff of all recorded writes within a step/attempt** without changing execution semantics.
+- Grouping already-applied diffs for review does not retroactively make them pre-apply approvals.
+- Only investigate true pre-apply staging if we encounter a concrete use case where separate write approvals and post-edit group review are insufficient.
+
+### 17.7 Live steering: useful, with one unavoidable API boundary
+
+The intended use is **intervening while the LLM is working**, not arbitrarily undoing code edits or tool side effects. That's a sensible UX goal.
+
+The technical distinction: a normal in-flight model completion request generally **cannot absorb a new user message after it has been sent**. Steering can mean:
+
+1. **Cancel and reissue** the model request with new instructions, if the provider/client supports reliable cancellation; or
+2. **Deliver at the next model-call boundary**, including immediately after the current model response and before its next action, subject to explicit handling.
+
+We should call both behaviors what they are, show when the instruction actually took effect, and never imply that a delivered message rewrote an already-issued tool call. This is an implementation constraint, **not a reason to drop live steering**.
+
+### 17.8 TUI redesign and performance
+
+- Keep the **ambitious usability direction** and work iteratively. The user will identify painful interaction paths through hands-on testing. The architecture should support evolving the layout without forcing one giant rewrite.
+- The artifact loading optimization is **recorded in the TODO**, but a small local project does not justify treating it as an immediate blocker. Profile first; then use metadata-first queries, selected-body lazy loading and immutable-version caches if needed.
+- **Artifact publication consistency** is a tangible, bounded correctness fix: ensure an `artifact.created` success event cannot be left behind when blob creation/database insertion fails, with explicit error reporting and recovery tests. Prioritize it independently of visual polish.
+
+### 17.9 Updated working agreement
+
+**Build one feature at a time; retain valuable ideas without inventing needless prerequisites.** Greenlight should offer attractive workflow navigation, good artifact presentation, short activity titles, supervised manager coordination, explicit saved permissions and native-write restoration. The harness—not a model's phrasing—remains the authority for recorded facts, permission enforcement and state transitions.
 
 
 ---
