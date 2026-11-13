@@ -55,7 +55,7 @@ content: |
   }
 ```
 
-`content` is the **complete new file**, not a patch. The write is limited to 100,000 bytes, existing parent directories and checked project-relative paths. The harness compares old/new content, previews a diff, asks permission when policy requires, and rechecks for concurrent changes before applying. Native writes are intended to be journaled for restore. **Current crash gap:** the tool applies the edit before the engine records its journal entry; a process failure in between can leave an unrecorded modification. This is a recording TODO, not an accepted guarantee.
+`content` is the **complete new file**, not a patch. The write is limited to 100,000 bytes, existing parent directories and checked project-relative paths. The harness compares old/new content, previews a diff, asks permission when policy requires, and rechecks for concurrent changes before applying. It durably records original/intended contents before atomic replacement and completes the journal before returning success. Interrupted writes require explicit `recover-writes` reconciliation; conflicts preserve manual edits and block execution. See [native edit history](07-edit-history.md). Explicit restore operations retain separate crash-consistency limitations.
 
 **Run a command**:
 
@@ -93,7 +93,7 @@ content: |
 
 Registers a named, versioned **session artifact** with the current producing step and branch. This is **not** a filesystem write. The content can be multiline Markdown. The name must be safe and relative. The registered body is limited by `session.max_artifact_bytes` (100,000 bytes by default). Registering an artifact does not advance the workflow; a `finish` action is still necessary.
 
-The current store writes an `artifact.created` event, the blob and the artifact database record in sequence. Publication atomicity on failure is an explicit TODO.
+The store syncs the immutable blob before publishing its artifact database record and `artifact.created` event together in a SQLite transaction. Failed publication does not leave a success event. A crash before commit may leave an unreferenced blob; cleanup and repair of older inconsistent histories remain separate work.
 
 ### 2.3 Report a deviation
 
@@ -107,6 +107,8 @@ summary: |
 ```
 
 The model reports a blocker; **it does not choose** whether to retry, jump or stop. The engine looks up `deviation_id` among the step's declared deviation rules, optionally runs an independent detector, then applies the configured `pause`, bounded `retry` or `goto`. An unconfigured ID is reported as an unconfigured deviation and blocks the step. `summary` is optional to the parser but should provide evidence and options.
+
+Each report invokes its configured detector at most once. An accepted report is routed without rechecking. A rejected report is logged and returned to the same agent conversation without routing; malformed responses or detector failures block. Rules without detector prompts do not make a detector request. See [deviation detection](01-execution-contract.md#deviation-detection).
 
 ### 2.4 Finish the current step
 
@@ -160,7 +162,7 @@ Before adding it, update `AgentAction`, `PROTOCOL`, tests and this reference tog
 | Root `greenlight.yaml` | `Config`, `ProviderConfig`, `SessionConfig`, `Permissions`, `Notifications` in [`config.rs`](../src/config.rs) | Configures default provider, budgets, policies and notifications |
 | Workflow `workflow.yaml` | `Workflow`, `StepDefaults` in [`config.rs`](../src/config.rs); [workflow format](02-workflow-format.md) | Declares graph, start and defaults |
 | Step Markdown frontmatter | `Step`, `Inputs`, `Outputs`, `Verify`, `Deviation`, `Transition` in [`config.rs`](../src/config.rs); [workflow format](02-workflow-format.md) | Defines step kind, selected artifacts, constraints, verification, deviations and transitions |
-| Deviation detector result | Local `Detection { detected: bool, reason: String }` in [`engine.rs`](../src/engine.rs) | Internal response from an independent check, **not** a coding-agent action |
+| Deviation detector result | `Detection { detected: bool, reason: String }` in [`engine.rs`](../src/engine.rs) | Internal response from an independent check, **not** a coding-agent action |
 | Agent action response | `AgentAction` in [`tools.rs`](../src/tools.rs); **this document** | Requests exactly one runtime operation or step completion/deviation |
 
 ## 6. Maintenance rules for a genuine ground truth

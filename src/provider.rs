@@ -4,11 +4,30 @@ use serde_json::{json, Value};
 use crate::config::ProviderConfig;
 
 #[derive(Clone)]
-pub struct Provider { client: Client, pub cfg: ProviderConfig }
+pub struct Provider { client: Client, pub cfg: ProviderConfig,
+    #[cfg(test)]
+    pub script: Option<std::sync::Arc<std::sync::Mutex<Script>>>,
+}
+#[cfg(test)]
+#[derive(Default)]
+pub struct Script {
+    pub responses: std::collections::VecDeque<Result<String, String>>,
+    pub requests: Vec<Vec<Value>>,
+}
 impl Provider {
-    pub fn new(cfg: ProviderConfig) -> Self { Self {client:Client::new(),cfg} }
+    pub fn new(cfg: ProviderConfig) -> Self { Self {client:Client::new(),cfg,
+        #[cfg(test)]
+        script: None,
+    } }
     fn key(&self) -> Result<String> { std::env::var(&self.cfg.api_key_env).with_context(|| format!("missing provider key env {}",self.cfg.api_key_env)) }
     pub async fn complete(&self,model:&str,messages:&[Value]) -> Result<String> {
+        #[cfg(test)]
+        if let Some(script) = &self.script {
+            let mut script = script.lock().unwrap();
+            script.requests.push(messages.to_vec());
+            return script.responses.pop_front().unwrap_or_else(|| Err("unexpected provider call".into()))
+                .map_err(anyhow::Error::msg);
+        }
         let data = json!({"model":model,"messages":messages,"max_tokens":self.cfg.max_tokens,"stream":false});
         let r=self.client.post(format!("{}/chat/completions",self.cfg.base_url.trim_end_matches('/')))
             .bearer_auth(self.key()?).json(&data).send().await.context("provider request failed")?;

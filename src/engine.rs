@@ -82,6 +82,23 @@ impl Engine {
         extra: Option<&str>,
         model_override: Option<&str>,
     ) -> Result<()> {
+        let owner = self.store.claim_execution(session_id, extra)?;
+        let result = self.run_owned(session_id, extra, model_override).await;
+        let cleanup = self.store.finish_execution(session_id, &owner, result.as_ref().err());
+        match (result, cleanup) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(()), Err(error)) => Err(error.context("could not release execution ownership; recover-session is required")),
+            (Err(error), Err(cleanup)) => Err(error.context(format!("execution cleanup also failed: {cleanup:#}; recover-session is required"))),
+        }
+    }
+    async fn run_owned(
+        &mut self,
+        session_id: &str,
+        extra: Option<&str>,
+        model_override: Option<&str>,
+    ) -> Result<()> {
+        self.store.ensure_no_pending_writes()?;
         let mut s = self.store.session(session_id)?;
         let mut steps = 0usize;
         while s.status != "completed" && steps < 100 {
@@ -143,6 +160,7 @@ impl Engine {
                     format!("workspace recording also failed: {audit_error:#}"),
                 )),
             };
+            let already_detected = matches!(&outcome, Ok(Outcome::DetectedDeviation(..)));
             match outcome {
                 Ok(Outcome::Done(summary)) => {
                     self.store
@@ -159,7 +177,7 @@ impl Engine {
                         self.notify(&s, "Session completed").await;
                     }
                 }
-                Ok(Outcome::Deviation(id, summary)) => {
+                Ok(Outcome::Deviation(id, summary)) | Ok(Outcome::DetectedDeviation(id, summary)) => {
                     self.store.event(
                         &s,
                         Some(&step.id),
@@ -168,76 +186,19 @@ impl Engine {
                     )?;
                     console_println!(self, "[deviation: {id}] {summary}");
                     let rule = step.deviations.iter().find(|d| d.id == id);
-                    if let Some(rule) = rule {
-                        if let Some(prompt) = &rule.prompt {
-                            let check = config::render_includes(
-                                &format!("{{{{ include \"{prompt}\" }}}}"),
-                                &self.root,
-                                &workflow.folder,
-                            )?;
-                            let query=format!("Evaluate whether this deviation is supported by available evidence.\nRule: {}\nInstructions: {}\nAgent report: {}\nReturn YAML only: detected: true|false\nreason: explanation",id,check,summary);
-                            let verdict = self
-                                .provider
-                                .complete(
-                                    &resolved_model,
-                                    &[json!({"role":"user","content":query})],
-                                )
-                                .await;
-                            match verdict {
-                                Ok(raw) => {
-                                    self.store.event(
-                                        &s,
-                                        Some(&step.id),
-                                        "deviation.detector",
-                                        &raw,
-                                    )?;
-                                    #[derive(Deserialize)]
-                                    struct Detection {
-                                        detected: bool,
-                                        reason: String,
-                                    }
-                                    let raw = raw
-                                        .trim()
-                                        .trim_start_matches("```yaml")
-                                        .trim_start_matches("```yml")
-                                        .trim_end_matches("```")
-                                        .trim();
-                                    match serde_yaml::from_str::<Detection>(raw) {
-                                        Ok(v) if v.detected => {
-                                            console_println!(self, "[deviation validated] {}", v.reason)
-                                        }
-                                        Ok(v) => {
-                                            self.block(
-                                                &mut s,
-                                                &format!(
-                                                    "detector rejected deviation {id}: {}",
-                                                    v.reason
-                                                ),
-                                                &step.id,
-                                            )
-                                            .await?;
-                                            break;
-                                        }
-                                        Err(e) => {
-                                            self.block(
-                                                &mut s,
-                                                &format!("invalid deviation detector output: {e}"),
-                                                &step.id,
-                                            )
-                                            .await?;
-                                            break;
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    self.block(
-                                        &mut s,
-                                        &format!("deviation detector failed: {e:#}"),
-                                        &step.id,
-                                    )
-                                    .await?;
+                    if !already_detected {
+                        if let Some(rule) = rule {
+                            match self.detect_deviation(&s, &workflow, &step, rule, &summary, &resolved_model).await {
+                                Ok(Some(verdict)) if !verdict.detected => {
+                                    self.block(&mut s, &format!("detector rejected deviation {id}: {}", verdict.reason), &step.id).await?;
                                     break;
                                 }
+                                Err(error) => {
+                                    self.store.event(&s, Some(&step.id), "step.error", &format!("{error:#}"))?;
+                                    self.block(&mut s, &format!("{error:#}"), &step.id).await?;
+                                    break;
+                                }
+                                _ => {}
                             }
                         }
                     }
@@ -296,6 +257,26 @@ impl Engine {
             s.id, s.status, s.active_branch
         );
         Ok(())
+    }
+    async fn detect_deviation(
+        &self, s: &Session, wf: &LoadedWorkflow, step: &Step,
+        rule: &config::Deviation, summary: &str, model: &str,
+    ) -> Result<Option<Detection>> {
+        let Some(prompt) = &rule.prompt else { return Ok(None) };
+        let instructions = config::render_includes(
+            &format!("{{{{ include \"{prompt}\" }}}}"), &self.root, &wf.folder,
+        )?;
+        let query = format!("Evaluate whether this deviation is supported by available evidence.\nRule: {}\nInstructions: {}\nAgent report: {}\nReturn YAML only:\ndetected: true|false\nreason: explanation", rule.id, instructions, summary);
+        let raw = self.provider.complete(model, &[json!({"role":"user","content":query})])
+            .await.context("deviation detector failed")?;
+        self.store.event(s, Some(&step.id), "deviation.detector", &raw)?;
+        let yaml = raw.trim().trim_start_matches("```yaml").trim_start_matches("```yml")
+            .trim_end_matches("```").trim();
+        let verdict: Detection = serde_yaml::from_str(yaml).context("invalid deviation detector output")?;
+        self.store.event(s, Some(&step.id),
+            if verdict.detected { "deviation.accepted" } else { "deviation.rejected" },
+            &format!("{}: {}", rule.id, verdict.reason))?;
+        Ok(Some(verdict))
     }
     async fn block(&self, s: &mut Session, reason: &str, step: &str) -> Result<()> {
         s.status = "blocked".into();
@@ -496,8 +477,11 @@ impl Engine {
                     // deviation — instead of aborting the whole step. The turn
                     // budget still bounds how often this can happen.
                     let execution: Result<String> = if tools.iter().any(|t| t == kind) {
-                        let result = self.tools.call(&action).await;
+                        let result = self.tools.call_journaled(&action, &self.store, s, &step.id).await;
                         self.log_permissions(s, step)?;
+                        // An uncertain write must stop execution, not become
+                        // a retryable tool error in the model conversation.
+                        self.store.ensure_no_pending_writes()?;
                         result
                     } else {
                         Err(anyhow!(
@@ -507,12 +491,6 @@ impl Engine {
                     };
                     match execution {
                         Ok(result) => {
-                            if let Some(edit) = self.tools.pending_edit.take() {
-                                let edit_id = self.store.add_change(
-                                    s, &step.id, &edit.path, edit.before.as_deref(), &edit.after
-                                )?;
-                                console_println!(self, "[edit recorded] #{edit_id} {}", edit.path);
-                            }
                             console_println!(self, 
                                 "[tool {kind}] {}",
                                 result.chars().take(350).collect::<String>()
@@ -564,56 +542,8 @@ impl Engine {
                         ));
                     };
 
-                    if let Some(prompt) = &rule.prompt {
-                        let check = config::render_includes(
-                            &format!("{{{{ include \"{prompt}\" }}}}"),
-                            &self.root,
-                            &wf.folder,
-                        )?;
-
-                        let query = format!(
-                            "Evaluate whether this deviation is supported \
-                             by the available evidence.\n\
-                             Rule: {id}\n\
-                             Instructions: {check}\n\
-                             Agent report: {summary}\n\
-                             Return YAML only:\n\
-                             detected: true|false\n\
-                             reason: explanation"
-                        );
-
-                        let raw = self
-                            .provider
-                            .complete(model, &[json!({"role": "user", "content": query})])
-                            .await?;
-
-                        self.store
-                            .event(s, Some(&step.id), "deviation.detector", &raw)?;
-
-                        #[derive(Deserialize)]
-                        struct Detection {
-                            detected: bool,
-                            reason: String,
-                        }
-
-                        let yaml = raw
-                            .trim()
-                            .trim_start_matches("```yaml")
-                            .trim_start_matches("```yml")
-                            .trim_end_matches("```")
-                            .trim();
-
-                        let verdict: Detection = serde_yaml::from_str(yaml)
-                            .context("invalid deviation detector output")?;
-
+                    if let Some(verdict) = self.detect_deviation(s, wf, step, rule, &summary, model).await? {
                         if !verdict.detected {
-                            self.store.event(
-                                s,
-                                Some(&step.id),
-                                "deviation.rejected",
-                                &format!("{id}: {}", verdict.reason),
-                            )?;
-
                             messages.push(json!({
                                 "role": "user",
                                 "content": format!(
@@ -631,7 +561,7 @@ impl Engine {
                         }
                     }
 
-                    return Ok(Outcome::Deviation(id, summary));
+                    return Ok(Outcome::DetectedDeviation(id, summary));
                 }
 
                 "finish" => {
@@ -757,7 +687,7 @@ impl Engine {
             }
             Verify::Agent { prompt } => {
                 let full = config::render_includes(
-                    &format!("{{include \"{}\"}}", prompt),
+                    &format!("{{{{ include \"{}\" }}}}", prompt),
                     &self.root,
                     &wf.folder,
                 )?;
@@ -831,9 +761,16 @@ impl Engine {
     }
 }
 
+#[derive(Deserialize)]
+struct Detection {
+    detected: bool,
+    reason: String,
+}
+
 enum Outcome {
     Done(String),
     Deviation(String, String),
+    DetectedDeviation(String, String),
 }
 
 fn project_instructions(root: &Path) -> Result<String> {
@@ -855,6 +792,22 @@ fn project_instructions(root: &Path) -> Result<String> {
 #[cfg(test)]
 mod name_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn agent_verification_requires_its_prompt_file() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: fixture\n  base_url: http://127.0.0.1:9\n  api_key_env: GREENLIGHT_TEST_UNUSED_KEY\n").unwrap();
+        let folder = root.path().join("workflows/demo");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("workflow.yaml"), "id: demo\ntitle: Demo\nstart: verify\nsteps: [verify]\n").unwrap();
+        std::fs::write(folder.join("verify.md"), "---\nid: verify\nverification:\n  type: agent\n  prompt: missing-review.md\n---\nReview\n").unwrap();
+        let workflow = config::load_workflow(root.path(), "demo").unwrap();
+        let step = &workflow.steps["verify"];
+        let mut engine = Engine::open(root.path()).unwrap();
+        let session = engine.store.create("demo", "fixture", "verify").unwrap();
+        let error = engine.verify_leaf(&session, &workflow, step, "fixture", step.verification.as_ref().unwrap()).await.unwrap_err();
+        assert!(format!("{error:#}").contains("missing include missing-review.md"), "{error:#}");
+    }
 
     #[test]
     fn project_instructions_accept_legacy_with_new_precedence() {

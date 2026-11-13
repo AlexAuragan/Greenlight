@@ -41,12 +41,14 @@ The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, retu
 - **j/k**, Up/Down and **g/G** or Home/End navigate sessions, events and artifacts when a list is focused; Up/Down or j/k scroll line by line when detail is focused.
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
 - **Up/Down** (or **j/k**) also scroll permission requests and restoration previews when those dialogs are open.
-- **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/events** toggles raw event visibility; **/help** lists shortcuts.
+- **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/recover** recovers the selected session's interrupted execution owner without running it; **/events** toggles raw event visibility; **/help** lists shortcuts.
 - **q** quits from navigation mode when no agent is running. The TUI intentionally prevents quitting while its own worker is active, to avoid silently abandoning a pending prompt.
 
 ## Limitations
 
-Initial TUI control is intentionally serial: only one runner per TUI, no streaming token-by-token model output, no direct interruption of an in-progress model call, and no interactive control of another process that happens to be running a session. Read-only observation of external sessions remains possible. The underlying CLI remains available. Concurrent execution of the **same session in separate processes** is not yet prevented by a robust per-session lock; don't run CLI `resume` simultaneously with a TUI resume.
+Initial TUI control is intentionally serial: only one runner per TUI, no streaming token-by-token model output, no direct interruption of an in-progress model call, and no interactive control of another process that happens to be running a session. Read-only observation of external sessions remains possible. The underlying CLI remains available. A per-session OS lock prevents concurrent CLI/TUI execution of the same session; competing resumes are rejected without changing the owner's state.
+
+If a worker disconnects, its pending approval dialog is discarded and the TUI reports the loss. Use `/recover` (or CLI `recover-session SESSION_ID`) after inspecting history. Recovery refuses a live owner, preserves saved grants, and never replays an unanswered approval or automatically resumes work. If a native write was interrupted, run `recover-writes` afterward before resuming. Completed sessions remain completed even if the worker died during final ownership cleanup.
 
 Approval choices and restoration actions retain their existing security semantics. The TUI requires an interactive terminal and uses Ratatui's terminal restoration. Raw events may contain private project information.
 

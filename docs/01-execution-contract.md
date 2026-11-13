@@ -28,6 +28,7 @@ The harness MUST stop when a step reports an unapproved blocker, prohibited scop
 10. The **branch pointer alone** does not rewind the filesystem. The CLI `fork` and TUI restart can preview and apply a **separate guarded restore of journaled native edits** before branching; `fork --no-restore` explicitly skips it. Neither path promises rollback of manual changes, shell cache effects, or external services.
 11. Prompt changes take effect on subsequent step runs; each run records a resolved definition in the event log.
 12. Hard session safety limit: 100 step runs per `start` or `resume` command.
+13. A CLI/TUI run must hold the session's OS execution lock before publishing instructions or changing execution state. An interrupted owner requires explicit recovery; unanswered approvals expire and are never replayed. Read-only observers remain permitted. Recovery does not resume work or turn a completed session back into runnable work.
 
 ## State diagram
 
@@ -88,7 +89,9 @@ Verification is **mandatory in the resolved configuration**, even when it is `ty
 
 ## Deviation detection
 
-A model may report a configured deviation. When the rule has a detector prompt, the implementation currently evaluates it in **two places**: inside the agent response loop, where a rejected detector result is logged as `deviation.rejected` and fed back to the **same conversation** so the agent can continue; and in the outer step-run handler if a validated deviation is returned, where a later rejection, invalid detector response, or detector failure **blocks** the step. The second check can duplicate the first. This is an existing implementation inconsistency, not a deliberate policy; [consolidation is a P0 TODO](../README.md#p0--stabilize-the-current-interactive-baseline). Deterministic command failures, missing outputs, model turn-budget overruns and permission errors are handled separately. No detector monitors an in-flight model response.
+A model may report a configured deviation. If the rule has a detector prompt, one shared evaluator makes exactly one detector request for that report and records the raw response as `deviation.detector`. A valid verdict is recorded once as `deviation.accepted` or `deviation.rejected`. Accepted agent reports retain their validated status through the outer handler, which applies the configured pause/goto/retry without another detector call. Rejected agent reports return the reason to the **same conversation** and do not route or consume a configured retry. A later report is a new report and may be evaluated again.
+
+Malformed detector responses, request failures and unreadable detector prompts block the step. Engine-generated failures such as missing outputs or failed verification still evaluate a matching configured detector once, when present; rejection blocks rather than inventing an agent conversation to resume. Unknown IDs block, and rules without detector prompts route without a detector request. No detector monitors an in-flight model response.
 
 ## Acceptance scenarios
 

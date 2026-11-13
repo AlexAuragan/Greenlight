@@ -50,7 +50,7 @@ A future manager may answer grounded questions, forward coding instructions unch
 
 ### D-010 — Live steering is a user goal, but delivery boundaries must be honest
 
-A model request already in flight generally cannot accept new messages. Steering therefore means **cancel and reissue** (if safe and supported) or **deliver at the next model-call boundary**. Show which happened; account for partial tool effects and stale queued messages. Do not promise invisible mid-completion instruction injection. Streaming, queueing, cancellation and durable ownership are future engineering work.
+A model request already in flight generally cannot accept new messages. Steering therefore means **cancel and reissue** (if safe and supported) or **deliver at the next model-call boundary**. Show which happened; account for partial tool effects and stale queued messages. Do not promise invisible mid-completion instruction injection. Streaming, queueing and cancellation remain future engineering work. Per-session execution ownership now uses an OS lock plus a persisted owner record, with explicit `recover-session` recovery; it does not provide durable in-flight model/tool continuation.
 
 ### D-011 — Review grouped native edits, not a hidden staging engine
 

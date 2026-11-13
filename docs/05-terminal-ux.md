@@ -4,6 +4,7 @@ Greenlight has **both** a scriptable CLI and a full-screen Ratatui TUI. The CLI 
 
 - `start`: creates a session and runs until complete or blocked.
 - `resume`: adds a user instruction and attempts the current blocked step again with fresh context. Without `--instruction`, retains workflow instructions and artifacts.
+- `recover-session`: recovers an interrupted execution owner only when its OS lock is free, without resuming work or replaying pending approvals. Saved grants remain intact; interrupted native writes still need `recover-writes`.
 - `history`: displays branch-aware event IDs, useful for deciding where to fork.
 - `artifacts` / `artifact`: inspect registered outputs. Redirect `artifact` to a Markdown file, edit externally and `put-artifact` to register a new version.
 - `fork`: previews and optionally restores tracked native file edits before creating a branch from an earlier event; `--no-restore` explicitly skips inspection/restoration.

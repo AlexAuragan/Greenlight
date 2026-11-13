@@ -25,6 +25,8 @@ flowchart TD
 - `config.rs` — strict serde YAML structs, workflow/step parse and validation, restricted prompt includes.
 - `engine.rs` — sequential execution, per-step fresh context, YAML action dispatch, verification and deviation routing.
 - `store.rs` — SQLite session/event/branch history, registered immutable artifacts and native-edit journals.
+- `write_journal.rs` — durable native-write intents, atomic replacement, mutation locking and explicit interrupted-write reconciliation.
+- `session_execution.rs` — per-session OS execution locks, persisted owner records, guarded cleanup and explicit stale-owner recovery.
 - `workspace.rs` — bounded before/after step manifests and read-only SHA-256 drift inspection; hashes are not snapshots.
 - `restore.rs` — guarded historical reconstruction of journaled native edits and individual-file restore.
 - `sandbox.rs` — mandatory Linux Bubblewrap isolation for shell commands, with read-only project mount and isolated writable cache.
@@ -39,8 +41,8 @@ flowchart TD
 
 - **Shell isolation is mandatory:** agent shell actions, `command` steps and command verification use Bubblewrap (Linux only; no unsandboxed fallback). The project is read-only at `/workspace`; the shell has a cleared environment, no network, a private home and an isolated writable `/tmp` and `/cache`. Bubblewrap availability and user namespaces must be verified on the host.
 - Shell isolation is not a complete security boundary against malicious code: selected host binaries/toolchains remain visible; unknown secrets inside source files, resource exhaustion and kernel vulnerabilities remain risks. Native `write` changes project files only after path checks and the applicable approval policy.
-- Rust restricts native file paths, but symlink/concurrent-change races and partial filesystem failures are still relevant. Native writes can be applied before their journal entry is committed; a crash in that window is an open correctness issue. Restores refuse tracked-file drift and disallowed paths but are **not** atomic across files.
-- Project and global permission grants are saved explicitly. Their scope is not changed by a model response; a configured `deny` overrides saved grants. Pending TUI approval requests are in-process, not durable, and cross-process session ownership has no robust lease yet.
+- Rust restricts native file paths, but symlink/concurrent-change races and partial filesystem failures are still relevant. Native writes persist original/intended contents before replacement and reconcile interruptions explicitly without rewriting source files. Restores refuse tracked-file drift and disallowed paths but retain an apply-before-journal crash window and are **not** atomic across files.
+- Project and global permission grants are saved explicitly. Their scope is not changed by a model response; a configured `deny` overrides saved grants. Pending TUI approval requests are in-process and expire when their worker disconnects. Per-session OS locks prevent competing CLI/TUI execution, with persisted owner records requiring explicit recovery after worker loss. Different sessions do not share an execution lease for the whole workspace.
 - API keys come from environment variables; they are not included in serialized config or logs by the harness.
 - Search uses the Brave Web Search API if `BRAVE_SEARCH_API_KEY` is set. Web responses are untrusted content and can be prompt-injection sources.
 - The provider sends workflow prompts, step artifacts and tool observations to the configured DeepInfra endpoint. Do not run on confidential projects unless you accept that transfer.

@@ -12,6 +12,10 @@ mod tools;
 mod tui;
 mod tui_actions;
 mod workspace;
+mod write_journal;
+mod session_execution;
+#[cfg(test)]
+mod deviation_tests;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -31,6 +35,10 @@ enum Commands {
     Validate { workflow: String },
     /// Verify Linux shell sandbox requirements and isolation
     SandboxCheck,
+    /// Reconcile interrupted native writes without rewriting source files
+    RecoverWrites,
+    /// Recover a session whose execution owner died; never resumes work automatically
+    RecoverSession { session: String },
     /// Start a new session, then execute
     Start {
         workflow: String,
@@ -115,6 +123,16 @@ async fn main() -> Result<()> {
     config::load_dotenv(&cwd.join(".env"))?;
     config::load_dotenv(&root.join(".env"))?;
     match cli.command {
+        Commands::RecoverSession { session } => {
+            let store = store::Store::open(&root)?;
+            println!("{}", store.recover_session(&session)?);
+        }
+        Commands::RecoverWrites => {
+            let store = store::Store::open(&root)?;
+            for outcome in store.recover_writes(&root)? { println!("{outcome}"); }
+            store.ensure_no_pending_writes()?;
+            println!("Native write recovery complete; source files were not changed.");
+        }
         Commands::Validate { workflow } => {
             config::load_config(&root)?;
             let wf = config::load_workflow(&root, &workflow)?;
@@ -154,17 +172,6 @@ async fn main() -> Result<()> {
             model,
         } => {
             let mut engine = engine::Engine::open(&root)?;
-            let mut state = engine.store.session(&session)?;
-            if state.status == "completed" {
-                bail!("completed sessions require fork to run again");
-            }
-            if let Some(text) = instruction.as_deref() {
-                engine
-                    .store
-                    .event(&state, Some(&state.current_step), "user.instruction", text)?;
-            }
-            state.status = "ready".into();
-            engine.store.save(&state)?;
             engine
                 .run(&session, instruction.as_deref(), model.as_deref())
                 .await?;

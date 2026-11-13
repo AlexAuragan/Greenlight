@@ -26,7 +26,7 @@ struct RestoreItem {
 
 /// Reject traversal and all symlinks, including inside the project.
 /// These checks are deliberately stricter than ordinary file reads/writes.
-fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
+pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let p = Path::new(relative);
     if p.as_os_str().is_empty()
         || p.is_absolute()
@@ -83,6 +83,7 @@ fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
 
 impl RestorePlan {
     pub fn prepare(root: &Path, store: &Store, session: &Session, event: i64) -> Result<Self> {
+        store.ensure_no_pending_writes()?;
         if !store.history(session)?.iter().any(|(id, _, _, _)| *id == event) {
             bail!("event #{event} is not in the active branch ancestry");
         }
@@ -174,6 +175,12 @@ impl RestorePlan {
     }
 
     fn apply_inner(self, root: &Path, store: &Store, session: &Session, verbose: bool) -> Result<()> {
+        let _session_lock = store.lock_idle_session(&session.id)?;
+        if store.session(&session.id)?.active_branch != session.active_branch {
+            bail!("session branch changed since restore preview");
+        }
+        let _lock = store.native_write_lock()?;
+        store.ensure_no_pending_writes()?;
         // Verify again after the user has examined the preview.
         for item in &self.items {
             if snapshot(root, &item.relative)? != item.current {

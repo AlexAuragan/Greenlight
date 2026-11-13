@@ -40,6 +40,8 @@ Run `greenlight restore SESSION_ID --event EVENT_ID --dry-run` to preview restor
 
 ```text
 greenlight sandbox-check
+greenlight recover-writes       # reconcile interrupted writes; source files stay unchanged
+greenlight recover-session SESSION_ID  # recover a dead owner; does not resume work
 greenlight validate fix-bug
 greenlight start fix-bug --goal "..."
 greenlight start add-feature --goal "..." --model "provider/model"
@@ -97,11 +99,11 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 ### P0 — stabilize the current interactive baseline
 - [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval; require an extra explicit confirmation for persistent project/global grants.
 - [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
-- [ ] Add robust per-session execution ownership and stale-run recovery; prevent simultaneous CLI/TUI resumes of the same session.
-- [ ] On a worker crash, discard unanswered permission requests; preserve already-saved grants according to scope. A real durable session grant (today `a` only covers the process) is a separate lower-priority task.
-- [ ] Make artifact publication and its event consistent under write failure/crash; test recoverable failure instead of trusting a dangling `artifact.created` event.
-- [ ] Consolidate the **two deviation-detector call paths**: a rejected detector result currently continues inside the agent loop but blocks if rejected again by the outer run loop; avoid duplicate evaluation and specify one tested behavior.
-- [ ] Close the native-write **apply-before-journal** crash window: record intent/preimage before writing and reconcile any interrupted writes.
+- [x] Enforce one execution owner per session with an OS lock and persisted owner record; recover interrupted runs explicitly with `recover-session` or TUI `/recover`. Competing CLI/TUI resumes cannot change the live owner's state.
+- [x] Discard unanswered permission requests on worker loss; disconnected TUI workers clear pending dialogs, and session recovery preserves already-saved grants. A real durable session grant (today `a` only covers the process) remains separate work.
+- [x] Publish artifact metadata and its success event in one SQLite transaction after syncing the blob; test blob, database insertion and commit failures, preserving prior versions and allowing retries. A crash before publication may leave an unreferenced blob for future cleanup.
+- [x] Consolidate deviation detection into one shared evaluator and retain its verdict through routing. Accepted reports are checked once; rejected agent reports continue in the same conversation, while detector errors block. Tests cover pause/retry/goto and engine-generated failures.
+- [x] Persist native-write intent/preimage before atomic file replacement; reconcile interrupted writes explicitly with `recover-writes`, preserving manual edits and blocking execution/restore while unresolved. Process-death and journal-failure tests cover recovery.
 - [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
 
 ### P1 — TUI redesign for daily use

@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::{Path, PathBuf}};
+use std::{fs, io::Write, path::{Path, PathBuf}};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,12 +29,12 @@ pub struct WorkspaceEdit {
 #[derive(Debug, Clone)]
 pub struct Artifact { pub name: String, pub content: String, pub step: String }
 
-pub struct Store { db: Connection, pub directory: PathBuf }
+pub struct Store { pub(crate) db: Connection, pub directory: PathBuf }
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
         let directory = crate::paths::state_directory(root)?;
         let db = Connection::open(directory.join("history.db"))?;
-        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
+        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
            CREATE TABLE IF NOT EXISTS sessions (
              id TEXT PRIMARY KEY, workflow TEXT NOT NULL, goal TEXT NOT NULL,
              active_branch TEXT NOT NULL, current_step TEXT NOT NULL, status TEXT NOT NULL);
@@ -55,6 +55,13 @@ impl Store {
            CREATE TABLE IF NOT EXISTS restore_changes (
              event_id INTEGER PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              path TEXT NOT NULL, before_blob TEXT, after_blob TEXT);
+           CREATE TABLE IF NOT EXISTS write_intents (
+             id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
+             step TEXT NOT NULL, path TEXT NOT NULL, before_text TEXT, after_text TEXT NOT NULL,
+             status TEXT NOT NULL CHECK(status IN ('pending','completed','cancelled')));
+           CREATE TABLE IF NOT EXISTS execution_owners (
+             session TEXT PRIMARY KEY REFERENCES sessions(id), token TEXT NOT NULL,
+             pid INTEGER NOT NULL);
            CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
@@ -95,6 +102,8 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub fn switch_branch(&self,s:&mut Session,branch:&str,step:&str)->Result<()> {
+        let _lock = self.lock_idle_session(&s.id)?;
+        self.ensure_no_pending_writes()?;
         let found:i64=self.db.query_row("SELECT count(*) FROM branches WHERE session=?1 AND id=?2",params![s.id,branch],|r|r.get(0))?;
         if found!=1 {bail!("branch does not belong to this session");}
         s.active_branch=branch.into();
@@ -105,6 +114,8 @@ impl Store {
         Ok(())
     }
     pub fn fork(&self, s: &mut Session, event_id: i64, step: &str) -> Result<()> {
+        let _lock = self.lock_idle_session(&s.id)?;
+        self.ensure_no_pending_writes()?;
         let valid: bool = self.history(s)?.iter().any(|(id,_,_,_)| *id == event_id);
         if !valid { bail!("fork event is not part of current branch ancestry"); }
         let branch = Uuid::new_v4().to_string();
@@ -143,13 +154,35 @@ impl Store {
     }
     pub fn add_artifact(&self,s:&Session,step:&str,name:&str,content:&str) -> Result<()> {
         let path = Path::new(name);
-        if path.is_absolute() || path.components().any(|p| !matches!(p,std::path::Component::Normal(_))) { bail!("artifact path must be relative, without .."); }
-        let ev = self.event(s,Some(step),"artifact.created",name)?;
-        let blob = format!("{}-{}.txt",ev,Uuid::new_v4());
+        if name.is_empty() || path.is_absolute() || path.components().any(|p| !matches!(p,std::path::Component::Normal(_))) { bail!("artifact path must be relative, without .."); }
+        let blob = format!("artifact-{}.txt", Uuid::new_v4());
         let dir = self.directory.join("blobs");
         fs::create_dir_all(&dir)?;
-        fs::write(dir.join(&blob),content)?;
-        self.db.execute("INSERT INTO artifacts(session,branch,event_id,step,name,blob_path) VALUES (?1,?2,?3,?4,?5,?6)", params![s.id,s.active_branch,ev,step,name,blob])?;
+        fs::File::open(&self.directory)?.sync_all()?;
+        let blob_path = dir.join(&blob);
+        let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&blob_path)?;
+        let publication: Result<()> = (|| {
+            // Make the immutable body durable before publishing references.
+            // A crash here may leave an unreferenced blob, never a success event.
+            file.write_all(content.as_bytes())?;
+            file.sync_all()?;
+            fs::File::open(&dir)?.sync_all()?;
+            let tx = self.db.unchecked_transaction()?;
+            tx.execute("INSERT INTO events(session,branch,step,kind,data) VALUES (?1,?2,?3,'artifact.created',?4)",
+                params![s.id,s.active_branch,step,name])?;
+            let ev = tx.last_insert_rowid();
+            tx.execute("INSERT INTO artifacts(session,branch,event_id,step,name,blob_path) VALUES (?1,?2,?3,?4,?5,?6)",
+                params![s.id,s.active_branch,ev,step,name,blob])?;
+            tx.commit()?;
+            Ok(())
+        })();
+        drop(file);
+        if let Err(error) = publication {
+            if let Err(cleanup) = fs::remove_file(&blob_path) {
+                return Err(error.context(format!("artifact publication failed; could not remove unpublished blob {}: {cleanup}", blob_path.display())));
+            }
+            return Err(error.context("artifact publication failed"));
+        }
         Ok(())
     }
     pub fn add_change(&self, s: &Session, step: &str, path: &str, before: Option<&str>, after: &str) -> Result<i64> {
@@ -161,6 +194,12 @@ impl Store {
             fs::write(dir.join(name), content)?;
         }
         fs::write(dir.join(&after_name), after)?;
+        // Recovered native writes publish references only after their snapshots
+        // are durable. The intent's SQLite transaction owns publication.
+        if let Some(name) = &before_name { fs::File::open(dir.join(name))?.sync_all()?; }
+        fs::File::open(dir.join(&after_name))?.sync_all()?;
+        fs::File::open(&dir)?.sync_all()?;
+        fs::File::open(&self.directory)?.sync_all()?;
         let event_id = self.event(s, Some(step), "file.changed", path)?;
         self.db.execute(
             "INSERT INTO file_changes(event_id,session,branch,step,path,before_blob,after_blob) VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -279,6 +318,65 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn artifact_blob_failure_does_not_publish_a_success_event() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "plan").unwrap();
+        let before = store.history(&session).unwrap();
+        // A file in place of the blob directory deterministically fails I/O.
+        fs::write(store.directory.join("blobs"), "obstruction").unwrap();
+        assert!(store.add_artifact(&session, "plan", "plan.md", "draft").is_err());
+        assert_eq!(store.history(&session).unwrap(), before);
+        assert!(store.artifacts(&session, "session").unwrap().is_empty());
+        fs::remove_file(store.directory.join("blobs")).unwrap();
+        store.add_artifact(&session, "plan", "plan.md", "retry").unwrap();
+        assert_eq!(store.artifacts(&session, "session").unwrap()[0].content, "retry");
+    }
+
+    #[test]
+    fn artifact_database_failure_rolls_back_publication_and_preserves_previous_version() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "plan").unwrap();
+        store.add_artifact(&session, "plan", "plan.md", "original").unwrap();
+        let before = store.history(&session).unwrap();
+        store.db.execute_batch("CREATE TRIGGER reject_artifact BEFORE INSERT ON artifacts
+            BEGIN SELECT RAISE(ABORT, 'injected artifact insert failure'); END;").unwrap();
+        assert!(store.add_artifact(&session, "plan", "plan.md", "replacement").is_err());
+        assert_eq!(store.history(&session).unwrap(), before);
+        assert_eq!(store.artifacts(&session, "session").unwrap()[0].content, "original");
+        assert_eq!(fs::read_dir(store.directory.join("blobs")).unwrap().count(), 1);
+        store.db.execute_batch("DROP TRIGGER reject_artifact;").unwrap();
+        store.add_artifact(&session, "plan", "plan.md", "retry").unwrap();
+        drop(store);
+        let reopened = Store::open(root.path()).unwrap();
+        assert_eq!(reopened.artifacts(&session, "session").unwrap()[0].content, "retry");
+        assert_eq!(reopened.history(&session).unwrap().iter()
+            .filter(|(_, _, kind, _)| kind == "artifact.created").count(), 2);
+    }
+
+    #[test]
+    fn artifact_commit_failure_rolls_back_event_and_blob() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "plan").unwrap();
+        let before = store.history(&session).unwrap();
+        // Defer a foreign-key violation so both INSERTs succeed and COMMIT fails.
+        store.db.execute_batch("PRAGMA defer_foreign_keys=ON;
+            CREATE TRIGGER fail_commit BEFORE INSERT ON artifacts BEGIN
+              INSERT INTO branches(id,session) VALUES ('injected-branch','missing-session');
+            END;").unwrap();
+        let error = store.add_artifact(&session, "plan", "plan.md", "draft").unwrap_err();
+        assert!(format!("{error:#}").contains("FOREIGN KEY constraint failed"));
+        assert_eq!(store.history(&session).unwrap(), before);
+        assert!(store.artifacts(&session, "session").unwrap().is_empty());
+        assert_eq!(fs::read_dir(store.directory.join("blobs")).unwrap().count(), 0);
+        store.db.execute_batch("DROP TRIGGER fail_commit;").unwrap();
+        store.add_artifact(&session, "plan", "plan.md", "retry").unwrap();
+        assert_eq!(store.artifacts(&session, "session").unwrap()[0].content, "retry");
+    }
+
     #[test]
     fn old_state_migrates_with_session_and_artifacts_intact() {
         let root = tempfile::tempdir().unwrap();

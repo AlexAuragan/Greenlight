@@ -354,10 +354,13 @@ impl App {
             }
         }
         let completion = runner.finished.try_recv();
-        if let Ok(result) = completion {
-            self.notice = match result {
+        if !matches!(&completion, Err(TryRecvError::Empty)) {
+            self.notice = match completion {
+                Ok(result) => match result {
                 Ok(()) => "Workflow stopped or completed. See its latest events.".into(),
                 Err(error) => format!("Runner error: {error}"),
+                },
+                Err(_) => "Worker disconnected; pending approval expired. Inspect history and use /recover before resuming.".into(),
             };
             self.runner = None;
             self.approval = None;
@@ -379,7 +382,21 @@ impl App {
             return;
         }
         if instruction == "/help" {
-            self.notice = "Type a message to resume; /restart selects an earlier step; /events toggles protocol detail; Ctrl+J adds a newline.".into();
+            self.notice = "Type a message to resume; /recover recovers a dead owner; /restart selects an earlier step; /events toggles protocol detail; Ctrl+J adds a newline.".into();
+            self.composer.clear();
+            return;
+        }
+        if instruction == "/recover" {
+            if self.runner.is_some() {
+                self.notice = "Cannot recover while this TUI's worker is active.".into();
+                return;
+            }
+            if let Some(session) = self.session() {
+                self.notice = match store.recover_session(&session.id) {
+                    Ok(message) => message,
+                    Err(error) => format!("Recovery refused: {error:#}"),
+                };
+            } else { self.notice = "No session selected.".into(); }
             self.composer.clear();
             return;
         }
@@ -391,6 +408,10 @@ impl App {
             self.notice = "An agent is already running. Wait for it to finish.".into();
             return;
         }
+        if let Err(error) = store.ensure_no_pending_writes() {
+            self.notice = format!("Cannot resume: {error:#}");
+            return;
+        }
         let Some(selected) = self.session() else {
             self.notice = "No session selected.".into();
             return;
@@ -400,7 +421,7 @@ impl App {
             Err(error) => { self.notice = format!("Cannot load session: {error:#}"); return; }
         };
         if !matches!(session.status.as_str(), "blocked" | "ready") {
-            self.notice = format!("Session is {}; only ready or blocked sessions can resume.", session.status);
+            self.notice = format!("Session is {}; only ready or blocked sessions can resume. If its worker died, use /recover.", session.status);
             return;
         }
         let input = if instruction == "/resume" { "" } else { &instruction };
@@ -984,6 +1005,9 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
     }
     let mut app = App::new(initial_session);
     app.refresh(&store)?;
+    if let Err(error) = store.ensure_no_pending_writes() {
+        app.notice = format!("Recovery required: {error:#}");
+    }
     ratatui::run(|terminal| -> Result<()> {
         let mut last_refresh = Instant::now();
         loop {
@@ -1009,6 +1033,31 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disconnected_worker_expires_approval_and_does_not_replay_it() {
+        let (prompt_tx, prompts) = std::sync::mpsc::channel();
+        let (answers, old_answers) = std::sync::mpsc::channel();
+        let (finished_tx, finished) = std::sync::mpsc::channel();
+        let mut app = App::new(None);
+        app.runner = Some(Runner { prompts, answers, finished });
+        app.approval = Some(ApprovalPrompt {
+            content: "old request".into(), mode: ApprovalMode::Persistent,
+        });
+        drop(prompt_tx);
+        drop(finished_tx); // A worker panic disconnects without a completion message.
+        app.tick();
+        assert!(app.runner.is_none());
+        assert!(app.approval.is_none());
+        assert!(app.notice.contains("pending approval expired"));
+        assert!(old_answers.try_recv().is_err());
+        let (_prompt_tx, prompts) = std::sync::mpsc::channel();
+        let (answers, fresh_answers) = std::sync::mpsc::channel();
+        let (_finished_tx, finished) = std::sync::mpsc::channel();
+        app.runner = Some(Runner { prompts, answers, finished });
+        assert!(app.deliver_approval('y').is_err());
+        assert!(fresh_answers.try_recv().is_err());
+    }
 
     #[test]
     fn enter_opens_composer_and_text_is_editable() {
