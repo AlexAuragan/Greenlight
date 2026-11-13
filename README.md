@@ -114,12 +114,13 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Implement contextual blocked-state cards: show reason/evidence, inspect related artifacts, retry, resume or restart safely.
 - [ ] Extend the **implemented** pane/focus keyboard model with discoverable help, reliable scroll-follow, draft preservation and small-terminal/resize behavior; do not regress AZERTY-friendly arrow/`j/k` scrolling.
 - [ ] Harden the **existing** Markdown renderer with control-sequence/Unicode-width/large-document tests and improve preview ergonomics as actual usage requires; full CommonMark/GFM and inline images are not a goal.
-- [ ] First persist stable artifact version identities and selected-input manifests; then add history/provenance, version diffs and **exact pinned approval evidence** (not merely the latest artifact).
+- [x] Persist exact selected-input versions and approval references per attempt; human gates approve displayed versions and downstream consumers require reapproval after changes.
+- [ ] Add artifact history/provenance navigation and version diffs to the TUI, building on recorded version IDs and approval evidence.
 - [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
 - [ ] Explore model-authored **activity titles** at each response/action boundary (e.g. `Exploring call sites`, `Testing first fix`); record titles as annotations, not as verified execution facts. Optionally allow multiple logical phases within one workflow step.
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
 - [x] Persist a UUID for each new step attempt with definition/start/end event references and outcome; expose branch-visible history through `attempts`. Worker recovery marks interrupted attempts without replaying approvals. Historical sessions are not backfilled.
-- [ ] Capture each step's **actual resolved context manifest at execution time**: definition, selected artifact versions and accepted plan; a future UI must never reconstruct this from latest-by-name state.
+- [x] Capture each attempt's input manifest with exact artifact creation events and applicable human approval events, linked to its saved step definition. Agent context uses the selected snapshots; a future UI must not reconstruct them from latest-by-name state.
 - [ ] Correlate the **already implemented** SHA-256 step manifests with native-write journal events; classify explained/unexplained drift and measure scanning overhead on real projects. Hashes alone cannot restore file contents.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.
 - [ ] Split the large TUI controller incrementally into tested focus routing, activity, Markdown reader, approval and recovery components; render artifacts without blocking input.

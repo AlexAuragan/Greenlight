@@ -14,6 +14,7 @@ mod tui_actions;
 mod workspace;
 mod write_journal;
 mod session_execution;
+mod input_pins;
 #[cfg(test)]
 mod deviation_tests;
 

@@ -31,6 +31,18 @@ Each `.md` file begins with `---` YAML frontmatter; the required `id` matches th
 
 Additional produced artifacts are permitted and versioned. `source: previous` refers to the last *completed* step run. `source: session` includes all latest registered artifacts visible on the active branch. `select: required` includes only artifacts declared as required by the producing step. Values are injected into the agent's fresh context, bounded by `session.max_artifact_bytes`.
 
+Input selection is resolved once at attempt start and saved as `context.inputs`, with the exact artifact creation event IDs. Human steps display all selected inputs and their version IDs; approval records that manifest rather than implicitly accepting a later update. An edit during the prompt requires a fresh review. A completed human gate protects its required and actually selected artifacts in downstream steps reachable through success/goto transitions. Selected versions must match its latest completed approval; retries/declines invalidate reuse of an earlier gate attempt, and fork ancestry limits which approvals are visible. A changed approved input blocks before downstream execution or the next model action. Legacy approvals without version references require fresh approval when their artifacts are consumed.
+
+Reapproval is explicit. To review the latest artifact versions without rewinding history/files, select the current branch at the human step and resume it:
+
+```bash
+greenlight branches SESSION_ID
+greenlight switch SESSION_ID --branch CURRENT_BRANCH_ID --step approve
+greenlight resume SESSION_ID
+```
+
+Replace `approve` with the workflow's actual human step ID. This does not undo edits already present. A historical `/restart`/fork can hide newer artifact versions through its cutoff; it is a different operation from reapproving the latest version. Existing snapshots and approval records remain immutable.
+
 ## Precedence and trust
 
 1. Root `greenlight.yaml` provides provider defaults and absolute permission policies (legacy `stepwright.yaml` is accepted if the new file is absent).

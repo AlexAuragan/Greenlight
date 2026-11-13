@@ -1,7 +1,7 @@
 use crate::{
     config::{self, Config, LoadedWorkflow, Step, Verify},
     provider::Provider,
-    store::{Session, Store},
+    store::{Artifact, Session, Store},
     tools::{parse_action, Tools},
     workspace,
 };
@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     path::Path,
 };
 
@@ -294,6 +294,72 @@ impl Engine {
             Err(e) => console_eprintln!(self, "[notification error] {e}"),
         }
     }
+    fn select_inputs(&self, s: &Session, wf: &LoadedWorkflow, step: &Step) -> Result<Vec<Artifact>> {
+        let last = self.store.history(s)?;
+        let previous = last
+            .iter()
+            .rev()
+            .find(|(_, _, k, _)| k == "step.completed")
+            .map(|(_, id, _, _)| id.clone());
+        let mut selected: BTreeMap<String, Artifact> = BTreeMap::new();
+        for inp in &step.inputs.from {
+            let source = if inp.source == "previous" {
+                previous.as_deref().unwrap_or("__missing__")
+            } else {
+                &inp.source
+            };
+            for a in self.store.artifacts(s, source)? {
+                if inp.select == "required" {
+                    let producing_step = wf
+                        .steps
+                        .get(&a.step)
+                        .context("unknown producing step for artifact")?;
+                    if !producing_step.outputs.required.contains(&a.name) {
+                        continue;
+                    }
+                }
+                selected.insert(a.name.clone(), a);
+            }
+        }
+        for required in &step.inputs.required {
+            if !selected.contains_key(required) {
+                for a in self.store.artifacts(s, "session")? {
+                    if &a.name == required {
+                        selected.insert(a.name.clone(), a);
+                    }
+                }
+            }
+            if !selected.contains_key(required) {
+                bail!("missing required input artifact {required}");
+            }
+        }
+        Ok(selected.into_values().collect())
+    }
+    fn enforce_input_approvals(&self, s: &Session, wf: &LoadedWorkflow, step: &Step, inputs: &[Artifact]) -> Result<Vec<i64>> {
+        let mut approvals = std::collections::BTreeSet::new();
+        if step.kind == "human" { return Ok(Vec::new()) }
+        for gate in wf.steps.values().filter(|gate| gate.kind == "human") {
+            let mut pending = vec![gate.id.as_str()];
+            let mut seen = std::collections::HashSet::new();
+            let mut downstream = false;
+            while let Some(id) = pending.pop() {
+                if !seen.insert(id) { continue; }
+                if id != gate.id && id == step.id { downstream = true; break; }
+                if let Some(node) = wf.steps.get(id) {
+                    if let Some(next) = node.transitions.success.as_deref() { pending.push(next); }
+                    pending.extend(node.deviations.iter().filter(|d| d.action == "goto").filter_map(|d| d.target.as_deref()));
+                }
+            }
+            if downstream {
+                let mut protected = self.store.gate_input_names(s, &gate.id)?;
+                protected.extend(gate.inputs.required.iter().cloned());
+                for artifact in inputs.iter().filter(|a| protected.contains(&a.name)) {
+                    approvals.insert(self.store.require_approved_input(s, &gate.id, artifact)?);
+                }
+            }
+        }
+        Ok(approvals.into_iter().collect())
+    }
     async fn execute_step(
         &mut self,
         s: &Session,
@@ -302,28 +368,19 @@ impl Engine {
         extra: &str,
         model: &str,
     ) -> Result<Outcome> {
-        let known = self.store.artifacts(s, "session")?;
-        for required in &step.inputs.required {
-            if !known.iter().any(|a| &a.name == required) {
-                bail!("missing required input artifact {required}");
-            }
-        }
+        let inputs = self.select_inputs(s, wf, step)?;
+        let approvals = self.enforce_input_approvals(s, wf, step, &inputs)?;
+        let input_manifest = self.store.record_approved_input_manifest(s, &step.id, &inputs, approvals)?;
         match step.kind.as_str() {
             "human" => {
                 let prompt = config::render_includes(&step.prompt, &self.root, &wf.folder)?;
                 console_println!(self, "{prompt}\n{extra}");
                 // Approval must include the actual artifacts, not merely a filename.
-                let available = self.store.artifacts(s, "session")?;
-                for name in &step.inputs.required {
-                    let artifact = available.iter().find(|a| &a.name == name)
-                        .with_context(|| format!("required approval artifact {name} missing"))?;
-                    console_println!(self, "\n--- {name} ---\n{}\n--- end {name} ---", artifact.content);
-                }
                 let mut approval = format!("{prompt}\n{extra}");
-                for name in &step.inputs.required {
-                    let artifact = available.iter().find(|a| &a.name == name)
-                        .with_context(|| format!("required approval artifact {name} missing"))?;
-                    approval.push_str(&format!("\n--- {name} ---\n{}\n--- end {name} ---", artifact.content));
+                for artifact in &inputs {
+                    let text = format!("\n--- {} (event #{}) ---\n{}\n--- end {} ---", artifact.name, artifact.event_id, artifact.content, artifact.name);
+                    console_println!(self, "{text}");
+                    approval.push_str(&text);
                 }
                 let question = if self.tools.is_tui() {
                     format!("{approval}\n\nApprove and continue?")
@@ -337,7 +394,7 @@ impl Engine {
                         "User declined".into(),
                     ));
                 }
-                self.store.event(s, Some(&step.id), "human.approved", "")?;
+                self.store.approve_inputs(s, &step.id, input_manifest, &inputs, || self.select_inputs(s, wf, step))?;
                 if let Err(e) = self.verify(s, wf, step, model).await {
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
@@ -365,7 +422,7 @@ impl Engine {
                 }
                 Ok(Outcome::Done("command succeeded".into()))
             }
-            "agent" => self.agent(s, wf, step, extra, model).await,
+            "agent" => self.agent(s, wf, step, extra, model, &inputs).await,
             _ => bail!("unsupported step kind"),
         }
     }
@@ -376,50 +433,13 @@ impl Engine {
         step: &Step,
         extra: &str,
         model: &str,
+        inputs: &[Artifact],
     ) -> Result<Outcome> {
         let prompt = config::render_includes(&step.prompt, &self.root, &wf.folder)?;
         let mut context=format!("Session goal:\n{}\n\nStep instructions:\n{}\n\nProject instructions:\n{}\n\nUser instructions:\n{}\n",s.goal,prompt,
             project_instructions(&self.root)?,extra);
-        let last = self.store.history(s)?;
-        let previous = last
-            .iter()
-            .rev()
-            .find(|(_, _, k, _)| k == "step.completed")
-            .map(|(_, id, _, _)| id.clone());
-        let mut selected: HashMap<String, String> = HashMap::new();
-        for inp in &step.inputs.from {
-            let source = if inp.source == "previous" {
-                previous.as_deref().unwrap_or("__missing__")
-            } else {
-                &inp.source
-            };
-            for a in self.store.artifacts(s, source)? {
-                if inp.select == "required" {
-                    let producing_step = wf
-                        .steps
-                        .get(&a.step)
-                        .context("unknown producing step for artifact")?;
-                    if !producing_step.outputs.required.contains(&a.name) {
-                        continue;
-                    }
-                }
-                selected.insert(a.name.clone(), a.content);
-            }
-        }
-        for required in &step.inputs.required {
-            if !selected.contains_key(required) {
-                for a in self.store.artifacts(s, "session")? {
-                    if &a.name == required {
-                        selected.insert(a.name.clone(), a.content);
-                    }
-                }
-            }
-            if !selected.contains_key(required) {
-                bail!("missing required input artifact {required}");
-            }
-        }
-        for (name, content) in selected {
-            context.push_str(&format!("\n--- ARTIFACT {name} ---\n{content}\n"));
+        for artifact in inputs {
+            context.push_str(&format!("\n--- ARTIFACT {} (event #{}) ---\n{}\n", artifact.name, artifact.event_id, artifact.content));
         }
         if context.len() > self.cfg.session.max_artifact_bytes {
             bail!("assembled step context exceeds byte limit; revise artifact selection");
@@ -442,6 +462,9 @@ impl Engine {
         for turn in 0..limit {
             let raw = self.provider.complete(model, &messages).await?;
             self.store.event(s, Some(&step.id), "model.output", &raw)?;
+            // An in-flight response cannot authorize work against an input
+            // version that changed while the model was running.
+            self.enforce_input_approvals(s, wf, step, &self.select_inputs(s, wf, step)?)?;
             messages.push(json!({"role":"assistant","content":raw}));
             let action = match parse_action(&raw) {
                 Ok(a) => a,

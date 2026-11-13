@@ -28,7 +28,7 @@ The focus hierarchy is **Sessions → event/artifact list → detail**. Right/En
 
 ### D-005 — Small Markdown reader first (implemented PR #8; further hardening open)
 
-Registered Markdown artifacts are a primary human review surface. Preview headings, emphasis, lists, quotes, code and simple tables with a raw toggle, without promising full CommonMark/GFM, images or a complete document editor. The selected branch currently shows **latest visible versions**, not version-aware review/approval evidence. Version IDs, pinned context and editing remain separate TODOs.
+Registered Markdown artifacts are a primary human review surface. Preview headings, emphasis, lists, quotes, code and simple tables with a raw toggle, without promising full CommonMark/GFM, images or a complete document editor. The artifact tab still shows **latest visible versions**. Persisted attempt input manifests and human approvals now reference exact version IDs; version navigation/diffs and editing remain separate TODOs.
 
 ### D-006 — Permissions retain their scope, pending prompts do not survive (partially implemented)
 
@@ -60,9 +60,9 @@ A combined diff of already-journaled native edits within a step/attempt can help
 
 Greenlight must not create automatic Git commits by default; the user controls checkpoints. Registered artifacts are immutable, branch-aware UTF-8 versions and are not necessarily project files. External editing plus registration of a new artifact version is preferable to a premature embedded editor. Future approval/context views must reference the **exact historical artifact version** used, not silently substitute latest-by-name content.
 
-## Open correctness issue discovered during documentation audit (2026-11-13)
+## Correctness issue discovered during documentation audit (2026-11-13; resolved)
 
-**Deviation detector duplication:** `src/engine.rs` currently checks some model-reported deviations twice. In the inner agent loop, a rejected detector result is fed back into the existing model conversation and execution may continue; if a validated deviation returns to the outer run loop, a second detector check can reject it and **block** the step. This discrepancy is now documented in the [execution contract](01-execution-contract.md) and scheduled as a [P0 task](../README.md#p0--stabilize-the-current-interactive-baseline). **Do not silently assume either outcome is universal** until implementation and tests are reconciled.
+**Deviation detector duplication:** the earlier inner/outer checks could evaluate one report twice. Detection now uses one shared evaluator with a retained verdict: rejected agent reports return to the same conversation, accepted reports route without rechecking, and malformed/failed detector responses block. Regression tests cover pause, retry, goto and engine-generated failures; see the [execution contract](01-execution-contract.md).
 
 ## Working rule for future features
 
