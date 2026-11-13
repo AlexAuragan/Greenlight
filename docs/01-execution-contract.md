@@ -25,7 +25,7 @@ The harness MUST stop when a step reports an unapproved blocker, prohibited scop
 7. A configured deviation may `pause`, `goto`, or bounded `retry`; unknown deviations pause.
 8. Tool invocation, result, model output, verification outcome, session and branch events are append-only.
 9. A new branch inherits records through its fork event; later events on the previous branch remain available through the original branch, but not visible on the new one.
-10. Branching does **not** restore side effects in the project filesystem.
+10. The **branch pointer alone** does not rewind the filesystem. The CLI `fork` and TUI restart can preview and apply a **separate guarded restore of journaled native edits** before branching; `fork --no-restore` explicitly skips it. Neither path promises rollback of manual changes, shell cache effects, or external services.
 11. Prompt changes take effect on subsequent step runs; each run records a resolved definition in the event log.
 12. Hard session safety limit: 100 step runs per `start` or `resume` command.
 
@@ -88,7 +88,7 @@ Verification is **mandatory in the resolved configuration**, even when it is `ty
 
 ## Deviation detection
 
-A model may report any configured deviation directly. An optional Markdown detector prompt in its rule triggers a *fresh* independent model check before the configured handler is applied; uncertain, rejected or invalid detector results block and ask the user. Deterministic command exit-status failures, missing outputs, model turn-budget overruns and permission errors are handled directly by the runtime. Running prompt detectors continuously during a model response is not part of v0.1.
+A model may report a configured deviation. When the rule has a detector prompt, the implementation currently evaluates it in **two places**: inside the agent response loop, where a rejected detector result is logged as `deviation.rejected` and fed back to the **same conversation** so the agent can continue; and in the outer step-run handler if a validated deviation is returned, where a later rejection, invalid detector response, or detector failure **blocks** the step. The second check can duplicate the first. This is an existing implementation inconsistency, not a deliberate policy; [consolidation is a P0 TODO](../README.md#p0--stabilize-the-current-interactive-baseline). Deterministic command failures, missing outputs, model turn-budget overruns and permission errors are handled separately. No detector monitors an in-flight model response.
 
 ## Acceptance scenarios
 

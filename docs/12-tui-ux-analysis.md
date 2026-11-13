@@ -1,7 +1,7 @@
 # Greenlight — TUI UX analysis and redesign plan
 
-> **Status:** product/UX proposal, not an implemented specification.
-> **Baseline:** `feat/ratatui-session-viewer` / PR #6, 2026-11-12.
+> **Status:** dated product/UX research and design history, **not a current implementation specification**. Some descriptions and proposed keys are deliberately preserved as historical evidence.
+> **Original baseline:** `feat/ratatui-session-viewer` / PR #6, 2026-11-12. **Current as of 2026-11-13:** PRs #6–#9 are merged; the Ratatui TUI, basic Markdown renderer, guarded native-file restore, workspace manifests and Greenlight rename exist. See [current TUI behavior](11-tui.md), [execution contract](01-execution-contract.md), [README status](../README.md#roadmap--todo) and the [decision log](16-decision-log.md).
 > **Audience:** people using Greenlight to supervise AI coding workflows; contributors implementing the terminal interface.
 > **Companion:** the prioritized checklist in [README.md](../README.md#roadmap--todo).
 >
@@ -35,7 +35,7 @@ The UI must translate those internal contracts into a reassuring, usable experie
 
 These observations motivate an **interaction redesign**, not just visual polish.
 
-### What exists on the PR #6 branch (implementation still being validated)
+### Original PR #6 baseline (historical snapshot, 2026-11-12)
 
 - CLI start/resume, terminal prompts, branch-aware SQLite events, immutable artifact versions, native edit diffs and guarded restore/fork operations.
 - Linux Bubblewrap isolation for shell tools; native writes remain separately permissioned and journaled.
@@ -44,9 +44,9 @@ These observations motivate an **interaction redesign**, not just visual polish.
 - The current TUI can observe other processes but only controls its own worker. There is **no strong cross-process session lock**, model token streaming, or real-time remote interaction with another process.
 - The workflow has step IDs, but the store lacks a durable first-class **attempt ID**. Event-based inference is currently necessary.
 
-### Not implemented / not yet validated
+### Still missing after PRs #6–#9 (status check, 2026-11-13)
 
-Rich terminal Markdown rendering; artifact version navigation and in-TUI editing; a proper workflow graph/stepper; a guided blocked-state recovery panel; event search/filtering; a shared persistent execution service and robust process ownership; summary/manager model roles; authoritative per-attempt run records; and end-to-end UX/accessibility testing.
+Artifact version navigation and in-TUI editing; a proper workflow graph/stepper; guided blocked-state recovery cards; event search/filtering; a shared persistent execution service and robust process ownership; summary/manager model roles; authoritative per-attempt run records; and end-to-end UX/accessibility testing. **A deliberately small Markdown preview/raw toggle and step-boundary file-hash recording are implemented**, but neither satisfies the complete review/provenance design here.
 
 **Source of truth:** [execution contract](01-execution-contract.md), [workflow format](02-workflow-format.md), [restore limits](09-workspace-restore.md), [permission semantics](08-persistent-approvals.md), and [current TUI behavior](11-tui.md). Some older v0.1 docs describe pre-sandbox/pre-TUI behavior and should eventually be reconciled.
 
@@ -274,9 +274,9 @@ Markdown rendering is a high-value **P0/P1 boundary**: it materially improves hu
 - Editing a document produces a **new immutable version**, not mutation of an old blob. Show conflicts when the source changed since editing began.
 - Artifacts are **registered UTF-8 content**, not necessarily project files. Don't imply that editing their preview directly writes to the workspace.
 
-### Terminal behavior
+### Terminal behavior (reconciled after keyboard testing)
 
-`Tab` moves focus. `j/k` selects a document when the list is focused. `PgUp/PgDn` scrolls the reader, `/` inside a document should open **search** only if the input focus makes that behavior unambiguous; otherwise use a visible command. `Enter` on a document opens/focuses the reader, not the agent composer. Offer a visible way to copy text and return to the previous focus.
+The shipped layout follows a **Yazi-inspired pane hierarchy**: Sessions → event/artifact list → detail. **Right/Enter** enters the next pane; **Left/Escape** returns. `i` explicitly focuses the composer, which is **never automatically focused** on opening, even for blocked sessions. From detail, Enter can focus the composer. Up/Down or `j/k` selects in lists and scrolls focused details, including approval and restart previews. **The earlier `PgUp/PgDn` suggestion was rejected** as awkward on some keyboards (notably AZERTY); those bindings were removed. Tab also navigates focus. Future document search should not hijack composer or slash-command input, and copy/return behavior remains a future usability improvement. See [current key map](11-tui.md).
 
 ## 8. Conversation, composer and keyboard UX
 
@@ -440,9 +440,9 @@ The UX above will be brittle unless the engine exposes stable structured state:
 
 | Milestone | Scope | User-visible result | Prerequisite / exit criterion |
 | --- | --- | --- | --- |
-| **M0 — Stabilize PR #6** | Compile/test, permission keyboard semantics, artifact tab, smoke tests | Existing functionality trustworthy | Local `cargo test`, Clippy, TUI interaction smoke, generated lockfile committed |
+| **M0 — Initial TUI baseline (delivered; validation still incomplete)** | Compile/test, permission keyboard semantics, artifact tab, smoke tests | Basic interactive TUI merged in PR #6; lockfile committed and local Rust tests/Clippy passed | Broader terminal and failure-mode E2E tests remain in [README P0](../README.md#p0--stabilize-the-current-interactive-baseline) |
 | **M1 — UX foundation** | Session home, stepper, typed event cards, focused key map, errors | “Where am I / what's next?” answered | 80×24 usable, blocked/review states obvious |
-| **M2 — Review artifacts** | Markdown renderer, preview/raw, version metadata, search, approval evidence | Plans/reports readable without editor | No unsafe escape sequences, version identity stable |
+| **M2 — Review artifacts (partially delivered)** | Markdown renderer, preview/raw, version metadata, search, approval evidence | Basic Markdown rendering and raw toggle shipped in PR #8; version provenance/search/pinning still pending | Hardening of control sequences and terminal layout, then stable version identity |
 | **M3 — Recovery and engine boundaries** | Durable attempts, owner lease, crash recovery, typed proposals/confirmation surfaces, restore clarity | Safe restart/retry without guessing | No concurrent double-run or silent restore |
 | **M4 — Summaries** | Optional step/workflow summarizer with cache/provenance | Quick understanding of long runs | Factual fallback when model disabled/fails |
 | **M5 — Manager** | Read-only evidence-based Q&A, then validated action proposals | “Why blocked / what next?” answered conversationally | Manager never mutates without harness validation + explicit user consent |
@@ -673,7 +673,7 @@ Start with four checks on the actual current TUI:
 
 ## 17. Decisions after critique — scope and semantics
 
-The previous section deliberately over-indexed on failure modes. The ensuing product discussion clarified what Greenlight is trying to accomplish and which concerns are **real technical boundaries** versus **premature reasons to remove a feature**. This section records the revised direction, superseding conflicting recommendations in Section 16.
+The previous section deliberately over-indexed on failure modes and was written against the original PR #6 baseline. Some descriptions (for example, raw-only artifact display) are now obsolete. The ensuing product discussion clarified what Greenlight is trying to accomplish and which concerns are **real technical boundaries** versus **premature reasons to remove a feature**. This section records the revised direction, superseding conflicting recommendations in Section 16.
 
 ### 17.1 Keep the manager as a coordinator, but implement it separately
 

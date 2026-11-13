@@ -10,7 +10,7 @@ This is an **experimental harness**, not a production-ready agent. DeepInfra is 
 - Linux, Bubblewrap at `/usr/bin/bwrap`, and enabled unprivileged user namespaces
 - DeepInfra API key
 - Optionally, a Brave Search API key for web searches
-- Git is recommended for checkpointing your code; this MVP **does not automatically roll back files**
+- Git is recommended for checkpoints. Greenlight can **explicitly restore recorded native writes**, but it does not automatically restore arbitrary project files, Git state, or external effects
 
 ## Quick start
 
@@ -75,7 +75,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - YAML frontmatter, YAML agent action protocol, Markdown prompt bodies. **Agent output fields and semantics:** [docs/13-agent-action-protocol.md](docs/13-agent-action-protocol.md) (current parser is the enforcement authority).
 - Fresh model context for each step, populated with selected registered artifacts.
 - Required artifacts checked per attempt; additional artifacts are always allowed.
-- Explicit verification, including `type: none`; composite `all` and `any` supported at one level.
+- Explicit verification, including `type: none`; composite `all` and `any` supported with the nesting limits described in [the execution contract](docs/01-execution-contract.md).
 - Deviations named by step, actions `pause`, `goto`, or bounded `retry`; optional independent model-based detector prompt.
 - Human approval for risky tools, with once, process, project or global trust scopes; no automatic hidden error recovery.
 - Append-only SQLite event stream with fork ancestry, artifact snapshots and immutable historical branches.
@@ -84,16 +84,23 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 ## Roadmap / TODO
 
-> **Status:** proposed, prioritized backlog — not a list of finished features. PR #6 is an evolving TUI baseline, **not** the end-state UX. The detailed product rationale, hot paths, interaction rules, [competitive harness benchmark](docs/12-tui-ux-analysis.md#15-external-harness-benchmark-research-snapshot-2026-11-12) and acceptance criteria live in [the TUI UX analysis](docs/12-tui-ux-analysis.md). Read its [critical design review](docs/12-tui-ux-analysis.md#16-critical-design-review--what-could-go-wrong-2026-11-12) before adding new subsystems.
+> **Status (2026-11-13):** this checklist tracks **remaining** work, not all ideas ever discussed. The TUI, workspace manifests, Markdown preview and Greenlight rename landed in PRs #6–#9. For rationale and proposed designs see [the dated TUI UX analysis](docs/12-tui-ux-analysis.md); for settled decisions see [the decision log](docs/16-decision-log.md), and for a repeatable manual exercise see [the smoke-test guide](docs/17-smoke-test.md). The current executable behavior is described in the specialized docs and Rust sources.
+
+### Implemented baseline (not the finished UX)
+
+- [x] CLI and Ratatui TUI share the engine, branch-aware event store, approvals and guarded restart/restore paths (PR #6).
+- [x] Native-write journal, file diffs and tracked-file restoration; step-boundary SHA-256 workspace manifests and read-only `workspace-status` (PR #7 for manifests; earlier PRs for journal/restore).
+- [x] Rendered Markdown subset with raw toggle, focus-based Left/Right/Enter/Escape navigation, `i` to compose, and Up/Down or `j/k` scrolling (PR #8).
+- [x] Greenlight executable/configuration/state naming, with guarded migration of legacy project state (PR #9).
+- [x] Local user validation of the pre-rename `master` integration: 57 passing Rust tests, one environment-dependent sandbox test ignored, and clean Clippy. The rename was subsequently reported good locally; automated CI evidence is not available. See [validation](docs/06-validation.md).
 
 ### P0 — stabilize the current interactive baseline
-
-- [ ] Finish local PR #6 validation: tests, Clippy, format check, generated Cargo.lock, and real-terminal smoke tests of the composer, permissions, artifacts and restore/fork.
 - [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval; require an extra explicit confirmation for persistent project/global grants.
 - [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
 - [ ] Add robust per-session execution ownership and stale-run recovery; prevent simultaneous CLI/TUI resumes of the same session.
 - [ ] On a worker crash, discard unanswered permission requests; preserve already-saved grants according to scope. A real durable session grant (today `a` only covers the process) is a separate lower-priority task.
 - [ ] Make artifact publication and its event consistent under write failure/crash; test recoverable failure instead of trusting a dangling `artifact.created` event.
+- [ ] Consolidate the **two deviation-detector call paths**: a rejected detector result currently continues inside the agent loop but blocks if rejected again by the outer run loop; avoid duplicate evaluation and specify one tested behavior.
 - [ ] Close the native-write **apply-before-journal** crash window: record intent/preimage before writing and reconcile any interrupted writes.
 - [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
 
@@ -102,15 +109,15 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Replace the raw log-centric layout with a session workspace: **status + stepper + context + primary action**, backed by typed events.
 - [ ] Add a session home/picker with readable names, blocked-first visibility, last activity, search and an in-TUI start flow.
 - [ ] Implement contextual blocked-state cards: show reason/evidence, inspect related artifacts, retry, resume or restart safely.
-- [ ] Make focus, keyboard shortcuts, composer mode, help, scroll-follow behavior and pane resizing coherent and discoverable.
-- [ ] Render a compact, colorful **Markdown** subset in artifact previews: headings, bold/italic/highlighting, basic lists and code, optionally simple tables; include Preview/Raw and escaped terminal controls. No need for complete GFM or terminal images.
+- [ ] Extend the **implemented** pane/focus keyboard model with discoverable help, reliable scroll-follow, draft preservation and small-terminal/resize behavior; do not regress AZERTY-friendly arrow/`j/k` scrolling.
+- [ ] Harden the **existing** Markdown renderer with control-sequence/Unicode-width/large-document tests and improve preview ergonomics as actual usage requires; full CommonMark/GFM and inline images are not a goal.
 - [ ] First persist stable artifact version identities and selected-input manifests; then add history/provenance, version diffs and **exact pinned approval evidence** (not merely the latest artifact).
 - [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
 - [ ] Explore model-authored **activity titles** at each response/action boundary (e.g. `Exploring call sites`, `Testing first fix`); record titles as annotations, not as verified execution facts. Optionally allow multiple logical phases within one workflow step.
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
 - [ ] Introduce durable step/attempt IDs and clear worker-crash recovery; pending permission requests are discarded, not resumed.
 - [ ] Capture each step's **actual resolved context manifest at execution time**: definition, selected artifact versions and accepted plan; a future UI must never reconstruct this from latest-by-name state.
-- [ ] Validate initial **workspace recording** on real workflows: bounded SHA-256 manifests before/after steps, a `workspace-status` comparison, and exclusions. Next, compare observed changes against the native-write journal to classify whether edits are explained. Hashes alone cannot restore user changes.
+- [ ] Correlate the **already implemented** SHA-256 step manifests with native-write journal events; classify explained/unexplained drift and measure scanning overhead on real projects. Hashes alone cannot restore file contents.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.
 - [ ] Split the large TUI controller incrementally into tested focus routing, activity, Markdown reader, approval and recovery components; render artifacts without blocking input.
 - [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.
@@ -143,9 +150,9 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] More complete sandbox resource limits and secret-handling defenses, plus security regression tests.
 - [ ] Optional desktop/Discord notifications, authenticated remote decisions and customizable keybindings/themes.
 - [ ] Branch graph/time-travel visualization, saved views, accessibility/contrast testing and performance profiling.
-- [ ] Consolidate older v0.1 docs whose pre-sandbox/pre-TUI wording is now obsolete.
+- [ ] Keep design docs and the decision log synchronized with implemented behavior as each feature lands; preserve historical proposals as clearly dated snapshots.
 
-**Prioritization rule:** build and validate one feature at a time. Start with native write reliability and project-file recording; broader restoration can wait until we understand real coverage gaps. Keep the ambitious TUI direction, but distinguish execution facts from model-authored UI titles, preserve saved grants while dropping pending requests after crashes, and keep the existing native-write rollback scope explicit. Models may coordinate, summarize and propose; the harness applies permissions, verification and transitions.
+**Prioritization rule:** build and validate one feature at a time. Harden native-write crash consistency, and evaluate recorded workspace manifests against the native journal before expanding restoration; broader rollback can wait for real coverage evidence. Keep the ambitious TUI direction, but distinguish execution facts from model-authored UI titles, preserve saved grants while dropping pending requests after crashes, and keep the existing native-write rollback scope explicit. Models may coordinate, summarize and propose; the harness applies permissions, verification and transitions.
 
 ## Caveats (read before use)
 
@@ -155,4 +162,4 @@ The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the p
 
 The `optimize-performance` example loops on `target_not_met` and stops on regressions; automatic code rollback is intentionally **not** implemented. For safe rollback, restore the repository from a known Git checkpoint before resuming.
 
-See `docs/` for execution contracts, workflow syntax and engineering tradeoffs.
+See [documentation and decisions](docs/16-decision-log.md), the [manual smoke-test guide](docs/17-smoke-test.md), and the rest of `docs/` for execution contracts, workflow syntax and engineering tradeoffs.

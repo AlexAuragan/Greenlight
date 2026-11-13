@@ -33,13 +33,13 @@ Additional produced artifacts are permitted and versioned. `source: previous` re
 
 ## Precedence and trust
 
-1. Global `greenlight.yaml` provides provider defaults and absolute permission policies.
+1. Root `greenlight.yaml` provides provider defaults and absolute permission policies (legacy `stepwright.yaml` is accepted if the new file is absent).
 2. Workflow defaults fill unset step frontmatter.
 3. Step frontmatter overrides workflow defaults.
-4. `.greenlight/instructions.md` augments step prompt; it does not override permissions.
+4. `.greenlight/instructions.md` augments the step prompt; the legacy `.stepwright/instructions.md` is a fallback. Neither can override permissions.
 5. CLI `--model` and `--instruction` apply to the current command's step runs.
 
-Tool permissions are **not** overridable from workflow frontmatter. Default policies are `read: allow`, `shell/write/web: ask` in absence of explicit global settings. An `allow` policy executes directly; `deny` rejects; `ask` offers one-time or process-lifetime approval. Restarting clears process approvals.
+Tool permissions are **not** overridable from workflow frontmatter. Default policies are `read: allow`, `shell/write/web: ask` unless configured otherwise. An `allow` policy executes directly; `deny` rejects; `ask` offers once (`y`), current-process (`a`), persistent project (`p`) or persistent global (`g`) grants where the permission kind allows them. Process grants end with the process; project/global grants are saved separately and remain subject to configured `deny`. See [persistent approvals](08-persistent-approvals.md).
 
 ## Example
 
