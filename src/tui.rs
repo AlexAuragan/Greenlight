@@ -36,6 +36,7 @@ enum Focus {
     Sessions,
     Events,
     Artifacts,
+    Detail,
     Compose,
 }
 
@@ -55,6 +56,7 @@ struct App {
     view: View,
     render_markdown: bool,
     focus: Focus,
+    focus_before_compose: Focus,
     show_all: bool,
     detail_scroll: u16,
     diff: Option<(i64, String)>,
@@ -86,12 +88,17 @@ impl App {
             } else {
                 Focus::Sessions
             },
+            focus_before_compose: if initial_session.is_some() {
+                Focus::Events
+            } else {
+                Focus::Sessions
+            },
             show_all: false,
             detail_scroll: 0,
             diff: None,
             requested_session: initial_session.map(str::to_owned),
             composer: String::new(),
-            notice: "Enter: compose  /restart: choose a step  Tab: navigate".into(),
+            notice: "←/→ panes · ↑/↓ navigate/scroll · i compose · Enter open".into(),
             runner: None,
             approval: None,
             restart_choices: Vec::new(),
@@ -119,7 +126,7 @@ impl App {
             return;
         }
         self.view = view;
-        if self.focus != Focus::Compose {
+        if self.focus != Focus::Compose && self.focus != Focus::Detail {
             self.focus = match view {
                 View::Conversation => Focus::Events,
                 View::Artifacts => Focus::Artifacts,
@@ -133,6 +140,33 @@ impl App {
             View::Conversation => Focus::Events,
             View::Artifacts => Focus::Artifacts,
         }
+    }
+
+    fn focus_composer(&mut self) {
+        if self.focus != Focus::Compose {
+            self.focus_before_compose = self.focus;
+        }
+        self.focus = Focus::Compose;
+    }
+
+    fn focus_right(&mut self) {
+        self.focus = match self.focus {
+            Focus::Sessions => self.main_focus(),
+            Focus::Events | Focus::Artifacts => Focus::Detail,
+            other => other,
+        };
+    }
+
+    fn focus_left(&mut self) {
+        self.focus = match self.focus {
+            Focus::Detail => self.main_focus(),
+            Focus::Events | Focus::Artifacts => Focus::Sessions,
+            other => other,
+        };
+    }
+
+    fn scroll_detail(&mut self, delta: isize) {
+        self.detail_scroll = self.detail_scroll.saturating_add_signed(delta);
     }
 
     fn refresh(&mut self, store: &Store) -> Result<()> {
@@ -198,7 +232,7 @@ impl App {
 
     fn navigate(&mut self, delta: isize) {
         match self.focus {
-            Focus::Compose => (),
+            Focus::Compose | Focus::Detail => (),
             Focus::Sessions => {
                 let next = move_index(self.session_index, delta, self.sessions.len());
                 if next != self.session_index {
@@ -231,7 +265,7 @@ impl App {
 
     fn select_end(&mut self, last: bool) {
         match self.focus {
-            Focus::Compose => (),
+            Focus::Compose | Focus::Detail => (),
             Focus::Sessions => {
                 let next = if last { self.sessions.len().saturating_sub(1) } else { 0 };
                 if next != self.session_index {
@@ -327,7 +361,6 @@ impl App {
             };
             self.runner = None;
             self.approval = None;
-            self.focus = Focus::Compose;
         }
     }
 
@@ -450,7 +483,7 @@ impl App {
         self.restart_choices.clear();
         self.restart_branch = None;
         self.composer.clear();
-        self.focus = Focus::Compose;
+        self.focus_composer();
         self.detail_scroll = 0;
     }
 
@@ -537,7 +570,7 @@ impl App {
         if self.focus == Focus::Compose {
             match key.code {
                 KeyCode::Tab => self.focus = Focus::Sessions,
-                KeyCode::Esc => self.focus = self.main_focus(),
+                KeyCode::Esc => self.focus = self.focus_before_compose,
                 KeyCode::Enter => self.submit(root, store),
                 KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     self.composer.push('\n');
@@ -557,32 +590,49 @@ impl App {
         match key.code {
             KeyCode::Char('q') if self.runner.is_none() => return Ok(true),
             KeyCode::Char('q') => self.notice = "Agent running; wait for its result before exiting.".into(),
-            KeyCode::Tab => {
-                self.focus = match self.focus {
-                    Focus::Sessions => self.main_focus(),
-                    Focus::Events | Focus::Artifacts => Focus::Compose,
-                    Focus::Compose => Focus::Sessions,
-                };
+            KeyCode::Tab | KeyCode::Right => {
+                if self.focus == Focus::Detail && key.code == KeyCode::Tab {
+                    self.focus_composer();
+                } else {
+                    self.focus_right();
+                }
             }
-            KeyCode::Esc | KeyCode::Left => self.focus = Focus::Sessions,
-            KeyCode::Right => self.focus = self.main_focus(),
+            KeyCode::Esc | KeyCode::Left => self.focus_left(),
             KeyCode::Char('1') => self.switch_view(View::Conversation),
             KeyCode::Char('2') => self.switch_view(View::Artifacts),
             KeyCode::Char('m') if self.view == View::Artifacts => {
                 self.render_markdown = !self.render_markdown;
                 self.detail_scroll = 0;
             },
-            KeyCode::Enter | KeyCode::Char('i') => self.focus = Focus::Compose,
+            KeyCode::Enter => {
+                if self.focus == Focus::Detail {
+                    self.focus_composer();
+                } else {
+                    self.focus_right();
+                }
+            }
+            KeyCode::Char('i') => self.focus_composer(),
             KeyCode::Char('/') => {
-                self.focus = Focus::Compose;
+                self.focus_composer();
                 self.composer.push('/');
             }
-            KeyCode::Char('j') | KeyCode::Down => self.navigate(1),
-            KeyCode::Char('k') | KeyCode::Up => self.navigate(-1),
-            KeyCode::Char('g') | KeyCode::Home => self.select_end(false),
-            KeyCode::Char('G') | KeyCode::End => self.select_end(true),
-            KeyCode::PageDown => self.detail_scroll = self.detail_scroll.saturating_add(10),
-            KeyCode::PageUp => self.detail_scroll = self.detail_scroll.saturating_sub(10),
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.focus == Focus::Detail { self.scroll_detail(1); }
+                else { self.navigate(1); }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if self.focus == Focus::Detail { self.scroll_detail(-1); }
+                else { self.navigate(-1); }
+            }
+            KeyCode::Char('g') | KeyCode::Home => {
+                if self.focus == Focus::Detail { self.detail_scroll = 0; }
+                else { self.select_end(false); }
+            }
+            KeyCode::Char('G') | KeyCode::End => {
+                if self.focus != Focus::Detail { self.select_end(true); }
+            }
+            KeyCode::PageDown => self.scroll_detail(10),
+            KeyCode::PageUp => self.scroll_detail(-10),
             KeyCode::Char('v') if self.view == View::Conversation => self.toggle_verbose(),
             KeyCode::Char('d') if self.view == View::Conversation => self.toggle_diff(store)?,
             KeyCode::Char('r') => self.refresh(store)?,
@@ -842,7 +892,7 @@ fn draw(frame: &mut Frame, app: &App) {
             Paragraph::new(content)
                 .wrap(Wrap { trim: false })
                 .scroll((app.detail_scroll, 0))
-                .block(border(title, false)),
+                .block(border(title, app.focus == Focus::Detail)),
             panes[1],
         );
     } else {
@@ -879,7 +929,7 @@ fn draw(frame: &mut Frame, app: &App) {
             Paragraph::new(app.detail())
                 .wrap(Wrap { trim: false })
                 .scroll((app.detail_scroll, 0))
-                .block(border(title, false)),
+                .block(border(title, app.focus == Focus::Detail)),
             right[1],
         );
     }
@@ -897,7 +947,7 @@ fn draw(frame: &mut Frame, app: &App) {
     let input_title = if app.runner.is_some() {
         " Agent running — input disabled until done "
     } else {
-        " Message agent · Enter sends / Ctrl+J newline "
+        " Message agent · i or Enter to focus · Enter sends "
     };
     let composer_style = if app.composer.is_empty() {
         Style::default().fg(Color::Rgb(85, 85, 85))
@@ -918,7 +968,7 @@ fn draw(frame: &mut Frame, app: &App) {
         "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
     } else {
         format!(
-            "{}   │   1 Conversation  2 Artifacts  m Markdown/raw  Tab focus  j/k select  PgUp/PgDn scroll  /restart",
+            "{}   │   1/2 views · ←/→ pane · ↑/↓ select/scroll · Enter open · i message · m raw",
             app.notice
         )
     };
@@ -936,9 +986,6 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
     }
     let mut app = App::new(initial_session);
     app.refresh(&store)?;
-    if app.session().is_some_and(|session| session.status == "blocked") {
-        app.focus = Focus::Compose;
-    }
     ratatui::run(|terminal| -> Result<()> {
         let mut last_refresh = Instant::now();
         loop {
@@ -972,12 +1019,49 @@ mod tests {
         let session = store.create("example", "goal", "plan").unwrap();
         let mut app = App::new(Some(&session.id));
         app.refresh(&store).unwrap();
+        assert_eq!(app.focus, Focus::Events, "opening a session must not auto-focus the composer");
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Detail);
         app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(app.focus, Focus::Compose);
         app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE), root.path(), &store).unwrap();
         app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE), root.path(), &store).unwrap();
         app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(app.composer, "x");
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Detail);
+    }
+
+    #[test]
+    fn focus_moves_across_panes_and_arrows_scroll_detail() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("example", "goal", "plan").unwrap();
+        store.add_artifact(&session, "plan", "plan.md", "# Heading\n\nLong artifact").unwrap();
+        let mut app = App::new(None);
+        app.refresh(&store).unwrap();
+        assert_eq!(app.focus, Focus::Sessions);
+        app.on_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Events);
+        app.on_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Artifacts);
+        app.on_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Detail);
+        let selected = app.artifact_index;
+        app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), root.path(), &store).unwrap();
+        app.on_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.detail_scroll, 2);
+        assert_eq!(app.artifact_index, selected);
+        app.on_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.detail_scroll, 1);
+        app.on_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Artifacts);
+        app.on_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Sessions);
+        app.on_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Compose);
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.focus, Focus::Sessions);
     }
 
     #[test]
