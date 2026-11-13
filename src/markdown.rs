@@ -20,22 +20,21 @@ fn inline(input: &str, style: Style, depth: usize) -> Vec<Span<'static>> {
     let mut pos = 0;
     while pos < input.len() {
         let rest = &input[pos..];
-        if let Some(escaped) = rest.strip_prefix('\\') {
-            if let Some(ch) = escaped.chars().next() {
-                if "\\*_`[]".contains(ch) {
-                    plain.push(ch);
-                    pos += 1 + ch.len_utf8();
-                    continue;
-                }
-            }
+        if let Some(ch) = rest.strip_prefix('\\')
+            .and_then(|escaped| escaped.chars().next())
+            .filter(|ch| "\\*_`[]".contains(*ch))
+        {
+            plain.push(ch);
+            pos += 1 + ch.len_utf8();
+            continue;
         }
-        if let Some(after) = rest.strip_prefix('`') {
-            if let Some(end) = after.find('`') {
-                flush(&mut spans, &mut plain, style);
-                spans.push(Span::styled(after[..end].to_owned(), Style::default().fg(Color::Yellow)));
-                pos += end + 2;
-                continue;
-            }
+        if let Some((after, end)) = rest.strip_prefix('`')
+            .and_then(|after| after.find('`').map(|end| (after, end)))
+        {
+            flush(&mut spans, &mut plain, style);
+            spans.push(Span::styled(after[..end].to_owned(), Style::default().fg(Color::Yellow)));
+            pos += end + 2;
+            continue;
         }
         let marker = if rest.starts_with("**") { Some("**") }
             else if rest.starts_with("__") { Some("__") }
