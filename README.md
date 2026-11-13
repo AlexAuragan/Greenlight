@@ -48,6 +48,7 @@ stepwright sessions
 stepwright tui                  # interactive session conversation
 stepwright tui SESSION_ID       # focus on a session, resume or restart
 stepwright history SESSION_ID
+stepwright workspace-status SESSION_ID  # compare step-boundary file hashes
 stepwright branches SESSION_ID
 stepwright switch SESSION_ID --branch BRANCH_ID --step implement
 stepwright artifacts SESSION_ID
@@ -58,6 +59,8 @@ stepwright models
 ```
 
 For a globally installed binary, run `stepwright ...` instead of `cargo run -- ...`.
+
+`workspace-status SESSION_ID` compares the current project files with the most recent recorded step-boundary manifest and shows changes during the latest completed step. It records **paths, sizes and SHA-256 hashes, not file contents**. The recording omits sensitive paths, symlinks, caches and files above its size limit. Hashes detect drift; they do not restore files or identify whether a human or another process made a change. See [workspace recording](docs/14-workspace-recording.md).
 
 Run with `--root /path/to/project` to select the project directory containing `stepwright.yaml`, `workflows/` and `.stepwright/instructions.md`. Workflows may use includes in `shared/`. Config and workflow reload for each *new step run*.
 
@@ -105,7 +108,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
 - [ ] Introduce durable step/attempt IDs and clear worker-crash recovery; pending permission requests are discarded, not resumed.
 - [ ] Capture each step's **actual resolved context manifest at execution time**: definition, selected artifact versions and accepted plan; a future UI must never reconstruct this from latest-by-name state.
-- [ ] **Workspace recording first:** at session start and step boundaries capture bounded project-file manifests (paths, existence, hashes and exclusions); compare against the native-write journal to detect out-of-band changes and assess restore coverage. Start with recording, not automatic rollback.
+- [ ] Validate initial **workspace recording** on real workflows: bounded SHA-256 manifests before/after steps, a `workspace-status` comparison, and exclusions. Next, compare observed changes against the native-write journal to classify whether edits are explained. Hashes alone cannot restore user changes.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.
 - [ ] Split the large TUI controller incrementally into tested focus routing, activity, Markdown reader, approval and recovery components; render artifacts without blocking input.
 - [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.

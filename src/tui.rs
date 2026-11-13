@@ -591,6 +591,7 @@ fn is_chatter(kind: &str) -> bool {
     matches!(
         kind,
         "step.definition" | "context.assembled" | "model.output" | "tool.request"
+            | "workspace.manifest.before" | "workspace.manifest.after"
     )
 }
 

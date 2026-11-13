@@ -9,6 +9,7 @@ mod store;
 mod tools;
 mod tui;
 mod tui_actions;
+mod workspace;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -48,6 +49,8 @@ enum Commands {
     Tui { session: Option<String> },
     /// List saved sessions
     Sessions,
+    /// Compare current project files with the latest recorded step-boundary hashes
+    WorkspaceStatus { session: String },
     /// Show event history, including current branch ancestry
     History { session: String },
     /// List session branches and their fork points
@@ -166,6 +169,38 @@ async fn main() -> Result<()> {
         }
         Commands::Tui { session } => {
             tui::run(&root, session.as_deref())?;
+        }
+        Commands::WorkspaceStatus { session } => {
+            let engine = engine::Engine::open(&root)?;
+            let selected = engine.store.session(&session)?;
+            let Some((event, step, recorded)) = workspace::latest(&engine.store, &selected)? else {
+                bail!("no workspace recording for session {session}; run at least one step");
+            };
+            let current = workspace::scan(&root)?;
+            let changes = workspace::differences(&recorded, &current);
+            if let Some((step_name, step_changes)) =
+                workspace::latest_step_changes(&engine.store, &selected)?
+            {
+                println!("Latest finished step recording: {step_name}");
+                if step_changes.is_empty() {
+                    println!("  No scanned project-file changes during that step.");
+                } else {
+                    for change in step_changes {
+                        println!("  {} during step: {}", change.change, change.path);
+                    }
+                }
+            }
+            println!("Current workspace vs recorded event #{event} (step {step}, branch {})", selected.active_branch);
+            println!("Recorded: {} files; current: {} files", recorded.files.len(), current.files.len());
+            println!("Skipped oversized/non-UTF8 paths: {} recorded; {} current", recorded.skipped.len(), current.skipped.len());
+            if changes.is_empty() {
+                println!("No changes since the most recent workspace recording.");
+            } else {
+                for change in changes {
+                    println!("{} since recording: {}", change.change, change.path);
+                }
+            }
+            println!("Hashes detect differences only; no file was modified or restored.");
         }
         Commands::Sessions => {
             let engine = engine::Engine::open(&root)?;
