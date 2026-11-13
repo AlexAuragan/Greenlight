@@ -12,7 +12,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
@@ -53,6 +53,7 @@ struct App {
     artifacts: Vec<Artifact>,
     artifact_index: usize,
     view: View,
+    render_markdown: bool,
     focus: Focus,
     show_all: bool,
     detail_scroll: u16,
@@ -79,6 +80,7 @@ impl App {
             artifacts: Vec::new(),
             artifact_index: 0,
             view: View::Conversation,
+            render_markdown: true,
             focus: if initial_session.is_some() {
                 Focus::Events
             } else {
@@ -566,6 +568,10 @@ impl App {
             KeyCode::Right => self.focus = self.main_focus(),
             KeyCode::Char('1') => self.switch_view(View::Conversation),
             KeyCode::Char('2') => self.switch_view(View::Artifacts),
+            KeyCode::Char('m') if self.view == View::Artifacts => {
+                self.render_markdown = !self.render_markdown;
+                self.detail_scroll = 0;
+            },
             KeyCode::Enter | KeyCode::Char('i') => self.focus = Focus::Compose,
             KeyCode::Char('/') => {
                 self.focus = Focus::Compose;
@@ -804,17 +810,39 @@ fn draw(frame: &mut Frame, app: &App) {
         frame.render_stateful_widget(artifacts, panes[0], &mut state);
 
         let content = match app.artifact() {
-            Some(artifact) => format!(
-                "{}\nProduced by: {}\nSize: {} bytes\n\n{}",
-                artifact.name, artifact.step, artifact.content.len(), artifact.content
+            Some(artifact) => {
+                let mut lines = vec![
+                    Line::styled(
+                        artifact.name.clone(),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ),
+                    Line::styled(
+                        format!("Produced by: {}  ·  {} bytes", artifact.step, artifact.content.len()),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Line::default(),
+                ];
+                if app.render_markdown {
+                    lines.extend(crate::markdown::render(&artifact.content).lines);
+                } else {
+                    lines.extend(Text::raw(artifact.content.clone()).lines);
+                }
+                Text::from(lines)
+            }
+            None => Text::raw(
+                "No artifacts on this branch yet.\n\nArtifact actions and put-artifact register documents for later steps and human review.",
             ),
-            None => "No artifacts on this branch yet.\n\nArtifact actions and put-artifact register documents for later steps and human review.".to_owned(),
+        };
+        let title = if app.render_markdown {
+            " Artifact · Markdown · m: raw · PgUp/PgDn scroll "
+        } else {
+            " Artifact · Raw text · m: Markdown · PgUp/PgDn scroll "
         };
         frame.render_widget(
             Paragraph::new(content)
                 .wrap(Wrap { trim: false })
                 .scroll((app.detail_scroll, 0))
-                .block(border(" Artifact content · PgUp/PgDn scroll ", false)),
+                .block(border(title, false)),
             panes[1],
         );
     } else {
@@ -890,7 +918,7 @@ fn draw(frame: &mut Frame, app: &App) {
         "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
     } else {
         format!(
-            "{}   │   1 Conversation  2 Artifacts  Tab focus  j/k select  PgUp/PgDn scroll  /restart",
+            "{}   │   1 Conversation  2 Artifacts  m Markdown/raw  Tab focus  j/k select  PgUp/PgDn scroll  /restart",
             app.notice
         )
     };
@@ -1055,6 +1083,13 @@ mod tests {
         app.refresh(&store).unwrap();
         assert_eq!(app.artifact().unwrap().name, "plan.md");
         assert_eq!(app.artifact().unwrap().content, "third version");
+        assert!(app.render_markdown);
+        app.detail_scroll = 10;
+        app.on_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert!(!app.render_markdown);
+        assert_eq!(app.detail_scroll, 0);
+        app.on_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert!(app.render_markdown);
         let backend = ratatui::backend::TestBackend::new(110, 32);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal.draw(|frame| draw(frame, &app)).unwrap();

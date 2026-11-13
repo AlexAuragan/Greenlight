@@ -19,7 +19,7 @@ When the Engine requests permission to execute a shell command, write a file, us
 
 ## Artifacts tab
 
-Press **2** in navigation mode to open the **Artifacts** tab; press **1** to return to the conversation. The left pane lists the most recent version of each artifact on the selected session's active branch, along with its producing step and byte size. The right pane shows the complete Markdown/text content. **j/k**, arrows and **g/G** select a saved artifact; **PageUp/PageDown** scroll its contents. The selected artifact remains selected when newer versions are registered.
+Press **2** in navigation mode to open the **Artifacts** tab; press **1** to return to the conversation. The left pane lists the most recent version of each artifact on the selected session's active branch, along with its producing step and byte size. The right pane renders headings, emphasis, inline/fenced code, lists, blockquotes and simple pipe tables. Press **m** in navigation mode to toggle between rendered Markdown (the default) and exact raw text; the original stored artifact is never rewritten. Other CommonMark features, hyperlinks and complex table layouts are not yet supported. **j/k**, arrows and **g/G** select a saved artifact; **PageUp/PageDown** scroll its contents. The selected artifact remains selected when newer versions are registered.
 
 Artifacts are inputs to later workflow steps and an important human-review surface. This tab deliberately uses the same branch-aware `Store::artifacts` lookup as the CLI and does not alter artifact content. It currently shows **latest versions only**. To register a manually edited version, use `stepwright put-artifact SESSION_ID NAME --file PATH` from another terminal; version browsing and direct artifact editing are follow-on features.
 
@@ -33,7 +33,7 @@ The restore planner refuses mismatched file snapshots, manual drift, symlinks, a
 
 - **Enter** on a selected session/event focuses the message composer; **Enter** in the composer sends.
 - **Ctrl+J** inserts a newline into the composer; **Escape** returns to event navigation.
-- **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode.
+- **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode; **m** toggles rendered Markdown/raw text in Artifacts.
 - **Tab** switches between sessions, the current tab's list and the composer.
 - **j/k**, arrow keys and **g/G** or Home/End navigate sessions, events and artifacts.
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
