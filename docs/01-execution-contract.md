@@ -10,7 +10,7 @@ The harness MUST stop when a step reports an unapproved blocker, prohibited scop
 - **Session:** goal + active execution branch + workflow ID.
 - **Step:** YAML-frontmatter Markdown definition, reloaded when executed.
 - **Run:** execution of one step on one branch; a loop creates additional runs.
-- **Attempt:** retry of a step; v0.1 records events and a new step run rather than assigning a distinct attempt table ID.
+- **Attempt:** one execution of a step, including retries/loops, with a durable UUID in `step_attempts`, resolved definition reference, start/end events and outcome. Older history remains readable without fabricated attempt IDs.
 - **Artifact:** named, versioned UTF-8 content stored in session state, not necessarily a filesystem file.
 - **Deviation:** an agent-reported or engine-detected condition that selects a preauthorized action. Unknown deviations always stop.
 
@@ -101,4 +101,4 @@ Malformed detector responses, request failures and unreadable detector prompts b
 
 ## Known deviations from the full design
 
-No transactional tool side effects, no automatic Git restoration, no stable step attempt IDs, no streaming model output, no automatic compaction, no independent review of command outputs, and no graph-branch visualizer. These are deliberate scope boundaries, not guarantees.
+No transactional tool side effects, no automatic Git restoration, no streaming model output, no automatic compaction, no independent review of command outputs, and no graph-branch visualizer. Approval/input version pinning remains separate from durable attempt IDs. These are deliberate scope boundaries, not guarantees.

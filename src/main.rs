@@ -59,6 +59,8 @@ enum Commands {
     Tui { session: Option<String> },
     /// List saved sessions
     Sessions,
+    /// List durable step attempts visible on the session's active branch
+    Attempts { session: String },
     /// Compare current project files with the latest recorded step-boundary hashes
     WorkspaceStatus { session: String },
     /// Show event history, including current branch ancestry
@@ -123,6 +125,11 @@ async fn main() -> Result<()> {
     config::load_dotenv(&cwd.join(".env"))?;
     config::load_dotenv(&root.join(".env"))?;
     match cli.command {
+        Commands::Attempts { session } => {
+            let store = store::Store::open(&root)?;
+            let selected = store.session(&session)?;
+            for attempt in store.attempt_history(&selected)? { println!("{attempt}"); }
+        }
         Commands::RecoverSession { session } => {
             let store = store::Store::open(&root)?;
             println!("{}", store.recover_session(&session)?);

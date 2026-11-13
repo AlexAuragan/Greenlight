@@ -47,6 +47,7 @@ greenlight start fix-bug --goal "..."
 greenlight start add-feature --goal "..." --model "provider/model"
 greenlight resume SESSION_ID --instruction "Do not change dependencies"
 greenlight sessions
+greenlight attempts SESSION_ID  # durable step attempts on the active branch
 greenlight tui                  # interactive session conversation
 greenlight tui SESSION_ID       # focus on a session, resume or restart
 greenlight history SESSION_ID
@@ -117,7 +118,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
 - [ ] Explore model-authored **activity titles** at each response/action boundary (e.g. `Exploring call sites`, `Testing first fix`); record titles as annotations, not as verified execution facts. Optionally allow multiple logical phases within one workflow step.
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
-- [ ] Introduce durable step/attempt IDs and clear worker-crash recovery; pending permission requests are discarded, not resumed.
+- [x] Persist a UUID for each new step attempt with definition/start/end event references and outcome; expose branch-visible history through `attempts`. Worker recovery marks interrupted attempts without replaying approvals. Historical sessions are not backfilled.
 - [ ] Capture each step's **actual resolved context manifest at execution time**: definition, selected artifact versions and accepted plan; a future UI must never reconstruct this from latest-by-name state.
 - [ ] Correlate the **already implemented** SHA-256 step manifests with native-write journal events; classify explained/unexplained drift and measure scanning overhead on real projects. Hashes alone cannot restore file contents.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.

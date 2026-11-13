@@ -81,6 +81,67 @@ impl Harness {
 const PAUSE: &str = "  - id: blocker\n    action: pause\n    prompt: detector.md";
 
 #[tokio::test]
+async fn reviewer_uses_only_current_attempt_evidence_and_records_versions() {
+    let artifact = "action: artifact\nname: report.md\ncontent: CURRENT_REPORT";
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: tool\ntool: read\npath: observation.txt"),
+            Ok(artifact),
+            Ok(FINISH),
+            Ok("passed: true\nreason: fixture"),
+        ],
+    );
+    let session = h.engine.store.session(&h.session).unwrap();
+    h.engine
+        .store
+        .begin_attempt(&session, "step", "old definition", "fixture")
+        .unwrap();
+    h.engine
+        .store
+        .add_artifact(&session, "step", "obsolete.md", "OLD_REPORT")
+        .unwrap();
+    h.engine
+        .store
+        .event(&session, Some("step"), "tool.result", "OLD_TOOL_SUCCESS")
+        .unwrap();
+    h.engine
+        .store
+        .event(&session, Some("step"), "step.blocked", "retry")
+        .unwrap();
+    let file = h.root.path().join("workflows/demo/step.md");
+    let text = fs::read_to_string(&file)
+        .unwrap()
+        .replace("type: none", "type: agent\n  prompt: detector.md")
+        .replace("tools: []", "tools: [read]");
+    fs::write(file, text).unwrap();
+    fs::write(
+        h.root.path().join("observation.txt"),
+        format!("{}CURRENT_TOOL_FAILURE", "line\n".repeat(12)),
+    )
+    .unwrap();
+    h.run().await;
+    h.assert_calls(4);
+    assert_eq!(h.status(), "completed");
+    let script = h.script.lock().unwrap();
+    let query = script.requests[3][0]["content"].as_str().unwrap();
+    assert!(query.contains("CURRENT_REPORT"));
+    assert!(query.contains("CURRENT_TOOL_FAILURE"));
+    assert!(!query.contains("OLD_REPORT"));
+    assert!(!query.contains("OLD_TOOL_SUCCESS"));
+    let session = h.engine.store.session(&h.session).unwrap();
+    let history = h.engine.store.history(&session).unwrap();
+    let manifest = history
+        .iter()
+        .find(|(_, _, kind, _)| kind == "verification.evidence")
+        .unwrap();
+    let evidence: serde_json::Value = serde_json::from_str(&manifest.3).unwrap();
+    assert_eq!(evidence["artifact_events"].as_array().unwrap().len(), 1);
+    assert_eq!(evidence["observation_events"].as_array().unwrap().len(), 1);
+    assert_eq!(h.engine.store.attempt_history(&session).unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn accepted_report_is_detected_once_before_pause() {
     let mut h = Harness::new(PAUSE, vec![Ok(REPORT), Ok(ACCEPT)]);
     h.run().await;

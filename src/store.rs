@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, path::{Path, PathBuf}};
 use uuid::Uuid;
@@ -27,7 +27,7 @@ pub struct WorkspaceEdit {
     pub after: Option<String>,
 }
 #[derive(Debug, Clone)]
-pub struct Artifact { pub name: String, pub content: String, pub step: String }
+pub struct Artifact { pub name: String, pub content: String, pub step: String, pub event_id: i64 }
 
 pub struct Store { pub(crate) db: Connection, pub directory: PathBuf }
 impl Store {
@@ -62,6 +62,10 @@ impl Store {
            CREATE TABLE IF NOT EXISTS execution_owners (
              session TEXT PRIMARY KEY REFERENCES sessions(id), token TEXT NOT NULL,
              pid INTEGER NOT NULL);
+           CREATE TABLE IF NOT EXISTS step_attempts (
+             id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
+             step TEXT NOT NULL, definition_event INTEGER NOT NULL, start_event INTEGER NOT NULL,
+             end_event INTEGER, status TEXT NOT NULL);
            CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
@@ -90,8 +94,22 @@ impl Store {
         Ok(())
     }
     pub fn event(&self, s: &Session, step: Option<&str>, kind: &str, data: &str) -> Result<i64> {
+        let tx = if self.db.is_autocommit() { Some(self.db.unchecked_transaction()?) } else { None };
         self.db.execute("INSERT INTO events(session,branch,step,kind,data) VALUES (?1,?2,?3,?4,?5)", params![s.id,s.active_branch,step,kind,data])?;
-        Ok(self.db.last_insert_rowid())
+        let event = self.db.last_insert_rowid();
+        let status = match kind {
+            "step.completed" => Some("completed"),
+            "step.deviation" => Some("deviation"),
+            "step.blocked" => Some("blocked"),
+            "runner.error" | "runner.recovered" => Some("interrupted"),
+            _ => None,
+        };
+        if let Some(status) = status {
+            self.db.execute("UPDATE step_attempts SET end_event=?1,status=?2 WHERE session=?3 AND branch=?4 AND status='running' AND (?5 IS NULL OR step=?5)",
+                params![event,status,s.id,s.active_branch,step])?;
+        }
+        if let Some(tx) = tx { tx.commit()?; }
+        Ok(event)
     }
     pub fn branch(&self, id: &str) -> Result<Branch> {
         self.db.query_row("SELECT id,parent,fork_event FROM branches WHERE id=?1", [id], |r| Ok(Branch{id:r.get(0)?,parent:r.get(1)?,fork_event:r.get(2)?})).map_err(Into::into)
@@ -293,22 +311,57 @@ impl Store {
     }
 
     pub fn current_run_artifacts(&self,s:&Session,step:&str)->Result<Vec<String>> {
-        let marker:i64=self.db.query_row("SELECT id FROM events WHERE session=?1 AND branch=?2 AND step=?3 AND kind='step.started' ORDER BY id DESC LIMIT 1",
-            params![s.id,s.active_branch,step],|r|r.get(0)).optional()?.unwrap_or(i64::MAX);
-        let mut st=self.db.prepare("SELECT DISTINCT name FROM artifacts WHERE session=?1 AND branch=?2 AND step=?3 AND event_id>?4")?;
-        let rows=st.query_map(params![s.id,s.active_branch,step,marker],|r|r.get(0))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(self.attempt_artifacts(s, step)?.into_iter().map(|a| a.name).collect())
+    }
+    pub fn begin_attempt(&self, s: &Session, step: &str, definition: &str, model: &str) -> Result<String> {
+        let tx = self.db.unchecked_transaction()?;
+        let definition_event = self.event(s, Some(step), "step.definition", definition)?;
+        let id = Uuid::new_v4().to_string();
+        let start = self.event(s, Some(step), "step.started", &format!("model: {model}\nattempt: {id}"))?;
+        self.db.execute("UPDATE step_attempts SET status='interrupted',end_event=?2 WHERE session=?1 AND status='running'", params![s.id,start-1])?;
+        self.db.execute("INSERT INTO step_attempts(id,session,branch,step,definition_event,start_event,status) VALUES (?1,?2,?3,?4,?5,?6,'running')",
+            params![id,s.id,s.active_branch,step,definition_event,start])?;
+        tx.commit()?;
+        Ok(id)
+    }
+    pub fn active_attempt(&self, s: &Session, step: &str) -> Result<(String,i64)> {
+        self.db.query_row("SELECT id,start_event FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 AND status='running' ORDER BY start_event DESC LIMIT 1",
+            params![s.id,s.active_branch,step], |r| Ok((r.get(0)?,r.get(1)?))).map_err(Into::into)
+    }
+    pub fn attempt_artifacts(&self, s: &Session, step: &str) -> Result<Vec<Artifact>> {
+        let (_, start) = self.active_attempt(s, step)?;
+        let mut query = self.db.prepare("SELECT name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND step=?3 AND event_id>?4 ORDER BY event_id")?;
+        let rows = query.query_map(params![s.id,s.active_branch,step,start], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?)))?;
+        let mut versions = std::collections::BTreeMap::new();
+        for row in rows {
+            let (name,blob,event_id) = row?;
+            versions.insert(name.clone(), Artifact {name,content:fs::read_to_string(self.directory.join("blobs").join(blob))?,step:step.into(),event_id});
+        }
+        Ok(versions.into_values().collect())
+    }
+    pub fn attempt_history(&self, s: &Session) -> Result<Vec<String>> {
+        let mut result = Vec::new();
+        for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            let mut query = self.db.prepare("SELECT id,step,start_event,end_event,status FROM step_attempts WHERE session=?1 AND branch=?2 AND start_event<=?3 ORDER BY start_event")?;
+            let rows = query.query_map(params![s.id,branch,cutoff], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<i64>>(3)?,r.get::<_,String>(4)?)))?;
+            for row in rows {
+                let (id,step,start,end,status) = row?;
+                let status = if end.is_none_or(|end| end > cutoff) && cutoff != i64::MAX { "inherited-partial" } else { &status };
+                result.push(format!("{id}  {step}  {status}  events {start}..{}",end.filter(|end| *end <= cutoff).map(|end| end.to_string()).unwrap_or_else(|| "open".into())));
+            }
+        }
+        Ok(result)
     }
     pub fn artifacts(&self,s:&Session, source: &str) -> Result<Vec<Artifact>> {
         let mut versions: std::collections::BTreeMap<String,Artifact> = std::collections::BTreeMap::new();
         for (branch,cutoff) in self.lineage(&s.active_branch)? {
-            let mut st = self.db.prepare("SELECT step,name,blob_path FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id")?;
-            let rows = st.query_map(params![s.id,branch,cutoff],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?;
+            let mut st = self.db.prepare("SELECT step,name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id")?;
+            let rows = st.query_map(params![s.id,branch,cutoff],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))?;
             for row in rows {
-                let (step,name,blob) = row?;
+                let (step,name,blob,event_id) = row?;
                 if source != "session" && source != step { continue; }
                 let content = fs::read_to_string(self.directory.join("blobs").join(blob))?;
-                versions.insert(name.clone(), Artifact{name,content,step});
+                versions.insert(name.clone(), Artifact{name,content,step,event_id});
             }
         }
         Ok(versions.into_values().collect())
@@ -318,6 +371,60 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn attempts_keep_versions_separate_across_retries_and_reopening() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        let first = store.begin_attempt(&session, "step", "first definition", "fixture").unwrap();
+        store.add_artifact(&session, "step", "report.md", "old success").unwrap();
+        store.event(&session, Some("step"), "step.blocked", "retry").unwrap();
+        let second = store.begin_attempt(&session, "step", "second definition", "fixture").unwrap();
+        assert_ne!(first,second);
+        assert!(store.current_run_artifacts(&session,"step").unwrap().is_empty());
+        store.add_artifact(&session,"step","report.md","current failure").unwrap();
+        let version = store.attempt_artifacts(&session,"step").unwrap().remove(0);
+        assert_eq!(version.content,"current failure");
+        assert!(version.event_id > store.active_attempt(&session,"step").unwrap().1);
+        drop(store);
+        let reopened = Store::open(root.path()).unwrap();
+        assert_eq!(reopened.active_attempt(&session,"step").unwrap().0,second);
+        let attempts = reopened.attempt_history(&session).unwrap();
+        assert_eq!(attempts.len(),2);
+        assert!(attempts[0].contains(&first) && attempts[0].contains("blocked"));
+        assert!(attempts[1].contains(&second) && attempts[1].contains("running"));
+    }
+
+    #[test]
+    fn forked_attempt_history_honors_cutoffs_and_recovery_closes_interrupted_attempts() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let mut session = store.create("demo","goal","step").unwrap();
+        let owner = store.claim_execution(&session.id,None).unwrap();
+        let parent = store.begin_attempt(&session,"step","definition","fixture").unwrap();
+        let cutoff = store.active_attempt(&session,"step").unwrap().1;
+        drop(owner);
+        store.recover_session(&session.id).unwrap();
+        assert!(store.attempt_history(&session).unwrap()[0].contains("interrupted"));
+        store.fork(&mut session,cutoff,"step").unwrap();
+        let child = store.begin_attempt(&session,"step","child definition","fixture").unwrap();
+        let history = store.attempt_history(&session).unwrap();
+        assert_eq!(history.len(),2);
+        assert!(history[0].contains(&parent) && history[0].contains("inherited-partial"));
+        assert!(history[1].contains(&child));
+        assert!(store.current_run_artifacts(&session,"step").unwrap().is_empty());
+    }
+
+    #[test]
+    fn attempt_creation_failure_rolls_back_its_definition_and_start() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo","goal","step").unwrap();
+        let before = store.history(&session).unwrap();
+        store.db.execute_batch("CREATE TRIGGER reject_attempt BEFORE INSERT ON step_attempts BEGIN SELECT RAISE(ABORT,'injected failure'); END;").unwrap();
+        assert!(store.begin_attempt(&session,"step","definition","fixture").is_err());
+        assert_eq!(store.history(&session).unwrap(),before);
+    }
     #[test]
     fn artifact_blob_failure_does_not_publish_a_success_event() {
         let root = tempfile::tempdir().unwrap();

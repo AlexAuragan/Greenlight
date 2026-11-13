@@ -114,14 +114,7 @@ impl Engine {
                 .unwrap_or(&self.cfg.provider.model)
                 .to_owned();
             let definition = serde_yaml::to_string(&step)?;
-            self.store
-                .event(&s, Some(&step.id), "step.definition", &definition)?;
-            self.store.event(
-                &s,
-                Some(&step.id),
-                "step.started",
-                &format!("model: {resolved_model}"),
-            )?;
+            self.store.begin_attempt(&s, &step.id, &definition, &resolved_model)?;
             s.status = "running".into();
             self.store.save(&s)?;
             console_println!(self, "\n=== {} / {} ===", s.workflow, step.id);
@@ -692,26 +685,27 @@ impl Engine {
                     &wf.folder,
                 )?;
 
-                // Collect artifacts from current step
-                let step_artifacts = self.store.artifacts(s, &step.id)?;
+                // Select only versions produced by this durable attempt.
+                let (attempt, start) = self.store.active_attempt(s, &step.id)?;
+                let step_artifacts = self.store.attempt_artifacts(s, &step.id)?;
                 let artifact_evidence = step_artifacts
                     .iter()
-                    .map(|a| format!("## {}\n{}", a.name, a.content))
+                    .map(|a| format!("## {} (artifact event #{})\n{}", a.name, a.event_id, a.content))
                     .collect::<Vec<_>>()
                     .join("\n\n");
 
-                // Collect relevant tool execution history from recent steps
+                // Keep full recorded bodies from the current attempt only.
                 let history = self.store.history(s)?;
                 let tool_results = history
                     .iter()
                     .rev()
-                    .filter_map(|(_, step_id, event_type, data)| {
-                        if event_type == "tool.result" {
-                            // Extract just the first few lines to keep context manageable
-                            let preview = data.lines().take(10).collect::<Vec<_>>().join("\n");
+                    .filter_map(|(event_id, step_id, event_type, data)| {
+                        if *event_id > start && step_id == &step.id && matches!(event_type.as_str(), "tool.result" | "tool.error" | "verification.command") {
+                            // Preserve failure details beyond the first lines.
+                            let preview = data;
                             Some(format!(
-                                "### Tool result from step '{}'\n{}",
-                                step_id, preview
+                                "### Event #{} from step '{}'\n{}",
+                                event_id, step_id, preview
                             ))
                         } else {
                             None
@@ -724,6 +718,18 @@ impl Engine {
                 // Combine artifacts and tool results
                 let evidence = format!("{}\n\n{}", artifact_evidence, tool_results);
 
+                if evidence.len() > self.cfg.session.max_artifact_bytes {
+                    bail!("verification evidence exceeds configured byte limit; reduce current attempt outputs");
+                }
+                let event_ids: Vec<i64> = history.iter().rev().filter(|(id, st, kind, _)|
+                    *id > start && st == &step.id && matches!(kind.as_str(), "tool.result" | "tool.error" | "verification.command"))
+                    .take(10).map(|(id, _, _, _)| *id).collect();
+                self.store.event(s, Some(&step.id), "verification.evidence", &json!({
+                    "attempt": attempt,
+                    "artifact_events": step_artifacts.iter().map(|a| a.event_id).collect::<Vec<_>>(),
+                    "observation_events": event_ids,
+                    "selection": "current attempt artifacts and latest 10 observations, full recorded bodies"
+                }).to_string())?;
                 let query=format!("{}\n\nGoal: {}\nStep: {}\nEvidence:\n{}\nRespond only YAML:\npassed: true|false\nreason: concise explanation", full, s.goal, step.id, evidence);
                 let raw = self
                     .provider
