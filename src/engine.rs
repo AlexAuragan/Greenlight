@@ -851,3 +851,19 @@ fn project_instructions(root: &Path) -> Result<String> {
         Err(error) => Err(error).with_context(|| format!("reading {}", current.display())),
     }
 }
+
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    #[test]
+    fn project_instructions_accept_legacy_with_new_precedence() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".stepwright")).unwrap();
+        std::fs::write(root.path().join(".stepwright/instructions.md"), "old instructions").unwrap();
+        assert_eq!(project_instructions(root.path()).unwrap(), "old instructions");
+        std::fs::create_dir(root.path().join(".greenlight")).unwrap();
+        std::fs::write(root.path().join(".greenlight/instructions.md"), "new instructions").unwrap();
+        assert_eq!(project_instructions(root.path()).unwrap(), "new instructions");
+    }
+}
