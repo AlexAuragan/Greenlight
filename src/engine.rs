@@ -9,7 +9,6 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{
     collections::HashMap,
-    io::{self, Write},
     path::Path,
 };
 
@@ -36,6 +35,23 @@ Available actions:
 Use exactly one action per response. An artifact action registers a session artifact, it does NOT modify code. Each step is one stage of a multi-step workflow with its own fresh context and tools, and `finish` completes only the current step: the harness then advances to the next step, which continues the work. Finish this step as soon as its required outputs are registered, even when the overall session goal is not yet fully achieved, and only request the tools this step enables. Commands and edits require authorization. Shell commands run without network or host HOME access, with project files read-only. Use the native write tool for all source edits; shell writes cannot alter project files. Tool failure is a fact; don't hide it. If a tool fails, describe it instead of working around an environment mismatch.
 No invented tool results. If blocked, report a deviation. Keep outputs concise.
 "#;
+
+// TUI workers render from recorded events; direct stdout corrupts the screen.
+macro_rules! console_println {
+    ($engine:expr, $($arg:tt)*) => {
+        if !$engine.tools.is_tui() {
+            println!($($arg)*);
+        }
+    };
+}
+
+macro_rules! console_eprintln {
+    ($engine:expr, $($arg:tt)*) => {
+        if !$engine.tools.is_tui() {
+            eprintln!($($arg)*);
+        }
+    };
+}
 
 pub struct Engine {
     pub root: std::path::PathBuf,
@@ -90,7 +106,7 @@ impl Engine {
             )?;
             s.status = "running".into();
             self.store.save(&s)?;
-            println!("\n=== {} / {} ===", s.workflow, step.id);
+            console_println!(self, "\n=== {} / {} ===", s.workflow, step.id);
             let outcome = self
                 .execute_step(&s, &workflow, &step, override_prompt, &resolved_model)
                 .await;
@@ -98,7 +114,7 @@ impl Engine {
                 Ok(Outcome::Done(summary)) => {
                     self.store
                         .event(&s, Some(&step.id), "step.completed", &summary)?;
-                    println!("[complete] {summary}");
+                    console_println!(self, "[complete] {summary}");
                     if let Some(next) = step.transitions.success {
                         s.current_step = next;
                         s.status = "ready".into();
@@ -117,7 +133,7 @@ impl Engine {
                         "step.deviation",
                         &format!("{id}: {summary}"),
                     )?;
-                    println!("[deviation: {id}] {summary}");
+                    console_println!(self, "[deviation: {id}] {summary}");
                     let rule = step.deviations.iter().find(|d| d.id == id);
                     if let Some(rule) = rule {
                         if let Some(prompt) = &rule.prompt {
@@ -155,7 +171,7 @@ impl Engine {
                                         .trim();
                                     match serde_yaml::from_str::<Detection>(raw) {
                                         Ok(v) if v.detected => {
-                                            println!("[deviation validated] {}", v.reason)
+                                            console_println!(self, "[deviation validated] {}", v.reason)
                                         }
                                         Ok(v) => {
                                             self.block(
@@ -227,7 +243,7 @@ impl Engine {
                 Err(e) => {
                     let msg = format!("{e:#}");
                     self.store.event(&s, Some(&step.id), "step.error", &msg)?;
-                    eprintln!("[step error] {msg}");
+                    console_eprintln!(self, "[step error] {msg}");
                     self.block(&mut s, &msg, &step.id).await?;
                     break;
                 }
@@ -242,7 +258,7 @@ impl Engine {
             )
             .await?;
         }
-        println!(
+        console_println!(self, 
             "session {}: {} (branch {})",
             s.id, s.status, s.active_branch
         );
@@ -267,8 +283,8 @@ impl Engine {
         let payload = json!({"content":format!("Stepwright [{}] {}",s.id,message).chars().take(1900).collect::<String>()});
         match self.tools.client.post(url).json(&payload).send().await {
             Ok(r) if r.status().is_success() => {}
-            Ok(r) => eprintln!("[notification error] Discord HTTP {}", r.status()),
-            Err(e) => eprintln!("[notification error] {e}"),
+            Ok(r) => console_eprintln!(self, "[notification error] Discord HTTP {}", r.status()),
+            Err(e) => console_eprintln!(self, "[notification error] {e}"),
         }
     }
     async fn execute_step(
@@ -288,15 +304,26 @@ impl Engine {
         match step.kind.as_str() {
             "human" => {
                 let prompt = config::render_includes(&step.prompt, &self.root, &wf.folder)?;
-                println!("{prompt}\n{extra}");
+                console_println!(self, "{prompt}\n{extra}");
                 // Approval must include the actual artifacts, not merely a filename.
                 let available = self.store.artifacts(s, "session")?;
                 for name in &step.inputs.required {
                     let artifact = available.iter().find(|a| &a.name == name)
                         .with_context(|| format!("required approval artifact {name} missing"))?;
-                    println!("\n--- {name} ---\n{}\n--- end {name} ---", artifact.content);
+                    console_println!(self, "\n--- {name} ---\n{}\n--- end {name} ---", artifact.content);
                 }
-                if !ask_yes("Approve and continue?")? {
+                let mut approval = format!("{prompt}\n{extra}");
+                for name in &step.inputs.required {
+                    let artifact = available.iter().find(|a| &a.name == name)
+                        .with_context(|| format!("required approval artifact {name} missing"))?;
+                    approval.push_str(&format!("\n--- {name} ---\n{}\n--- end {name} ---", artifact.content));
+                }
+                let question = if self.tools.is_tui() {
+                    format!("{approval}\n\nApprove and continue?")
+                } else {
+                    "Approve and continue?".to_owned()
+                };
+                if !self.tools.ask_yes(&question)? {
                     self.store.event(s, Some(&step.id), "human.declined", "")?;
                     return Ok(Outcome::Deviation(
                         "human_declined".into(),
@@ -319,7 +346,7 @@ impl Engine {
                 let result = execution?;
                 self.store
                     .event(s, Some(&step.id), "tool.result", &result)?;
-                println!("{result}");
+                console_println!(self, "{result}");
                 if !result.starts_with("exit_code: 0\n") {
                     return Ok(Outcome::Deviation("command_failed".into(), result));
                 }
@@ -451,9 +478,9 @@ impl Engine {
                                 let edit_id = self.store.add_change(
                                     s, &step.id, &edit.path, edit.before.as_deref(), &edit.after
                                 )?;
-                                println!("[edit recorded] #{edit_id} {}", edit.path);
+                                console_println!(self, "[edit recorded] #{edit_id} {}", edit.path);
                             }
-                            println!(
+                            console_println!(self, 
                                 "[tool {kind}] {}",
                                 result.chars().take(350).collect::<String>()
                             );
@@ -465,7 +492,7 @@ impl Engine {
                         }
                         Err(e) => {
                             let error = format!("{e:#}");
-                            println!("[tool error] {error}");
+                            console_println!(self, "[tool error] {error}");
                             self.store.event(s, Some(&step.id), "tool.error", &error)?;
                             messages.push(json!({"role":"user","content":format!(
                                 "Tool error:\n{error}\n\nThe tool did not run; do not invent its output. If this step enables another tool that can achieve the same goal, use it; if this step's required outputs are already registered, reply with a finish action; otherwise report one of this step's declared deviations."
@@ -483,7 +510,7 @@ impl Engine {
                         bail!("artifact exceeds configured size limit");
                     }
                     self.store.add_artifact(s, &step.id, name, content)?;
-                    println!("[artifact] {name}");
+                    console_println!(self, "[artifact] {name}");
                     messages
                         .push(json!({"role":"user","content":format!("Artifact {name} stored.")}));
                 }
@@ -670,7 +697,7 @@ impl Engine {
         let result: Result<()> = match check {
             Verify::None => Ok(()),
             Verify::Human => {
-                let approved = ask_yes("Verification: approve step result?")?;
+                let approved = self.tools.ask_yes("Verification: approve step result?")?;
                 self.store.event(
                     s,
                     Some(&step.id),
@@ -769,15 +796,6 @@ impl Engine {
         }
         result
     }
-}
-
-fn ask_yes(message: &str) -> Result<bool> {
-    println!("{message} [y/N]");
-    print!("> ");
-    io::stdout().flush()?;
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    Ok(answer.trim().eq_ignore_ascii_case("y"))
 }
 
 enum Outcome {
