@@ -165,7 +165,7 @@ impl App {
         };
     }
 
-    fn scroll_detail(&mut self, delta: isize) {
+    fn scroll_detail(&mut self, delta: i16) {
         self.detail_scroll = self.detail_scroll.saturating_add_signed(delta);
     }
 
