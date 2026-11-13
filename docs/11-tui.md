@@ -9,7 +9,7 @@ cargo run -- --root /path/to/project tui SESSION_ID
 
 ## Main interaction
 
-Open a blocked or ready session. Press **Enter** to focus the persistent message composer, type instructions and press Enter again to resume the agent. A blocked session opens with the composer focused. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. The composer is disabled while the current worker runs, but events can still be inspected.
+Open a blocked or ready session. The TUI starts in navigation mode, even for blocked sessions: the composer never automatically captures shortcuts. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or press **Enter** from the detail pane. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. The composer is disabled while the current worker runs, but events can still be inspected.
 
 Example instruction: `Fix the existing add() bug and rerun verification.`
 
@@ -19,7 +19,7 @@ When the Engine requests permission to execute a shell command, write a file, us
 
 ## Artifacts tab
 
-Press **2** in navigation mode to open the **Artifacts** tab; press **1** to return to the conversation. The left pane lists the most recent version of each artifact on the selected session's active branch, along with its producing step and byte size. The right pane shows the complete Markdown/text content. **j/k**, arrows and **g/G** select a saved artifact; **PageUp/PageDown** scroll its contents. The selected artifact remains selected when newer versions are registered.
+Press **2** in navigation mode to open the **Artifacts** tab; press **1** to return to the conversation. The left pane lists the most recent version of each artifact on the selected session's active branch, along with its producing step and byte size. The right pane renders headings, emphasis, inline/fenced code, lists, blockquotes and simple pipe tables. Press **m** in navigation mode to toggle between rendered Markdown (the default) and exact raw text; the original stored artifact is never rewritten. Other CommonMark features, hyperlinks and complex table layouts are not yet supported. **j/k**, arrows and **g/G** select a saved artifact; **Up/Down** or **j/k** scroll the artifact when the detail pane is focused. The selected artifact remains selected when newer versions are registered.
 
 Artifacts are inputs to later workflow steps and an important human-review surface. This tab deliberately uses the same branch-aware `Store::artifacts` lookup as the CLI and does not alter artifact content. It currently shows **latest versions only**. To register a manually edited version, use `stepwright put-artifact SESSION_ID NAME --file PATH` from another terminal; version browsing and direct artifact editing are follow-on features.
 
@@ -31,13 +31,14 @@ The restore planner refuses mismatched file snapshots, manual drift, symlinks, a
 
 ## Keys
 
-- **Enter** on a selected session/event focuses the message composer; **Enter** in the composer sends.
+- **Left/Right** (or **Escape/Enter**) navigate from Sessions → event/artifact list → detail pane; focused detail content scrolls independently of the selected item.
+- **i** focuses the composer directly; **Enter** from the detail pane also focuses it, and **Enter** in the composer sends. **Escape** from the composer returns to the previous pane.
 - **Ctrl+J** inserts a newline into the composer; **Escape** returns to event navigation.
-- **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode.
-- **Tab** switches between sessions, the current tab's list and the composer.
-- **j/k**, arrow keys and **g/G** or Home/End navigate sessions, events and artifacts.
+- **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode; **m** toggles rendered Markdown/raw text in Artifacts.
+- **Tab** moves focus between Sessions, the current tab's list, detail and composer.
+- **j/k**, Up/Down and **g/G** or Home/End navigate sessions, events and artifacts when a list is focused; Up/Down or j/k scroll line by line when detail is focused.
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
-- **PageUp/PageDown** scrolls event details, artifact content, permission requests or restoration previews.
+- **Up/Down** (or **j/k**) also scroll permission requests and restoration previews when those dialogs are open.
 - **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/events** toggles raw event visibility; **/help** lists shortcuts.
 - **q** quits from navigation mode when no agent is running. The TUI intentionally prevents quitting while its own worker is active, to avoid silently abandoning a pending prompt.
 

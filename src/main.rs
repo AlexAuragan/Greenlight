@@ -2,6 +2,7 @@ mod approvals;
 mod changes;
 mod config;
 mod engine;
+mod markdown;
 mod provider;
 mod restore;
 mod sandbox;
