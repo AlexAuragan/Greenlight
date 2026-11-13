@@ -523,8 +523,8 @@ impl App {
                 // Enter is intentionally inert. Approval must be an explicit
                 // choice, never an accidental confirmation of a default.
                 KeyCode::Enter => {}
-                KeyCode::PageDown => self.detail_scroll = self.detail_scroll.saturating_add(10),
-                KeyCode::PageUp => self.detail_scroll = self.detail_scroll.saturating_sub(10),
+                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
                 _ => {}
             }
             return Ok(false);
@@ -538,12 +538,8 @@ impl App {
                     self.restart_choices.clear();
                     self.notice = "Restart cancelled; no files modified.".into();
                 }
-                KeyCode::PageDown | KeyCode::Char('j') => {
-                    self.detail_scroll = self.detail_scroll.saturating_add(10);
-                }
-                KeyCode::PageUp | KeyCode::Char('k') => {
-                    self.detail_scroll = self.detail_scroll.saturating_sub(10);
-                }
+                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
                 _ => {}
             }
             return Ok(false);
@@ -631,8 +627,6 @@ impl App {
             KeyCode::Char('G') | KeyCode::End => {
                 if self.focus != Focus::Detail { self.select_end(true); }
             }
-            KeyCode::PageDown => self.scroll_detail(10),
-            KeyCode::PageUp => self.scroll_detail(-10),
             KeyCode::Char('v') if self.view == View::Conversation => self.toggle_verbose(),
             KeyCode::Char('d') if self.view == View::Conversation => self.toggle_diff(store)?,
             KeyCode::Char('r') => self.refresh(store)?,
@@ -884,9 +878,9 @@ fn draw(frame: &mut Frame, app: &App) {
             ),
         };
         let title = if app.render_markdown {
-            " Artifact · Markdown · m: raw · PgUp/PgDn scroll "
+            " Artifact · Markdown · ↑/↓ scroll · m raw "
         } else {
-            " Artifact · Raw text · m: Markdown · PgUp/PgDn scroll "
+            " Artifact · Raw text · ↑/↓ scroll · m Markdown "
         };
         frame.render_widget(
             Paragraph::new(content)
@@ -924,7 +918,11 @@ fn draw(frame: &mut Frame, app: &App) {
         }
         frame.render_stateful_widget(event_list, right[0], &mut event_state);
 
-        let title = if app.diff.is_some() { " Recorded diff " } else { " Message detail " };
+        let title = if app.diff.is_some() {
+            " Recorded diff · ↑/↓ scroll "
+        } else {
+            " Message detail · ↑/↓ scroll "
+        };
         frame.render_widget(
             Paragraph::new(app.detail())
                 .wrap(Wrap { trim: false })
@@ -961,9 +959,9 @@ fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(composer, outer[2]);
 
     let footer = if app.approval.is_some() {
-        "Press the key shown in the decision menu · Esc denies · Enter does nothing · PgUp/PgDn scroll request".into()
+        "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
     } else if app.restart_plan.is_some() {
-        "Restoration uses the recorded edit journal  ·  y confirm / n cancel  ·  PgUp/PgDn scroll".into()
+        "Restore uses recorded edits · y confirm / n cancel · ↑/↓ scroll preview".into()
     } else if !app.restart_choices.is_empty() {
         "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
     } else {
@@ -1051,6 +1049,8 @@ mod tests {
         app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), root.path(), &store).unwrap();
         app.on_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(app.detail_scroll, 2);
+        app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.detail_scroll, 2, "PageDown is no longer a scrolling binding");
         assert_eq!(app.artifact_index, selected);
         app.on_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(app.detail_scroll, 1);
@@ -1111,6 +1111,10 @@ mod tests {
         app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), root.path(), &store).unwrap();
         assert!(answer_rx.try_recv().is_err());
         assert!(app.approval.is_some());
+        app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.detail_scroll, 1);
+        app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE), root.path(), &store).unwrap();
+        assert_eq!(app.detail_scroll, 1);
         app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(answer_rx.try_recv().unwrap(), "g");
         assert!(app.approval.is_none());
