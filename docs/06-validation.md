@@ -1,19 +1,20 @@
 # Validation status and smoke-test plan
 
-## Validation performed for this source release
+## Evidence recorded through 2026-11-13
 
-- All 13 Markdown step files parsed as YAML frontmatter with matching filenames and declared verification policies.
-- All workflow step lists, transitions, conditional goto targets, detector prompts and Markdown includes were checked for file existence and syntactic consistency.
-- The release ZIP passed an integrity read.
+- The original v0.1 workflow files and includes were checked syntactically. That is historical validation, **not** a standing claim that every future workflow change is tested.
+- After merging PRs #6–#8, the project owner ran `cargo test` on the integrated `master`: **57 passed, 0 failed, 1 ignored**. The ignored Bubblewrap integration test requires installed Bubblewrap and enabled Linux user namespaces. The same checkout passed `cargo clippy -- -D warnings`.
+- PR #9 (Greenlight rename) was reported locally as **“All good”** after testing, but full command output was not captured in this record; it is not a claim of an independently observed fresh-checkout or CI result.
+- Earlier manual smoke sessions exercised an agent-created artifact, native file edit journal, detected manual drift, guarded restore refusal and a successful history-based restoration on a disposable calculator project. This is evidence from manual testing, **not** a repeatable automated regression suite.
+- There were no GitHub-hosted CI check runs reported for those PRs. A complete Linux/Bubblewrap end-to-end run, formal terminal-resize test, injected crash/recovery test and network/provider regression test remain outstanding.
 
-**Not performed:** Rust compilation, Rust unit tests, provider API integration, host command execution, terminal approval interaction, Discord webhook delivery or end-to-end workflow smoke tests. The authoring environment did not contain Rust/Cargo and had no package-download network access. Any compilation or runtime issues remain possible.
-
-## Required validation on a machine with Rust
+## Repeatable validation on a Rust/Linux machine
 
 ```bash
 cargo fmt --check
-cargo check
-cargo test
+cargo check --locked
+cargo test --locked
+cargo clippy --locked -- -D warnings
 cargo run -- validate fix-bug
 cargo run -- validate add-feature
 cargo run -- validate optimize-performance
@@ -28,7 +29,7 @@ cargo run -- models
 cargo run -- start fix-bug --goal 'Investigate why my test suite fails'
 ```
 
-For the first live session, use a disposable, trusted Git repository, and keep the host tool approval policy at `ask`. Validate artifacts, blocked-state behavior, provider output handling and event history before running on an important repository.
+For a first or repeated live session, use a disposable project fixture and keep tool policies at `ask`. Record which approvals, artifacts, workspace changes, blocked states and restores actually occurred; model output varies across runs. See the [calculator smoke-test exercise](17-smoke-test.md). Do not claim full end-to-end validation from Rust unit tests alone.
 
 ## Security checks before wider use
 

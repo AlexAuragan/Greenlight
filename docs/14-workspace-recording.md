@@ -4,7 +4,7 @@
 
 ## What is recorded
 
-For every step execution (including retries), Greenlight records two events:
+For a step execution (including retries), Greenlight attempts two manifest events, with an additional delta event **only when there is a detected difference**:
 
 - `workspace.manifest.before` — scanned just before executing the step, after the step has been selected.
 - `workspace.manifest.after` — scanned after execution returns, even if the step failed or blocked.
@@ -37,7 +37,7 @@ The command prints changes between the most recent **completed step's** before/a
 ## File scan policy
 
 - Recursively scan project files; hash contents using SHA-256 in small chunks.
-- Exclude symlinks, `.git`, `.greenlight/state`, `.env*`, `.ssh`, `.aws`, known credential filenames/extensions, `target`, `node_modules`, Python virtualenvs/caches, `dist`, `build`, and similar generated directories. The source code contains the exact list.
+- Exclude symlinks, `.git`, `.greenlight/state`, legacy `.stepwright/state`, `.env*`, `.ssh`, `.aws`, known credential filenames/extensions, `target`, `node_modules`, Python virtualenvs/caches, `dist`, `build`, and similar generated directories. The source code contains the exact list.
 - Bound the scan to **10,000 included regular files** and **20 MiB per file**. Oversized and non-UTF8-named paths are listed as skipped. The scanner refuses an unstable file or a failed read rather than silently recording a stale hash.
 - These exclusions are heuristic; they are not a comprehensive secret detector. The manifest stores **path names and hashes**, which should still be treated as private project metadata. It is not sent to the model by this feature.
 - The scanner does not implement Git ignore semantics, snapshot binary contents, or attempt to change permissions.

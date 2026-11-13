@@ -31,9 +31,11 @@ The restore planner refuses mismatched file snapshots, manual drift, symlinks, a
 
 ## Keys
 
+The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, return with Left/Escape, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown are intentionally not bound**. Navigation opens without focusing the composer, even for blocked sessions.
+
 - **Left/Right** (or **Escape/Enter**) navigate from Sessions → event/artifact list → detail pane; focused detail content scrolls independently of the selected item.
 - **i** focuses the composer directly; **Enter** from the detail pane also focuses it, and **Enter** in the composer sends. **Escape** from the composer returns to the previous pane.
-- **Ctrl+J** inserts a newline into the composer; **Escape** returns to event navigation.
+- **Ctrl+J** inserts a newline into the composer; **Escape** returns to the previously focused pane.
 - **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode; **m** toggles rendered Markdown/raw text in Artifacts.
 - **Tab** moves focus between Sessions, the current tab's list, detail and composer.
 - **j/k**, Up/Down and **g/G** or Home/End navigate sessions, events and artifacts when a list is focused; Up/Down or j/k scroll line by line when detail is focused.
@@ -48,4 +50,4 @@ Initial TUI control is intentionally serial: only one runner per TUI, no streami
 
 Approval choices and restoration actions retain their existing security semantics. The TUI requires an interactive terminal and uses Ratatui's terminal restoration. Raw events may contain private project information.
 
-The Ratatui/Crossterm dependency versions are locked in `Cargo.lock`.
+The Ratatui/Crossterm dependency versions are locked in `Cargo.lock`. The [decision log](16-decision-log.md) captures the keyboard rationale, and the [smoke-test guide](17-smoke-test.md) covers the related manual exercise.
