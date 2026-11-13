@@ -713,6 +713,7 @@ fn is_chatter(kind: &str) -> bool {
     matches!(
         kind,
         "step.definition" | "context.assembled" | "model.output" | "tool.request"
+            | "permission.decision"
             | "workspace.manifest.before" | "workspace.manifest.after"
     )
 }
@@ -1357,13 +1358,20 @@ mod tests {
         let session = store.create("fix-bug", "test", "explore").unwrap();
         store.event(&session, Some("explore"), "model.output", "raw response").unwrap();
         store.event(&session, Some("explore"), "protocol.error", "bad action").unwrap();
+        store.event(&session, Some("explore"), "permission.decision", "write: approved once").unwrap();
+        store.event(&session, Some("explore"), "tool.error", "user denied write").unwrap();
+        store.event(&session, Some("explore"), "human.approved", "").unwrap();
         let mut app = App::new(Some(&session.id));
         app.refresh(&store).unwrap();
         assert!(app.events.iter().any(|e| e.kind == "protocol.error"));
         assert!(app.events.iter().all(|e| e.kind != "model.output"));
+        assert!(app.events.iter().all(|e| e.kind != "permission.decision"));
+        assert!(app.events.iter().any(|e| e.kind == "tool.error"));
+        assert!(app.events.iter().any(|e| e.kind == "human.approved"));
         app.toggle_verbose();
         app.refresh(&store).unwrap();
         assert!(app.events.iter().any(|e| e.kind == "model.output"));
+        assert!(app.events.iter().any(|e| e.kind == "permission.decision"));
     }
 
     #[test]
