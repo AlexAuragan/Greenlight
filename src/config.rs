@@ -160,8 +160,17 @@ pub struct LoadedWorkflow {
 }
 
 pub fn load_config(root: &Path) -> Result<Config> {
-    let text = fs::read_to_string(root.join("stepwright.yaml"))
-        .context("missing stepwright.yaml at project root")?;
+    let config = root.join("greenlight.yaml");
+    let text = match fs::read_to_string(&config) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let legacy = root.join("stepwright.yaml");
+            fs::read_to_string(&legacy).with_context(|| {
+                format!("missing greenlight.yaml (or legacy stepwright.yaml) in {}", root.display())
+            })?
+        }
+        Err(error) => return Err(error).with_context(|| format!("reading {}", config.display())),
+    };
     let cfg: Config = serde_yaml::from_str(&text)?;
     for value in [&cfg.permissions.shell, &cfg.permissions.write, &cfg.permissions.read, &cfg.permissions.web] {
         if !["ask", "allow", "deny"].contains(&value.as_str()) { bail!("permission must be ask, allow or deny: {value}"); }
@@ -284,24 +293,39 @@ mod tests {
         assert!(matches!(v, Verify::None));
     }
     #[test]
+    fn new_config_takes_precedence_over_legacy() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("stepwright.yaml"), "provider:\n  model: old-model\n").unwrap();
+        std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: new-model\n").unwrap();
+        assert_eq!(load_config(root.path()).unwrap().provider.model, "new-model");
+    }
+
+    #[test]
+    fn legacy_config_still_loads() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("stepwright.yaml"), "provider:\n  model: old-model\n").unwrap();
+        assert_eq!(load_config(root.path()).unwrap().provider.model, "old-model");
+    }
+
+    #[test]
     fn dotenv_loads_without_overriding() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".env");
         std::fs::write(
             &path,
-            "# comment\nSTEPWRIGHT_DOTENV_A=1\nexport STEPWRIGHT_DOTENV_B=\"two words\"\nSTEPWRIGHT_DOTENV_C='three'\n",
+            "# comment\nGREENLIGHT_DOTENV_A=1\nexport GREENLIGHT_DOTENV_B=\"two words\"\nGREENLIGHT_DOTENV_C='three'\n",
         )
         .unwrap();
-        std::env::remove_var("STEPWRIGHT_DOTENV_A");
-        std::env::remove_var("STEPWRIGHT_DOTENV_B");
-        std::env::set_var("STEPWRIGHT_DOTENV_C", "preset");
+        std::env::remove_var("GREENLIGHT_DOTENV_A");
+        std::env::remove_var("GREENLIGHT_DOTENV_B");
+        std::env::set_var("GREENLIGHT_DOTENV_C", "preset");
         load_dotenv(&path).unwrap();
-        assert_eq!(std::env::var("STEPWRIGHT_DOTENV_A").unwrap(), "1");
-        assert_eq!(std::env::var("STEPWRIGHT_DOTENV_B").unwrap(), "two words");
-        assert_eq!(std::env::var("STEPWRIGHT_DOTENV_C").unwrap(), "preset");
+        assert_eq!(std::env::var("GREENLIGHT_DOTENV_A").unwrap(), "1");
+        assert_eq!(std::env::var("GREENLIGHT_DOTENV_B").unwrap(), "two words");
+        assert_eq!(std::env::var("GREENLIGHT_DOTENV_C").unwrap(), "preset");
     }
     #[test]
     fn dotenv_missing_file_is_ignored() {
-        assert!(load_dotenv(Path::new("/nonexistent/stepwright/.env")).is_ok());
+        assert!(load_dotenv(Path::new("/nonexistent/greenlight/.env")).is_ok());
     }
 }

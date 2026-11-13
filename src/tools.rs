@@ -189,7 +189,7 @@ impl Tools {
         if p.is_absolute() || p.components().any(|c|!matches!(c,std::path::Component::Normal(_))) {bail!("only paths beneath project root are allowed");}
         let sensitive=[".git", ".env", ".ssh"];
         if p.components().any(|c|sensitive.contains(&c.as_os_str().to_string_lossy().as_ref()))
-            || relative.starts_with(".stepwright/state") {
+            || crate::paths::is_internal_state(p) {
             bail!("agent file access to sensitive internal path is denied");
         }
         let root=self.root.canonicalize()?;
@@ -318,6 +318,8 @@ mod tests {
         let d=tempfile::tempdir().unwrap();
         let tools=Tools::new(d.path().to_path_buf(),Permissions::default()).unwrap();
         assert!(tools.safe_path("../secret").is_err());
+        assert!(tools.safe_path(".greenlight/state/history.db").is_err());
+        assert!(tools.safe_path(".stepwright/state/history.db").is_err());
     }
     #[test]
     fn deny_policy_overrides_persistent_approval() {

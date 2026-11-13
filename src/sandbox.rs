@@ -37,9 +37,7 @@ impl Sandbox {
         }
         // Check each component before creating the next, to prevent a symlink
         // under the project from redirecting the writable sandbox cache.
-        let project_state = root.join(".stepwright");
-        checked_directory(&project_state)?;
-        let state = project_state.join("state");
+        let state = crate::paths::state_directory(&root)?;
         checked_directory(&state)?;
         let cache = state.join("sandbox-cache");
         checked_directory(&cache)?;
@@ -214,7 +212,9 @@ fn masked_paths(root: &Path) -> Result<Vec<(PathBuf, bool)>> {
             .path()
             .parent()
             .and_then(Path::file_name)
-            .is_some_and(|parent| parent == ".stepwright");
+            .is_some_and(|parent| {
+                parent == crate::paths::PROJECT_DIR || parent == crate::paths::LEGACY_PROJECT_DIR
+            });
         let internal_state = name == "state" && parent_is_internal;
         if is_sensitive(&name) || internal_state {
             if entry.file_type().is_symlink() {
@@ -248,6 +248,7 @@ mod tests {
     fn masks_secret_files_and_internal_state() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
+        fs::create_dir_all(root.join(".greenlight/state")).unwrap();
         fs::create_dir_all(root.join(".stepwright/state")).unwrap();
         fs::create_dir(root.join(".git")).unwrap();
         fs::create_dir(root.join("src")).unwrap();
@@ -260,6 +261,7 @@ mod tests {
         assert!(names.contains(&".git".to_string()));
         assert!(names.contains(&".env".to_string()));
         assert!(names.contains(&"src/.env.prod".to_string()));
+        assert!(names.contains(&".greenlight/state".to_string()));
         assert!(names.contains(&".stepwright/state".to_string()));
         assert!(!names.contains(&"src/lib.rs".to_string()));
     }
@@ -293,8 +295,8 @@ mod tests {
             use std::os::unix::fs::symlink;
             let root = tempfile::tempdir().unwrap();
             let outside = tempfile::tempdir().unwrap();
-            fs::create_dir(root.path().join(".stepwright")).unwrap();
-            symlink(outside.path(), root.path().join(".stepwright/state")).unwrap();
+            fs::create_dir(root.path().join(".greenlight")).unwrap();
+            symlink(outside.path(), root.path().join(".greenlight/state")).unwrap();
             assert!(Sandbox::open(root.path()).is_err());
         }
     }
@@ -309,7 +311,7 @@ mod tests {
         let sandbox = Sandbox::open(root).unwrap();
         let output = sandbox.run(
             "test ! -w /workspace && test -w /tmp && test -w /cache && \
-             test ! -s /workspace/.env && test ! -e /workspace/.stepwright/state/history.db && \
+             test ! -s /workspace/.env && test ! -e /workspace/.greenlight/state/history.db && \
              test ! -e /home/agent/.ssh && test -z \"${DEEPINFRA_API_KEY:-}\" && printf 'ok\\n'"
         ).await.unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));

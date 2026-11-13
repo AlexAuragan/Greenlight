@@ -3,6 +3,7 @@ mod changes;
 mod config;
 mod engine;
 mod markdown;
+mod paths;
 mod provider;
 mod restore;
 mod sandbox;
@@ -122,7 +123,7 @@ async fn main() -> Result<()> {
         Commands::SandboxCheck => {
             let output = sandbox::Sandbox::open(&root)?
                 .run("test ! -w /workspace && test -w /tmp && test -w /cache && \
-                      test ! -e /workspace/.stepwright/state/history.db && \
+                      test ! -e /workspace/.greenlight/state/history.db && \
                       printf 'Sandbox ready: project read-only, cache and tmp writable\\n'")
                 .await?;
             if !output.status.success() {
