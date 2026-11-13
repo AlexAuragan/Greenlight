@@ -33,6 +33,10 @@ pub struct ApprovalStore {
 }
 
 impl ApprovalStore {
+    #[cfg(test)]
+    pub(crate) fn isolated(root: &Path) -> Result<Self> {
+        Self::from_paths(root.join("project-grants.yaml"),Some(root.join("global-grants.yaml")))
+    }
     pub fn open(root: &Path) -> Result<Self> {
         let project_path = crate::paths::state_directory(root)?.join("approvals.yaml");
         let global_path = Self::global_config_path();

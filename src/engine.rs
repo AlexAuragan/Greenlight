@@ -1,7 +1,7 @@
 use crate::{
     config::{self, Config, LoadedWorkflow, Step, Verify},
     provider::Provider,
-    store::{Session, Store},
+    store::{Artifact, Session, Store},
     tools::{parse_action, Tools},
     workspace,
 };
@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     path::Path,
 };
 
@@ -82,6 +82,23 @@ impl Engine {
         extra: Option<&str>,
         model_override: Option<&str>,
     ) -> Result<()> {
+        let owner = self.store.claim_execution(session_id, extra)?;
+        let result = self.run_owned(session_id, extra, model_override).await;
+        let cleanup = self.store.finish_execution(session_id, &owner, result.as_ref().err());
+        match (result, cleanup) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(()), Err(error)) => Err(error.context("could not release execution ownership; recover-session is required")),
+            (Err(error), Err(cleanup)) => Err(error.context(format!("execution cleanup also failed: {cleanup:#}; recover-session is required"))),
+        }
+    }
+    async fn run_owned(
+        &mut self,
+        session_id: &str,
+        extra: Option<&str>,
+        model_override: Option<&str>,
+    ) -> Result<()> {
+        self.store.ensure_no_pending_writes()?;
         let mut s = self.store.session(session_id)?;
         let mut steps = 0usize;
         while s.status != "completed" && steps < 100 {
@@ -97,14 +114,7 @@ impl Engine {
                 .unwrap_or(&self.cfg.provider.model)
                 .to_owned();
             let definition = serde_yaml::to_string(&step)?;
-            self.store
-                .event(&s, Some(&step.id), "step.definition", &definition)?;
-            self.store.event(
-                &s,
-                Some(&step.id),
-                "step.started",
-                &format!("model: {resolved_model}"),
-            )?;
+            self.store.begin_attempt(&s, &step.id, &definition, &resolved_model)?;
             s.status = "running".into();
             self.store.save(&s)?;
             console_println!(self, "\n=== {} / {} ===", s.workflow, step.id);
@@ -143,6 +153,7 @@ impl Engine {
                     format!("workspace recording also failed: {audit_error:#}"),
                 )),
             };
+            let already_detected = matches!(&outcome, Ok(Outcome::DetectedDeviation(..)));
             match outcome {
                 Ok(Outcome::Done(summary)) => {
                     self.store
@@ -159,7 +170,7 @@ impl Engine {
                         self.notify(&s, "Session completed").await;
                     }
                 }
-                Ok(Outcome::Deviation(id, summary)) => {
+                Ok(Outcome::Deviation(id, summary)) | Ok(Outcome::DetectedDeviation(id, summary)) => {
                     self.store.event(
                         &s,
                         Some(&step.id),
@@ -168,76 +179,19 @@ impl Engine {
                     )?;
                     console_println!(self, "[deviation: {id}] {summary}");
                     let rule = step.deviations.iter().find(|d| d.id == id);
-                    if let Some(rule) = rule {
-                        if let Some(prompt) = &rule.prompt {
-                            let check = config::render_includes(
-                                &format!("{{{{ include \"{prompt}\" }}}}"),
-                                &self.root,
-                                &workflow.folder,
-                            )?;
-                            let query=format!("Evaluate whether this deviation is supported by available evidence.\nRule: {}\nInstructions: {}\nAgent report: {}\nReturn YAML only: detected: true|false\nreason: explanation",id,check,summary);
-                            let verdict = self
-                                .provider
-                                .complete(
-                                    &resolved_model,
-                                    &[json!({"role":"user","content":query})],
-                                )
-                                .await;
-                            match verdict {
-                                Ok(raw) => {
-                                    self.store.event(
-                                        &s,
-                                        Some(&step.id),
-                                        "deviation.detector",
-                                        &raw,
-                                    )?;
-                                    #[derive(Deserialize)]
-                                    struct Detection {
-                                        detected: bool,
-                                        reason: String,
-                                    }
-                                    let raw = raw
-                                        .trim()
-                                        .trim_start_matches("```yaml")
-                                        .trim_start_matches("```yml")
-                                        .trim_end_matches("```")
-                                        .trim();
-                                    match serde_yaml::from_str::<Detection>(raw) {
-                                        Ok(v) if v.detected => {
-                                            console_println!(self, "[deviation validated] {}", v.reason)
-                                        }
-                                        Ok(v) => {
-                                            self.block(
-                                                &mut s,
-                                                &format!(
-                                                    "detector rejected deviation {id}: {}",
-                                                    v.reason
-                                                ),
-                                                &step.id,
-                                            )
-                                            .await?;
-                                            break;
-                                        }
-                                        Err(e) => {
-                                            self.block(
-                                                &mut s,
-                                                &format!("invalid deviation detector output: {e}"),
-                                                &step.id,
-                                            )
-                                            .await?;
-                                            break;
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    self.block(
-                                        &mut s,
-                                        &format!("deviation detector failed: {e:#}"),
-                                        &step.id,
-                                    )
-                                    .await?;
+                    if !already_detected {
+                        if let Some(rule) = rule {
+                            match self.detect_deviation(&s, &workflow, &step, rule, &summary, &resolved_model).await {
+                                Ok(Some(verdict)) if !verdict.detected => {
+                                    self.block(&mut s, &format!("detector rejected deviation {id}: {}", verdict.reason), &step.id).await?;
                                     break;
                                 }
+                                Err(error) => {
+                                    self.store.event(&s, Some(&step.id), "step.error", &format!("{error:#}"))?;
+                                    self.block(&mut s, &format!("{error:#}"), &step.id).await?;
+                                    break;
+                                }
+                                _ => {}
                             }
                         }
                     }
@@ -297,6 +251,26 @@ impl Engine {
         );
         Ok(())
     }
+    async fn detect_deviation(
+        &self, s: &Session, wf: &LoadedWorkflow, step: &Step,
+        rule: &config::Deviation, summary: &str, model: &str,
+    ) -> Result<Option<Detection>> {
+        let Some(prompt) = &rule.prompt else { return Ok(None) };
+        let instructions = config::render_includes(
+            &format!("{{{{ include \"{prompt}\" }}}}"), &self.root, &wf.folder,
+        )?;
+        let query = format!("Evaluate whether this deviation is supported by available evidence.\nRule: {}\nInstructions: {}\nAgent report: {}\nReturn YAML only:\ndetected: true|false\nreason: explanation", rule.id, instructions, summary);
+        let raw = self.provider.complete(model, &[json!({"role":"user","content":query})])
+            .await.context("deviation detector failed")?;
+        self.store.event(s, Some(&step.id), "deviation.detector", &raw)?;
+        let yaml = raw.trim().trim_start_matches("```yaml").trim_start_matches("```yml")
+            .trim_end_matches("```").trim();
+        let verdict: Detection = serde_yaml::from_str(yaml).context("invalid deviation detector output")?;
+        self.store.event(s, Some(&step.id),
+            if verdict.detected { "deviation.accepted" } else { "deviation.rejected" },
+            &format!("{}: {}", rule.id, verdict.reason))?;
+        Ok(Some(verdict))
+    }
     async fn block(&self, s: &mut Session, reason: &str, step: &str) -> Result<()> {
         s.status = "blocked".into();
         self.store.save(s)?;
@@ -320,6 +294,72 @@ impl Engine {
             Err(e) => console_eprintln!(self, "[notification error] {e}"),
         }
     }
+    fn select_inputs(&self, s: &Session, wf: &LoadedWorkflow, step: &Step) -> Result<Vec<Artifact>> {
+        let last = self.store.history(s)?;
+        let previous = last
+            .iter()
+            .rev()
+            .find(|(_, _, k, _)| k == "step.completed")
+            .map(|(_, id, _, _)| id.clone());
+        let mut selected: BTreeMap<String, Artifact> = BTreeMap::new();
+        for inp in &step.inputs.from {
+            let source = if inp.source == "previous" {
+                previous.as_deref().unwrap_or("__missing__")
+            } else {
+                &inp.source
+            };
+            for a in self.store.artifacts(s, source)? {
+                if inp.select == "required" {
+                    let producing_step = wf
+                        .steps
+                        .get(&a.step)
+                        .context("unknown producing step for artifact")?;
+                    if !producing_step.outputs.required.contains(&a.name) {
+                        continue;
+                    }
+                }
+                selected.insert(a.name.clone(), a);
+            }
+        }
+        for required in &step.inputs.required {
+            if !selected.contains_key(required) {
+                for a in self.store.artifacts(s, "session")? {
+                    if &a.name == required {
+                        selected.insert(a.name.clone(), a);
+                    }
+                }
+            }
+            if !selected.contains_key(required) {
+                bail!("missing required input artifact {required}");
+            }
+        }
+        Ok(selected.into_values().collect())
+    }
+    fn enforce_input_approvals(&self, s: &Session, wf: &LoadedWorkflow, step: &Step, inputs: &[Artifact]) -> Result<Vec<i64>> {
+        let mut approvals = std::collections::BTreeSet::new();
+        if step.kind == "human" { return Ok(Vec::new()) }
+        for gate in wf.steps.values().filter(|gate| gate.kind == "human") {
+            let mut pending = vec![gate.id.as_str()];
+            let mut seen = std::collections::HashSet::new();
+            let mut downstream = false;
+            while let Some(id) = pending.pop() {
+                if !seen.insert(id) { continue; }
+                if id != gate.id && id == step.id { downstream = true; break; }
+                if let Some(node) = wf.steps.get(id) {
+                    if let Some(next) = node.transitions.success.as_deref() { pending.push(next); }
+                    pending.extend(node.deviations.iter().filter(|d| d.action == "goto").filter_map(|d| d.target.as_deref()));
+                }
+            }
+            if downstream {
+                let mut protected = self.store.gate_input_names(s, &gate.id)?;
+                protected.extend(gate.inputs.required.iter().cloned());
+                for artifact in inputs.iter().filter(|a| protected.contains(&a.name)) {
+                    approvals.insert(self.store.require_approved_input(s, &gate.id, artifact)?);
+                }
+            }
+        }
+        Ok(approvals.into_iter().collect())
+    }
     async fn execute_step(
         &mut self,
         s: &Session,
@@ -328,28 +368,19 @@ impl Engine {
         extra: &str,
         model: &str,
     ) -> Result<Outcome> {
-        let known = self.store.artifacts(s, "session")?;
-        for required in &step.inputs.required {
-            if !known.iter().any(|a| &a.name == required) {
-                bail!("missing required input artifact {required}");
-            }
-        }
+        let inputs = self.select_inputs(s, wf, step)?;
+        let approvals = self.enforce_input_approvals(s, wf, step, &inputs)?;
+        let input_manifest = self.store.record_approved_input_manifest(s, &step.id, &inputs, approvals)?;
         match step.kind.as_str() {
             "human" => {
                 let prompt = config::render_includes(&step.prompt, &self.root, &wf.folder)?;
                 console_println!(self, "{prompt}\n{extra}");
                 // Approval must include the actual artifacts, not merely a filename.
-                let available = self.store.artifacts(s, "session")?;
-                for name in &step.inputs.required {
-                    let artifact = available.iter().find(|a| &a.name == name)
-                        .with_context(|| format!("required approval artifact {name} missing"))?;
-                    console_println!(self, "\n--- {name} ---\n{}\n--- end {name} ---", artifact.content);
-                }
                 let mut approval = format!("{prompt}\n{extra}");
-                for name in &step.inputs.required {
-                    let artifact = available.iter().find(|a| &a.name == name)
-                        .with_context(|| format!("required approval artifact {name} missing"))?;
-                    approval.push_str(&format!("\n--- {name} ---\n{}\n--- end {name} ---", artifact.content));
+                for artifact in &inputs {
+                    let text = format!("\n--- {} (event #{}) ---\n{}\n--- end {} ---", artifact.name, artifact.event_id, artifact.content, artifact.name);
+                    console_println!(self, "{text}");
+                    approval.push_str(&text);
                 }
                 let question = if self.tools.is_tui() {
                     format!("{approval}\n\nApprove and continue?")
@@ -363,7 +394,7 @@ impl Engine {
                         "User declined".into(),
                     ));
                 }
-                self.store.event(s, Some(&step.id), "human.approved", "")?;
+                self.store.approve_inputs(s, &step.id, input_manifest, &inputs, || self.select_inputs(s, wf, step))?;
                 if let Err(e) = self.verify(s, wf, step, model).await {
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
@@ -391,7 +422,7 @@ impl Engine {
                 }
                 Ok(Outcome::Done("command succeeded".into()))
             }
-            "agent" => self.agent(s, wf, step, extra, model).await,
+            "agent" => self.agent(s, wf, step, extra, model, &inputs).await,
             _ => bail!("unsupported step kind"),
         }
     }
@@ -402,50 +433,13 @@ impl Engine {
         step: &Step,
         extra: &str,
         model: &str,
+        inputs: &[Artifact],
     ) -> Result<Outcome> {
         let prompt = config::render_includes(&step.prompt, &self.root, &wf.folder)?;
         let mut context=format!("Session goal:\n{}\n\nStep instructions:\n{}\n\nProject instructions:\n{}\n\nUser instructions:\n{}\n",s.goal,prompt,
             project_instructions(&self.root)?,extra);
-        let last = self.store.history(s)?;
-        let previous = last
-            .iter()
-            .rev()
-            .find(|(_, _, k, _)| k == "step.completed")
-            .map(|(_, id, _, _)| id.clone());
-        let mut selected: HashMap<String, String> = HashMap::new();
-        for inp in &step.inputs.from {
-            let source = if inp.source == "previous" {
-                previous.as_deref().unwrap_or("__missing__")
-            } else {
-                &inp.source
-            };
-            for a in self.store.artifacts(s, source)? {
-                if inp.select == "required" {
-                    let producing_step = wf
-                        .steps
-                        .get(&a.step)
-                        .context("unknown producing step for artifact")?;
-                    if !producing_step.outputs.required.contains(&a.name) {
-                        continue;
-                    }
-                }
-                selected.insert(a.name.clone(), a.content);
-            }
-        }
-        for required in &step.inputs.required {
-            if !selected.contains_key(required) {
-                for a in self.store.artifacts(s, "session")? {
-                    if &a.name == required {
-                        selected.insert(a.name.clone(), a.content);
-                    }
-                }
-            }
-            if !selected.contains_key(required) {
-                bail!("missing required input artifact {required}");
-            }
-        }
-        for (name, content) in selected {
-            context.push_str(&format!("\n--- ARTIFACT {name} ---\n{content}\n"));
+        for artifact in inputs {
+            context.push_str(&format!("\n--- ARTIFACT {} (event #{}) ---\n{}\n", artifact.name, artifact.event_id, artifact.content));
         }
         if context.len() > self.cfg.session.max_artifact_bytes {
             bail!("assembled step context exceeds byte limit; revise artifact selection");
@@ -468,6 +462,9 @@ impl Engine {
         for turn in 0..limit {
             let raw = self.provider.complete(model, &messages).await?;
             self.store.event(s, Some(&step.id), "model.output", &raw)?;
+            // An in-flight response cannot authorize work against an input
+            // version that changed while the model was running.
+            self.enforce_input_approvals(s, wf, step, &self.select_inputs(s, wf, step)?)?;
             messages.push(json!({"role":"assistant","content":raw}));
             let action = match parse_action(&raw) {
                 Ok(a) => a,
@@ -496,8 +493,11 @@ impl Engine {
                     // deviation — instead of aborting the whole step. The turn
                     // budget still bounds how often this can happen.
                     let execution: Result<String> = if tools.iter().any(|t| t == kind) {
-                        let result = self.tools.call(&action).await;
+                        let result = self.tools.call_journaled(&action, &self.store, s, &step.id).await;
                         self.log_permissions(s, step)?;
+                        // An uncertain write must stop execution, not become
+                        // a retryable tool error in the model conversation.
+                        self.store.ensure_no_pending_writes()?;
                         result
                     } else {
                         Err(anyhow!(
@@ -507,12 +507,6 @@ impl Engine {
                     };
                     match execution {
                         Ok(result) => {
-                            if let Some(edit) = self.tools.pending_edit.take() {
-                                let edit_id = self.store.add_change(
-                                    s, &step.id, &edit.path, edit.before.as_deref(), &edit.after
-                                )?;
-                                console_println!(self, "[edit recorded] #{edit_id} {}", edit.path);
-                            }
                             console_println!(self, 
                                 "[tool {kind}] {}",
                                 result.chars().take(350).collect::<String>()
@@ -564,56 +558,8 @@ impl Engine {
                         ));
                     };
 
-                    if let Some(prompt) = &rule.prompt {
-                        let check = config::render_includes(
-                            &format!("{{{{ include \"{prompt}\" }}}}"),
-                            &self.root,
-                            &wf.folder,
-                        )?;
-
-                        let query = format!(
-                            "Evaluate whether this deviation is supported \
-                             by the available evidence.\n\
-                             Rule: {id}\n\
-                             Instructions: {check}\n\
-                             Agent report: {summary}\n\
-                             Return YAML only:\n\
-                             detected: true|false\n\
-                             reason: explanation"
-                        );
-
-                        let raw = self
-                            .provider
-                            .complete(model, &[json!({"role": "user", "content": query})])
-                            .await?;
-
-                        self.store
-                            .event(s, Some(&step.id), "deviation.detector", &raw)?;
-
-                        #[derive(Deserialize)]
-                        struct Detection {
-                            detected: bool,
-                            reason: String,
-                        }
-
-                        let yaml = raw
-                            .trim()
-                            .trim_start_matches("```yaml")
-                            .trim_start_matches("```yml")
-                            .trim_end_matches("```")
-                            .trim();
-
-                        let verdict: Detection = serde_yaml::from_str(yaml)
-                            .context("invalid deviation detector output")?;
-
+                    if let Some(verdict) = self.detect_deviation(s, wf, step, rule, &summary, model).await? {
                         if !verdict.detected {
-                            self.store.event(
-                                s,
-                                Some(&step.id),
-                                "deviation.rejected",
-                                &format!("{id}: {}", verdict.reason),
-                            )?;
-
                             messages.push(json!({
                                 "role": "user",
                                 "content": format!(
@@ -631,7 +577,7 @@ impl Engine {
                         }
                     }
 
-                    return Ok(Outcome::Deviation(id, summary));
+                    return Ok(Outcome::DetectedDeviation(id, summary));
                 }
 
                 "finish" => {
@@ -757,31 +703,32 @@ impl Engine {
             }
             Verify::Agent { prompt } => {
                 let full = config::render_includes(
-                    &format!("{{include \"{}\"}}", prompt),
+                    &format!("{{{{ include \"{}\" }}}}", prompt),
                     &self.root,
                     &wf.folder,
                 )?;
 
-                // Collect artifacts from current step
-                let step_artifacts = self.store.artifacts(s, &step.id)?;
+                // Select only versions produced by this durable attempt.
+                let (attempt, start) = self.store.active_attempt(s, &step.id)?;
+                let step_artifacts = self.store.attempt_artifacts(s, &step.id)?;
                 let artifact_evidence = step_artifacts
                     .iter()
-                    .map(|a| format!("## {}\n{}", a.name, a.content))
+                    .map(|a| format!("## {} (artifact event #{})\n{}", a.name, a.event_id, a.content))
                     .collect::<Vec<_>>()
                     .join("\n\n");
 
-                // Collect relevant tool execution history from recent steps
+                // Keep full recorded bodies from the current attempt only.
                 let history = self.store.history(s)?;
                 let tool_results = history
                     .iter()
                     .rev()
-                    .filter_map(|(_, step_id, event_type, data)| {
-                        if event_type == "tool.result" {
-                            // Extract just the first few lines to keep context manageable
-                            let preview = data.lines().take(10).collect::<Vec<_>>().join("\n");
+                    .filter_map(|(event_id, step_id, event_type, data)| {
+                        if *event_id > start && step_id == &step.id && matches!(event_type.as_str(), "tool.result" | "tool.error" | "verification.command") {
+                            // Preserve failure details beyond the first lines.
+                            let preview = data;
                             Some(format!(
-                                "### Tool result from step '{}'\n{}",
-                                step_id, preview
+                                "### Event #{} from step '{}'\n{}",
+                                event_id, step_id, preview
                             ))
                         } else {
                             None
@@ -794,6 +741,18 @@ impl Engine {
                 // Combine artifacts and tool results
                 let evidence = format!("{}\n\n{}", artifact_evidence, tool_results);
 
+                if evidence.len() > self.cfg.session.max_artifact_bytes {
+                    bail!("verification evidence exceeds configured byte limit; reduce current attempt outputs");
+                }
+                let event_ids: Vec<i64> = history.iter().rev().filter(|(id, st, kind, _)|
+                    *id > start && st == &step.id && matches!(kind.as_str(), "tool.result" | "tool.error" | "verification.command"))
+                    .take(10).map(|(id, _, _, _)| *id).collect();
+                self.store.event(s, Some(&step.id), "verification.evidence", &json!({
+                    "attempt": attempt,
+                    "artifact_events": step_artifacts.iter().map(|a| a.event_id).collect::<Vec<_>>(),
+                    "observation_events": event_ids,
+                    "selection": "current attempt artifacts and latest 10 observations, full recorded bodies"
+                }).to_string())?;
                 let query=format!("{}\n\nGoal: {}\nStep: {}\nEvidence:\n{}\nRespond only YAML:\npassed: true|false\nreason: concise explanation", full, s.goal, step.id, evidence);
                 let raw = self
                     .provider
@@ -831,9 +790,16 @@ impl Engine {
     }
 }
 
+#[derive(Deserialize)]
+struct Detection {
+    detected: bool,
+    reason: String,
+}
+
 enum Outcome {
     Done(String),
     Deviation(String, String),
+    DetectedDeviation(String, String),
 }
 
 fn project_instructions(root: &Path) -> Result<String> {
@@ -855,6 +821,22 @@ fn project_instructions(root: &Path) -> Result<String> {
 #[cfg(test)]
 mod name_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn agent_verification_requires_its_prompt_file() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: fixture\n  base_url: http://127.0.0.1:9\n  api_key_env: GREENLIGHT_TEST_UNUSED_KEY\n").unwrap();
+        let folder = root.path().join("workflows/demo");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("workflow.yaml"), "id: demo\ntitle: Demo\nstart: verify\nsteps: [verify]\n").unwrap();
+        std::fs::write(folder.join("verify.md"), "---\nid: verify\nverification:\n  type: agent\n  prompt: missing-review.md\n---\nReview\n").unwrap();
+        let workflow = config::load_workflow(root.path(), "demo").unwrap();
+        let step = &workflow.steps["verify"];
+        let mut engine = Engine::open(root.path()).unwrap();
+        let session = engine.store.create("demo", "fixture", "verify").unwrap();
+        let error = engine.verify_leaf(&session, &workflow, step, "fixture", step.verification.as_ref().unwrap()).await.unwrap_err();
+        assert!(format!("{error:#}").contains("missing include missing-review.md"), "{error:#}");
+    }
 
     #[test]
     fn project_instructions_accept_legacy_with_new_precedence() {

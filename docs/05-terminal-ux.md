@@ -4,6 +4,7 @@ Greenlight has **both** a scriptable CLI and a full-screen Ratatui TUI. The CLI 
 
 - `start`: creates a session and runs until complete or blocked.
 - `resume`: adds a user instruction and attempts the current blocked step again with fresh context. Without `--instruction`, retains workflow instructions and artifacts.
+- `recover-session`: recovers an interrupted execution owner only when its OS lock is free, without resuming work or replaying pending approvals. Saved grants remain intact; interrupted native writes still need `recover-writes`.
 - `history`: displays branch-aware event IDs, useful for deciding where to fork.
 - `artifacts` / `artifact`: inspect registered outputs. Redirect `artifact` to a Markdown file, edit externally and `put-artifact` to register a new version.
 - `fork`: previews and optionally restores tracked native file edits before creating a branch from an earlier event; `--no-restore` explicitly skips inspection/restoration.
@@ -12,7 +13,7 @@ Greenlight has **both** a scriptable CLI and a full-screen Ratatui TUI. The CLI 
 - `workspace-status`: compare step-boundary SHA-256 manifests with the current project; this is read-only drift detection, not a backup.
 - `models`: API model discovery.
 
-For tools requiring permission, the CLI defaults to denial and supports one-time (`y`), process (`a`), project (`p`) and global (`g`) scopes where offered. Persistent shell approvals match the **exact command string**; native-write grants cover permitted writes at their stated scope. The TUI uses an explicit single-key choice; **Enter does not approve or deny** in its approval dialog. A deliberate extra confirmation for broad persistent grants is still TODO. See [permission semantics](08-persistent-approvals.md).
+For tools requiring permission, the CLI defaults to denial and supports one-time (`y`), process (`a`), project (`p`) and global (`g`) scopes where offered. Persistent shell approvals match the **exact command string**; native-write grants cover permitted writes at their stated scope. The TUI uses an explicit single-key choice; **Enter does not approve or deny** in its approval dialog. Project/global grants require a separate confirmation stating the full scope before saving or executing. See [permission semantics](08-persistent-approvals.md).
 
 Notifications: Discord webhook when configured, on step blocked or session completed. Remote Discord approval is not implemented.
 

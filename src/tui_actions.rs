@@ -26,43 +26,11 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
     std::thread::spawn(move || {
         let result = (|| -> Result<()> {
             let mut engine = Engine::open(&root)?;
-            let mut session = engine.store.session(&session_id)?;
-            if !matches!(session.status.as_str(), "ready" | "blocked") {
-                bail!("cannot resume a session in {} state", session.status);
-            }
-            if !instruction.trim().is_empty() {
-                engine.store.event(
-                    &session, Some(&session.current_step),
-                    "user.instruction", &instruction,
-                )?;
-            }
-            session.status = "ready".to_owned();
-            engine.store.save(&session)?;
             engine.tools.use_tui(prompt_tx, answer_rx);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all().build()?;
             runtime.block_on(engine.run(&session_id, Some(&instruction), None))
         })();
-        if let Err(error) = &result {
-            // An unexpected failure can otherwise leave a session marked
-            // 'running' forever. Record the failure instead of hiding it.
-            if let Ok(store) = Store::open(&root) {
-                if let Ok(mut session) = store.session(&session_id) {
-                    if session.status == "running" {
-                        session.status = "blocked".into();
-                        if let Err(save_error) = store.save(&session) {
-                            eprintln!("could not persist worker failure state: {save_error:#}");
-                        }
-                        if let Err(log_error) = store.event(
-                            &session, Some(&session.current_step),
-                            "runner.error", &format!("{error:#}"),
-                        ) {
-                            eprintln!("could not record worker failure: {log_error:#}");
-                        }
-                    }
-                }
-            }
-        }
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
 

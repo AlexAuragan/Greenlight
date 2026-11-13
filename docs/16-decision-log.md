@@ -28,11 +28,11 @@ The focus hierarchy is **Sessions → event/artifact list → detail**. Right/En
 
 ### D-005 — Small Markdown reader first (implemented PR #8; further hardening open)
 
-Registered Markdown artifacts are a primary human review surface. Preview headings, emphasis, lists, quotes, code and simple tables with a raw toggle, without promising full CommonMark/GFM, images or a complete document editor. The selected branch currently shows **latest visible versions**, not version-aware review/approval evidence. Version IDs, pinned context and editing remain separate TODOs.
+Registered Markdown artifacts are a primary human review surface. Preview headings, emphasis, lists, quotes, code and simple tables with a raw toggle, without promising full CommonMark/GFM, images or a complete document editor. The artifact tab still shows **latest visible versions**. Persisted attempt input manifests and human approvals now reference exact version IDs; version navigation/diffs and editing remain separate TODOs.
 
 ### D-006 — Permissions retain their scope, pending prompts do not survive (partially implemented)
 
-Approve once, process, project and global grants have distinct lifetimes; persisted grants are subject to configuration `deny`. There is **no durable session-scoped grant yet**. TUI approval keys submit explicitly; Enter is not an approval. A pending permission request belongs to the live worker and must not be replayed after a crash. Broad project/global native-write grants still need an extra explicit confirmation. See [approval semantics](08-persistent-approvals.md).
+Approve once, process, project and global grants have distinct lifetimes; persisted grants are subject to configuration `deny`. There is **no durable session-scoped grant yet**. TUI approval keys submit explicitly; Enter is not an approval. A pending permission request belongs to the live worker and must not be replayed after a crash. Project/global shell and native-write grants now require a separate scope confirmation before persistence or execution. See [approval semantics](08-persistent-approvals.md).
 
 ### D-007 — Greenlight is the canonical name (implemented PR #9)
 
@@ -50,7 +50,7 @@ A future manager may answer grounded questions, forward coding instructions unch
 
 ### D-010 — Live steering is a user goal, but delivery boundaries must be honest
 
-A model request already in flight generally cannot accept new messages. Steering therefore means **cancel and reissue** (if safe and supported) or **deliver at the next model-call boundary**. Show which happened; account for partial tool effects and stale queued messages. Do not promise invisible mid-completion instruction injection. Streaming, queueing, cancellation and durable ownership are future engineering work.
+A model request already in flight generally cannot accept new messages. Steering therefore means **cancel and reissue** (if safe and supported) or **deliver at the next model-call boundary**. Show which happened; account for partial tool effects and stale queued messages. Do not promise invisible mid-completion instruction injection. Streaming, queueing and cancellation remain future engineering work. Per-session execution ownership now uses an OS lock plus a persisted owner record, with explicit `recover-session` recovery; it does not provide durable in-flight model/tool continuation.
 
 ### D-011 — Review grouped native edits, not a hidden staging engine
 
@@ -60,9 +60,13 @@ A combined diff of already-journaled native edits within a step/attempt can help
 
 Greenlight must not create automatic Git commits by default; the user controls checkpoints. Registered artifacts are immutable, branch-aware UTF-8 versions and are not necessarily project files. External editing plus registration of a new artifact version is preferable to a premature embedded editor. Future approval/context views must reference the **exact historical artifact version** used, not silently substitute latest-by-name content.
 
-## Open correctness issue discovered during documentation audit (2026-11-13)
+## Planned decision — Token usage and pricing (2026-11-14)
 
-**Deviation detector duplication:** `src/engine.rs` currently checks some model-reported deviations twice. In the inner agent loop, a rejected detector result is fed back into the existing model conversation and execution may continue; if a validated deviation returns to the outer run loop, a second detector check can reject it and **block** the step. This discrepancy is now documented in the [execution contract](01-execution-contract.md) and scheduled as a [P0 task](../README.md#p0--stabilize-the-current-interactive-baseline). **Do not silently assume either outcome is universal** until implementation and tests are reconciled.
+Track usage for every model request, including input, cached input and output tokens. Prefer provider-reported usage; tokenizer/tiktoken fallbacks must be labelled estimates and cannot infer cache hits. Configured models should surface provider-specific prices and their provenance, with historical rate snapshots and explicit unknown values. Keep incurred spending separate from fork-inherited history. This is a P1 TODO, not an implemented capability; see [the accounting plan](18-token-usage-and-pricing.md).
+
+## Correctness issue discovered during documentation audit (2026-11-13; resolved)
+
+**Deviation detector duplication:** the earlier inner/outer checks could evaluate one report twice. Detection now uses one shared evaluator with a retained verdict: rejected agent reports return to the same conversation, accepted reports route without rechecking, and malformed/failed detector responses block. Regression tests cover pause, retry, goto and engine-generated failures; see the [execution contract](01-execution-contract.md).
 
 ## Working rule for future features
 

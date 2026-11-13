@@ -40,11 +40,14 @@ Run `greenlight restore SESSION_ID --event EVENT_ID --dry-run` to preview restor
 
 ```text
 greenlight sandbox-check
+greenlight recover-writes       # reconcile interrupted writes; source files stay unchanged
+greenlight recover-session SESSION_ID  # recover a dead owner; does not resume work
 greenlight validate fix-bug
 greenlight start fix-bug --goal "..."
 greenlight start add-feature --goal "..." --model "provider/model"
 greenlight resume SESSION_ID --instruction "Do not change dependencies"
 greenlight sessions
+greenlight attempts SESSION_ID  # durable step attempts on the active branch
 greenlight tui                  # interactive session conversation
 greenlight tui SESSION_ID       # focus on a session, resume or restart
 greenlight history SESSION_ID
@@ -95,28 +98,31 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [x] Local user validation of the pre-rename `master` integration: 57 passing Rust tests, one environment-dependent sandbox test ignored, and clean Clippy. The rename was subsequently reported good locally; automated CI evidence is not available. See [validation](docs/06-validation.md).
 
 ### P0 — stabilize the current interactive baseline
-- [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval; require an extra explicit confirmation for persistent project/global grants.
-- [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
-- [ ] Add robust per-session execution ownership and stale-run recovery; prevent simultaneous CLI/TUI resumes of the same session.
-- [ ] On a worker crash, discard unanswered permission requests; preserve already-saved grants according to scope. A real durable session grant (today `a` only covers the process) is a separate lower-priority task.
-- [ ] Make artifact publication and its event consistent under write failure/crash; test recoverable failure instead of trusting a dangling `artifact.created` event.
-- [ ] Consolidate the **two deviation-detector call paths**: a rejected detector result currently continues inside the agent loop but blocks if rejected again by the outer run loop; avoid duplicate evaluation and specify one tested behavior.
-- [ ] Close the native-write **apply-before-journal** crash window: record intent/preimage before writing and reconcile any interrupted writes.
-- [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
+- [x] Use typed, explicit approval choices with inert Enter and ignored key repeats; project/global grants require a separate scope confirmation. Cancellation, disconnection or save failure never authorizes the request.
+- [x] Surface worker errors, blocked steps, malformed structured events, missing artifact bodies and partial restores in scrollable diagnostics. Preserve raw evidence; failed restores report changed/journaled counts and cannot silently fork or claim success.
+- [x] Enforce one execution owner per session with an OS lock and persisted owner record; recover interrupted runs explicitly with `recover-session` or TUI `/recover`. Competing CLI/TUI resumes cannot change the live owner's state.
+- [x] Discard unanswered permission requests on worker loss; disconnected TUI workers clear pending dialogs, and session recovery preserves already-saved grants. A real durable session grant (today `a` only covers the process) remains separate work.
+- [x] Publish artifact metadata and its success event in one SQLite transaction after syncing the blob; test blob, database insertion and commit failures, preserving prior versions and allowing retries. A crash before publication may leave an unreferenced blob for future cleanup.
+- [x] Consolidate deviation detection into one shared evaluator and retain its verdict through routing. Accepted reports are checked once; rejected agent reports continue in the same conversation, while detector errors block. Tests cover pause/retry/goto and engine-generated failures.
+- [x] Persist native-write intent/preimage before atomic file replacement; reconcile interrupted writes explicitly with `recover-writes`, preserving manual edits and blocking execution/restore while unresolved. Process-death and journal-failure tests cover recovery.
+- [x] Add engine-backed 80×24 terminal-buffer acceptance tests for deny/confirm/cancel, native writes, failed verification, artifact inspection, revised instructions, human gates, worker loss/recovery and completion, using a scripted provider. Separate tests cover process death and injected partial-restore failures.
 
 ### P1 — TUI redesign for daily use
 
+- [ ] Track input, cached-input and output tokens for **every model request**, including coding, verification, deviation detection, retries and future manager/summary calls. Persist per-request usage and aggregate by attempt/session/model, distinguishing actual spending from inherited fork history. Prefer provider usage; fall back to a model-compatible tokenizer or explicitly approximate tiktoken counts. Cache hits and unreported billing remain unknown rather than fabricated. See [token usage and pricing plan](docs/18-token-usage-and-pricing.md).
+- [ ] Associate each configured provider/model with input, cached-input and output pricing, currency, billing unit and effective/source date; discover rates when supported or accept explicit configuration. Show unknown/stale prices and estimated costs clearly, retain historical rate snapshots, and expose totals in CLI/TUI without double-counting cached input.
 - [ ] Replace the raw log-centric layout with a session workspace: **status + stepper + context + primary action**, backed by typed events.
 - [ ] Add a session home/picker with readable names, blocked-first visibility, last activity, search and an in-TUI start flow.
 - [ ] Implement contextual blocked-state cards: show reason/evidence, inspect related artifacts, retry, resume or restart safely.
 - [ ] Extend the **implemented** pane/focus keyboard model with discoverable help, reliable scroll-follow, draft preservation and small-terminal/resize behavior; do not regress AZERTY-friendly arrow/`j/k` scrolling.
 - [ ] Harden the **existing** Markdown renderer with control-sequence/Unicode-width/large-document tests and improve preview ergonomics as actual usage requires; full CommonMark/GFM and inline images are not a goal.
-- [ ] First persist stable artifact version identities and selected-input manifests; then add history/provenance, version diffs and **exact pinned approval evidence** (not merely the latest artifact).
+- [x] Persist exact selected-input versions and approval references per attempt; human gates approve displayed versions and downstream consumers require reapproval after changes.
+- [ ] Add artifact history/provenance navigation and version diffs to the TUI, building on recorded version IDs and approval evidence.
 - [ ] Upgrade activity to semantic cards with expandable tool calls, verification results, file diffs, artifacts and structured failures.
 - [ ] Explore model-authored **activity titles** at each response/action boundary (e.g. `Exploring call sites`, `Testing first fix`); record titles as annotations, not as verified execution facts. Optionally allow multiple logical phases within one workflow step.
 - [ ] Build a workflow stepper with retry/loop/verification state, current attempt and a clear explanation of what comes next.
-- [ ] Introduce durable step/attempt IDs and clear worker-crash recovery; pending permission requests are discarded, not resumed.
-- [ ] Capture each step's **actual resolved context manifest at execution time**: definition, selected artifact versions and accepted plan; a future UI must never reconstruct this from latest-by-name state.
+- [x] Persist a UUID for each new step attempt with definition/start/end event references and outcome; expose branch-visible history through `attempts`. Worker recovery marks interrupted attempts without replaying approvals. Historical sessions are not backfilled.
+- [x] Capture each attempt's input manifest with exact artifact creation events and applicable human approval events, linked to its saved step definition. Agent context uses the selected snapshots; a future UI must not reconstruct them from latest-by-name state.
 - [ ] Correlate the **already implemented** SHA-256 step manifests with native-write journal events; classify explained/unexplained drift and measure scanning overhead on real projects. Hashes alone cannot restore file contents.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.
 - [ ] Split the large TUI controller incrementally into tested focus routing, activity, Markdown reader, approval and recovery components; render artifacts without blocking input.

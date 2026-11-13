@@ -26,7 +26,7 @@ struct RestoreItem {
 
 /// Reject traversal and all symlinks, including inside the project.
 /// These checks are deliberately stricter than ordinary file reads/writes.
-fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
+pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let p = Path::new(relative);
     if p.as_os_str().is_empty()
         || p.is_absolute()
@@ -83,6 +83,7 @@ fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
 
 impl RestorePlan {
     pub fn prepare(root: &Path, store: &Store, session: &Session, event: i64) -> Result<Self> {
+        store.ensure_no_pending_writes()?;
         if !store.history(session)?.iter().any(|(id, _, _, _)| *id == event) {
             bail!("event #{event} is not in the active branch ancestry");
         }
@@ -174,6 +175,12 @@ impl RestorePlan {
     }
 
     fn apply_inner(self, root: &Path, store: &Store, session: &Session, verbose: bool) -> Result<()> {
+        let _session_lock = store.lock_idle_session(&session.id)?;
+        if store.session(&session.id)?.active_branch != session.active_branch {
+            bail!("session branch changed since restore preview");
+        }
+        let _lock = store.native_write_lock()?;
+        store.ensure_no_pending_writes()?;
         // Verify again after the user has examined the preview.
         for item in &self.items {
             if snapshot(root, &item.relative)? != item.current {
@@ -183,29 +190,34 @@ impl RestorePlan {
 
         let mut applied = 0;
         for item in self.items {
-            if snapshot(root, &item.relative)? != item.current {
-                bail!(
-                    "restore stopped after {applied} file(s): {} changed during restore",
-                    item.relative
-                );
+            let mut changed = false;
+            let result: Result<()> = (|| {
+                if snapshot(root, &item.relative)? != item.current {
+                    bail!("{} changed during restore",item.relative);
+                }
+                let path = checked_path(root, &item.relative)?;
+                match &item.desired {
+                    Some(content) => atomic_write(&path, content)?,
+                    None => fs::remove_file(&path).with_context(|| format!("deleting {}",item.relative))?,
+                }
+                changed = true;
+                store.add_restoration(session,&item.relative,item.current.as_deref(),item.desired.as_deref())?;
+                Ok(())
+            })();
+            if let Err(error) = result {
+                let changed_count = applied + usize::from(changed);
+                let message = format!("Restore failed after {changed_count} file(s) changed ({applied} journaled), at {}: {error:#}. Filesystem may be partially restored. Inspect workspace and history; do not retry blindly.",item.relative);
+                let payload = serde_json::json!({"changed_files":changed_count,"journaled_files":applied,"path":item.relative,"error":message}).to_string();
+                if let Err(log_error) = store.event(session,None,"workspace.restore-failed",&payload) {
+                    bail!("{message} Could not persist restore failure: {log_error:#}");
+                }
+                bail!("{message}");
             }
-            let path = checked_path(root, &item.relative)?;
-            match &item.desired {
-                Some(content) => atomic_write(&path, content)?,
-                None => fs::remove_file(&path)
-                    .with_context(|| format!("deleting {}", item.relative))?,
-            }
-            // Record every operation, including deletions. If persistence fails,
-            // surface that explicitly rather than continuing silently.
-            store.add_restoration(
-                session, &item.relative, item.current.as_deref(), item.desired.as_deref(),
-            ).with_context(|| format!(
-                "file {} changed but recording the restore failed; filesystem may be partially restored",
-                item.relative
-            ))?;
             applied += 1;
             if verbose { println!("[restored] {}", item.relative); }
         }
+        store.event(session,None,"workspace.restore-completed",&format!("{applied} tracked file(s) updated"))
+            .with_context(||format!("{applied} files restored and journaled, but completion could not be recorded; inspect history"))?;
         if verbose { println!("Restore complete: {applied} tracked file(s) updated."); }
         Ok(())
     }

@@ -9,13 +9,21 @@ cargo run -- --root /path/to/project tui SESSION_ID
 
 ## Main interaction
 
-Open a blocked or ready session. The TUI starts in navigation mode, even for blocked sessions: the composer never automatically captures shortcuts. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or press **Enter** from the detail pane. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. The composer is disabled while the current worker runs, but events can still be inspected.
+Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or press **Enter** from the detail pane. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. The composer is disabled while the current worker runs, but events can still be inspected.
 
 Example instruction: `Fix the existing add() bug and rerun verification.`
 
+The default conversation hides routine tool-permission decision records. Press `v` or use `/events` to include them in full history. Tool failures and human workflow checkpoints remain visible; the recorded audit history is unchanged.
+
 The TUI executes resumed sessions in a background worker thread with a separate Tokio runtime and database connection. It does **not** fork a CLI process or bypass the Engine. All shell commands still use the mandatory Bubblewrap sandbox.
 
-When the Engine requests permission to execute a shell command, write a file, use a tool, or approve a human verification gate, it sends the **same** permission prompt to the TUI. The foreground TUI captures a decision and sends it back over channels. The TUI now shows a separate color-coded choice menu. Press **`y`** to approve once, **`a`** for the process, **`p`** for the project or **`g`** globally (where offered), or **`n`** to deny. **A keypress submits immediately; Enter does not approve or deny.** Escape denies. Only `y/n` are valid for human verification. The available choices are enforced from typed permission metadata rather than inferred from tool text. Proposed native file diffs and required human review artifacts are shown in the approval pane.
+When the Engine requests permission to execute a shell command, write a file, use a tool, or approve a human verification gate, it sends the **same** permission prompt to the TUI. The foreground TUI captures a decision and sends it back over channels. The TUI now shows a separate color-coded choice menu. Press **`y`** to approve once, **`a`** for the process, **`p`** for the project or **`g`** globally (where offered), or **`n`** to deny. **A decision key submits immediately; Enter does not approve or deny.** Project/global choices open a separate persistent-grant confirmation: review the full scope, then press a fresh `y` to save and allow, or `n`/Escape to cancel and deny. Repeated key events cannot authorize a decision. Escape denies. Only `y/n` are valid for human verification. The available choices are enforced from typed permission metadata rather than inferred from tool text. Proposed native file diffs and required human review artifacts are shown in the approval pane.
+
+## Failure diagnostics
+
+Worker failures/disconnects, blocked-step reasons, malformed known structured events, missing artifact bodies and partial restores appear in a red attention panel. Up/Down or j/k scroll the complete message; Escape dismisses it without changing execution state. Polling preserves diagnostic scroll position and does not repeatedly reopen an acknowledged unchanged error. Raw event evidence remains available; unknown event types remain readable rather than being rejected. These panels do not interpret model prose as a verified outcome.
+
+Restore failures include files changed versus files journaled. A failed restart does not fork, and a restore-then-fork failure is explicitly distinguished. Inspect workspace/history before retrying; a partial restore is not automatically rolled back. Artifact read failures preserve history access.
 
 ## Artifacts tab
 
@@ -41,12 +49,14 @@ The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, retu
 - **j/k**, Up/Down and **g/G** or Home/End navigate sessions, events and artifacts when a list is focused; Up/Down or j/k scroll line by line when detail is focused.
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
 - **Up/Down** (or **j/k**) also scroll permission requests and restoration previews when those dialogs are open.
-- **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/events** toggles raw event visibility; **/help** lists shortcuts.
+- **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/recover** recovers the selected session's interrupted execution owner without running it; **/events** toggles raw event visibility; **/help** lists shortcuts.
 - **q** quits from navigation mode when no agent is running. The TUI intentionally prevents quitting while its own worker is active, to avoid silently abandoning a pending prompt.
 
 ## Limitations
 
-Initial TUI control is intentionally serial: only one runner per TUI, no streaming token-by-token model output, no direct interruption of an in-progress model call, and no interactive control of another process that happens to be running a session. Read-only observation of external sessions remains possible. The underlying CLI remains available. Concurrent execution of the **same session in separate processes** is not yet prevented by a robust per-session lock; don't run CLI `resume` simultaneously with a TUI resume.
+Initial TUI control is intentionally serial: only one runner per TUI, no streaming token-by-token model output, no direct interruption of an in-progress model call, and no interactive control of another process that happens to be running a session. Read-only observation of external sessions remains possible. The underlying CLI remains available. A per-session OS lock prevents concurrent CLI/TUI execution of the same session; competing resumes are rejected without changing the owner's state.
+
+If a worker disconnects, its pending approval dialog is discarded and the TUI reports the loss. Use `/recover` (or CLI `recover-session SESSION_ID`) after inspecting history. Recovery refuses a live owner, preserves saved grants, and never replays an unanswered approval or automatically resumes work. If a native write was interrupted, run `recover-writes` afterward before resuming. Completed sessions remain completed even if the worker died during final ownership cleanup.
 
 Approval choices and restoration actions retain their existing security semantics. The TUI requires an interactive terminal and uses Ratatui's terminal restoration. Raw events may contain private project information.
 
