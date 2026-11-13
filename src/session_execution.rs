@@ -7,12 +7,12 @@ use std::fs;
 use uuid::Uuid;
 
 pub struct ExecutionOwner {
-    _lock: fs::File,
+    _lock: crate::locks::LockGuard,
     token: String,
 }
 
 impl Store {
-    fn session_lock(&self, id: &str) -> Result<fs::File> {
+    fn session_lock(&self, id: &str) -> Result<crate::locks::LockGuard> {
         self.session(id)?;
         let directory = self.directory.join("session-locks");
         fs::create_dir_all(&directory)?;
@@ -24,7 +24,7 @@ impl Store {
             .create(true)
             .truncate(false)
             .open(directory.join(name))?;
-        lock.try_lock()
+        let lock = crate::locks::LockGuard::acquire(lock)
             .context("session already has a live execution owner or control operation")?;
         Ok(lock)
     }
@@ -41,7 +41,7 @@ impl Store {
             .is_some())
     }
 
-    pub fn lock_idle_session(&self, id: &str) -> Result<fs::File> {
+    pub fn lock_idle_session(&self, id: &str) -> Result<crate::locks::LockGuard> {
         let lock = self.session_lock(id)?;
         if self.has_execution_record(id)? || self.session(id)?.status == "running" {
             bail!("session has an interrupted execution; run greenlight recover-session {id} (or /recover in the TUI)");

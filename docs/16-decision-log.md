@@ -32,7 +32,7 @@ Registered Markdown artifacts are a primary human review surface. Preview headin
 
 ### D-006 — Permissions retain their scope, pending prompts do not survive (partially implemented)
 
-Approve once, process, project and global grants have distinct lifetimes; persisted grants are subject to configuration `deny`. There is **no durable session-scoped grant yet**. TUI approval keys submit explicitly; Enter is not an approval. A pending permission request belongs to the live worker and must not be replayed after a crash. Broad project/global native-write grants still need an extra explicit confirmation. See [approval semantics](08-persistent-approvals.md).
+Approve once, process, project and global grants have distinct lifetimes; persisted grants are subject to configuration `deny`. There is **no durable session-scoped grant yet**. TUI approval keys submit explicitly; Enter is not an approval. A pending permission request belongs to the live worker and must not be replayed after a crash. Project/global shell and native-write grants now require a separate scope confirmation before persistence or execution. See [approval semantics](08-persistent-approvals.md).
 
 ### D-007 — Greenlight is the canonical name (implemented PR #9)
 

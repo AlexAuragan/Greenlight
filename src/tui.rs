@@ -70,6 +70,9 @@ struct App {
     restart_plan: Option<RestorePlan>,
     restart_preview: String,
     restart_branch: Option<String>,
+    diagnostic: Option<String>,
+    diagnostic_key: Option<(String,String)>,
+    artifact_diagnostic_key: Option<(String,String)>,
 }
 
 impl App {
@@ -106,7 +109,15 @@ impl App {
             restart_plan: None,
             restart_preview: String::new(),
             restart_branch: None,
+            diagnostic: None,
+            diagnostic_key: None,
+            artifact_diagnostic_key: None,
         }
+    }
+    fn raise_diagnostic(&mut self, message: String) {
+        self.notice = format!("Attention required: {}",message.lines().next().unwrap_or("inspect diagnostic"));
+        self.diagnostic = Some(message);
+        self.detail_scroll = 0;
     }
 
     fn session(&self) -> Option<&Session> {
@@ -192,10 +203,34 @@ impl App {
             let show_all = self.show_all;
             self.events = history
                 .into_iter()
-                .filter(|(_, _, kind, _)| show_all || !is_chatter(kind))
-                .map(|(id, step, kind, data)| EventRow { id, step, kind, data })
+                .map(|(id, step, kind, data)| {
+                    if let Some(error) = invalid_event_payload(&kind,&data) {
+                        EventRow {id,step,kind:"event.invalid".into(),data:format!("Malformed {kind} event #{id}: {error}\n\nRaw evidence:\n{data}")}
+                    } else { EventRow {id,step,kind,data} }
+                })
+                .filter(|event| show_all || !is_chatter(&event.kind))
                 .collect();
-            self.artifacts = store.artifacts(&session, "session")?;
+            if changed_session { self.diagnostic = None; }
+            let last_restore_outcome=self.events.iter().rev().find(|e|matches!(e.kind.as_str(),"workspace.restore-failed"|"workspace.restore-completed")).map(|e|e.id);
+            if let Some(event) = self.events.iter().rev().find(|e|
+                e.kind=="event.invalid" || (e.kind=="workspace.restore-failed" && Some(e.id)==last_restore_outcome) ||
+                (session.status=="blocked" && matches!(e.kind.as_str(),"step.blocked"|"runner.error"|"step.error"))) {
+                let key = (session.id.clone(),format!("event:{}",event.id));
+                if self.diagnostic_key.as_ref()!=Some(&key) {
+                    let message = format!("{} — event #{}\n\n{}\n\nInspect evidence before retrying. Esc closes this diagnostic.",conversational_label(&event.kind),event.id,event.data);
+                    self.diagnostic_key = Some(key);
+                    self.raise_diagnostic(message);
+                }
+            }
+            self.artifacts = match store.artifacts(&session,"session") {
+                Ok(artifacts) => artifacts,
+                Err(error) => {
+                    let message = format!("Artifact loading failed: {error:#}\nHistory remains available. Inspect the state directory before retrying.");
+                    let key = (session.id.clone(),message.clone());
+                    if self.artifact_diagnostic_key.as_ref()!=Some(&key) { self.artifact_diagnostic_key=Some(key); self.raise_diagnostic(message); }
+                    Vec::new()
+                }
+            };
         } else {
             self.events.clear();
             self.artifacts.clear();
@@ -211,7 +246,7 @@ impl App {
         }
         if changed_session || following_tail {
             self.event_index = self.events.len().saturating_sub(1);
-            if changed_session || self.view == View::Conversation {
+            if (changed_session || self.view == View::Conversation) && self.diagnostic.is_none() && self.approval.is_none() {
                 self.detail_scroll = 0;
             }
             self.diff = None;
@@ -354,6 +389,7 @@ impl App {
             }
         }
         let completion = runner.finished.try_recv();
+        let failed = !matches!(&completion, Ok(Ok(()))|Err(TryRecvError::Empty));
         if !matches!(&completion, Err(TryRecvError::Empty)) {
             self.notice = match completion {
                 Ok(result) => match result {
@@ -364,6 +400,7 @@ impl App {
             };
             self.runner = None;
             self.approval = None;
+            if failed { self.raise_diagnostic(self.notice.clone()); }
         }
     }
 
@@ -488,7 +525,7 @@ impl App {
         }
         let Some(plan) = self.restart_plan.take() else { return };
         if let Err(error) = plan.apply_silent(root, store, &state) {
-            self.notice = format!("Restore failed: {error:#}. Inspect history before retrying.");
+            self.raise_diagnostic(format!("Restore failed: {error:#}. Inspect history before retrying."));
             self.restart_choices.clear();
             return;
         }
@@ -497,9 +534,9 @@ impl App {
                 "Forked from event #{} to '{}'. Type an instruction or /resume.",
                 candidate.prior_event, candidate.step
             ),
-            Err(error) => self.notice = format!(
+            Err(error) => self.raise_diagnostic(format!(
                 "Restore applied, but fork failed: {error:#}. Inspect workspace and history."
-            ),
+            )),
         }
         self.restart_choices.clear();
         self.restart_branch = None;
@@ -513,11 +550,13 @@ impl App {
         if !request.mode.accepts(choice) {
             bail!("approval option {choice} is unavailable for this request");
         }
+        let confirmation = request.mode==ApprovalMode::ConfirmPersistent;
         let runner = self.runner.as_ref().context("approval worker missing")?;
         runner.answers.send(choice.to_string()).context("approval worker disconnected")?;
         self.approval = None;
         self.notice = match choice {
-            'y' => "Sent one-time approval to the engine.".into(),
+            'y' if confirmation => "Confirmed persistent grant; awaiting engine result.".into(),
+            'y' => "Sent approval to the engine; awaiting its recorded outcome.".into(),
             'a' => "Sent process-wide approval to the engine.".into(),
             'p' => "Requested project-wide grant; awaiting engine result.".into(),
             'g' => "Requested global grant; awaiting engine result.".into(),
@@ -533,6 +572,7 @@ impl App {
         }
 
         if let Some(mode) = self.approval.as_ref().map(|request| request.mode) {
+            if key.kind != KeyEventKind::Press { return Ok(false); }
             match key.code {
                 KeyCode::Char(choice)
                     if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
@@ -547,6 +587,17 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
                 KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
                 _ => {}
+            }
+            return Ok(false);
+        }
+
+        if self.diagnostic.is_some() {
+            match key.code {
+                KeyCode::Esc => { self.diagnostic=None; self.detail_scroll=0; },
+                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Char('q') if self.runner.is_none() => return Ok(true),
+                _ => {},
             }
             return Ok(false);
         }
@@ -688,6 +739,10 @@ fn conversational_label(kind: &str) -> &str {
         "step.completed" => "Step completed",
         "step.blocked" => "Blocked",
         "step.error" => "Error",
+        "event.invalid" => "Malformed event",
+        "workspace.restore-failed" => "Restore failed",
+        "workspace.restore-completed" => "Restore completed",
+        "runner.error" => "Worker error",
         "step.deviation" => "Needs attention",
         "verification.failed" => "Verification failed",
         "tool.error" => "Tool failed",
@@ -711,14 +766,39 @@ fn approval_line(key: char, description: &'static str, color: Color) -> Line<'st
     ])
 }
 
+fn invalid_event_payload(kind: &str, data: &str) -> Option<String> {
+    let result: Result<()> = (|| {
+        match kind {
+            "workspace.manifest.before" | "workspace.manifest.after" => {
+                serde_json::from_str::<crate::workspace::Manifest>(data)?;
+            }
+            "workspace.delta" => { serde_json::from_str::<Vec<crate::workspace::FileDifference>>(data)?; }
+            "context.inputs" | "human.approved" => { crate::input_pins::validate_recorded_event(kind,data)?; }
+            "verification.evidence" => {
+                let value: serde_json::Value = serde_json::from_str(data)?;
+                if !value["attempt"].is_string() || !value["artifact_events"].as_array().is_some_and(|a|a.iter().all(|v|v.is_i64())) || !value["observation_events"].as_array().is_some_and(|a|a.iter().all(|v|v.is_i64())) {
+                    bail!("invalid verification evidence fields");
+                }
+            }
+            "workspace.restore-failed" => {
+                let value: serde_json::Value = serde_json::from_str(data)?;
+                if !value["error"].is_string() || !value["changed_files"].is_u64() || !value["journaled_files"].is_u64() { bail!("invalid restore failure fields"); }
+            }
+            _ => {}, // Unknown event types remain readable as raw evidence.
+        }
+        Ok(())
+    })();
+    result.err().map(|error|format!("{error:#}"))
+}
+
 fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
-    let mut options = vec![approval_line('y', "Allow once", Color::Green)];
-    if mode != ApprovalMode::Human {
+    let mut options = vec![approval_line('y', if mode==ApprovalMode::ConfirmPersistent {"Save grant and allow"} else if mode==ApprovalMode::Human {"Approve checkpoint"} else {"Allow once"}, Color::Green)];
+    if matches!(mode,ApprovalMode::Tool|ApprovalMode::Persistent) {
         options.push(approval_line('a', "Allow for this process", Color::Cyan));
     }
     if mode == ApprovalMode::Persistent {
-        options.push(approval_line('p', "Remember for this project", Color::Yellow));
-        options.push(approval_line('g', "Remember globally", Color::Yellow));
+        options.push(approval_line('p', "Review project grant", Color::Yellow));
+        options.push(approval_line('g', "Review global grant", Color::Yellow));
     }
     options.push(approval_line('n', "Deny (Esc also denies)", Color::Red));
     options.push(Line::styled(
@@ -796,7 +876,7 @@ fn draw(frame: &mut Frame, app: &App) {
 
     if let Some(prompt) = &app.approval {
         let choices_height = match prompt.mode {
-            ApprovalMode::Human => 5,
+            ApprovalMode::Human | ApprovalMode::ConfirmPersistent => 5,
             ApprovalMode::Tool => 6,
             ApprovalMode::Persistent => 8,
         };
@@ -804,7 +884,9 @@ fn draw(frame: &mut Frame, app: &App) {
             Constraint::Min(3),
             Constraint::Length(choices_height),
         ]).split(columns[1]);
-        let title = if prompt.mode == ApprovalMode::Human {
+        let title = if prompt.mode == ApprovalMode::ConfirmPersistent {
+            " Confirm persistent grant "
+        } else if prompt.mode == ApprovalMode::Human {
             " Human approval required "
         } else {
             " Tool permission required "
@@ -825,6 +907,10 @@ fn draw(frame: &mut Frame, app: &App) {
                 .block(border(" Press a key to decide — no Enter needed ", true)),
             approval_areas[1],
         );
+    } else if let Some(message) = &app.diagnostic {
+        frame.render_widget(Paragraph::new(crate::markdown::render(message))
+            .wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
+            .block(Block::default().borders(Borders::ALL).title(" ATTENTION — Esc closes; arrows scroll ").border_style(Style::default().fg(Color::Red))),columns[1]);
     } else if app.restart_plan.is_some() {
         frame.render_widget(
             Paragraph::new(app.restart_preview.clone())
@@ -917,13 +1003,14 @@ fn draw(frame: &mut Frame, app: &App) {
         ]).split(columns[1]);
         let events = app.events.iter().map(|event| {
             let headline = event.data.lines().next().unwrap_or("");
-            ListItem::new(Line::from(format!(
+            let item = ListItem::new(Line::from(format!(
                 "#{:<5} {:<12} {:<20} {}",
                 event.id,
                 event.step,
                 conversational_label(&event.kind),
                 headline
-            )))
+            )));
+            if matches!(event.kind.as_str(),"event.invalid"|"step.error"|"runner.error"|"workspace.restore-failed"|"verification.failed"|"tool.error") { item.style(Style::default().fg(Color::Red)) } else { item }
         });
         let title = if app.show_all { " Conversation · full " } else { " Conversation " };
         let event_list = List::new(events)
@@ -981,6 +1068,8 @@ fn draw(frame: &mut Frame, app: &App) {
 
     let footer = if app.approval.is_some() {
         "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
+    } else if app.diagnostic.is_some() {
+        "Attention required · ↑/↓ scroll full diagnostic · Esc close · inspect evidence before retrying".into()
     } else if app.restart_plan.is_some() {
         "Restore uses recorded edits · y confirm / n cancel · ↑/↓ scroll preview".into()
     } else if !app.restart_choices.is_empty() {
@@ -1022,13 +1111,17 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
                     match app.on_key(key, &root, &store) {
                         Ok(true) => return Ok(()),
                         Ok(false) => {}
-                        Err(error) => app.notice = format!("Action error: {error:#}"),
+                        Err(error) => app.raise_diagnostic(format!("Action error: {error:#}")),
                     }
                 }
             }
         }
     })
 }
+
+#[cfg(test)]
+#[path = "tui_p0_tests.rs"]
+mod p0_tests;
 
 #[cfg(test)]
 mod tests {

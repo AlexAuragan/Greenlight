@@ -28,14 +28,14 @@ fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
 }
 
 impl Store {
-    pub(crate) fn native_write_lock(&self) -> Result<fs::File> {
+    pub(crate) fn native_write_lock(&self) -> Result<crate::locks::LockGuard> {
         let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .open(self.directory.join("native-write.lock"))?;
-        file.try_lock()
+        let file = crate::locks::LockGuard::acquire(file)
             .context("another native write, recovery or restore is active")?;
         Ok(file)
     }

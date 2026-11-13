@@ -38,12 +38,13 @@ pub enum ApprovalMode {
     Human,
     Tool,
     Persistent,
+    ConfirmPersistent,
 }
 
 impl ApprovalMode {
     pub fn accepts(self, answer: char) -> bool {
         match self {
-            Self::Human => matches!(answer, 'y' | 'n'),
+            Self::Human | Self::ConfirmPersistent => matches!(answer, 'y' | 'n'),
             Self::Tool => matches!(answer, 'y' | 'a' | 'n'),
             Self::Persistent => matches!(answer, 'y' | 'a' | 'p' | 'g' | 'n'),
         }
@@ -170,8 +171,29 @@ impl Tools {
             }
             "p" | "g" if kind == "shell" || kind == "write" => {
                 let scope = if answer.trim().eq_ignore_ascii_case("p") { Scope::Project } else { Scope::Global };
+                let coverage = if kind == "write" { "ALL permitted native writes, not just this file" } else { "this exact shell command, including arguments and operators" };
+                let location = match scope {
+                    Scope::Project => format!("this project ({})", self.root.display()),
+                    Scope::Global => "ALL projects using this user account".into(),
+                };
+                self.decisions.push(format!("{kind}: requested {scope:?} grant — confirmation pending"));
+                let confirmation = format!("Confirm persistent {kind} grant\nScope: {coverage}\nApplies to: {location}\nRequest: {detail}\nFuture matching requests may run without asking, subject to configured deny policies.\n[y] save grant and allow / [n] cancel grant and deny this request (default)");
+                let confirmed = match self.prompt_driver.ask(&confirmation, ApprovalMode::ConfirmPersistent) {
+                    Ok(answer) => answer,
+                    Err(error) => {
+                        self.decisions.push(format!("{kind}: confirmation interrupted; no grant saved"));
+                        return Err(error);
+                    }
+                };
+                if !confirmed.trim().eq_ignore_ascii_case("y") {
+                    self.decisions.push(format!("{kind}: persistent grant cancelled; request denied"));
+                    bail!("persistent grant cancelled; {kind} was not authorized");
+                }
                 // Do not run the tool if saving the grant failed.
-                self.approvals.grant(scope, kind, detail)?;
+                if let Err(error) = self.approvals.grant(scope, kind, detail) {
+                    self.decisions.push(format!("{kind}: grant persistence failed; request not authorized"));
+                    return Err(error);
+                }
                 self.decisions.push(format!("{kind}: approved in {scope:?} whitelist — {detail}"));
                 Ok(())
             }
@@ -302,6 +324,67 @@ impl Tools {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn persistent_grants_require_a_separate_confirmation() {
+        for scope in ['p','g'] {
+            for confirmed in [true,false] {
+                let root = tempfile::tempdir().unwrap();
+                let mut tools = Tools::new(root.path().into(),Permissions::default()).unwrap();
+                tools.approvals = ApprovalStore::isolated(root.path()).unwrap();
+                let (prompt_tx,prompts) = std::sync::mpsc::channel();
+                let (answers,answer_rx) = std::sync::mpsc::channel();
+                tools.use_tui(prompt_tx,answer_rx);
+                let worker = std::thread::spawn(move || {
+                    let result = tools.permission("write","path: file.txt");
+                    (result,tools)
+                });
+                assert_eq!(prompts.recv_timeout(std::time::Duration::from_secs(5)).unwrap().mode,ApprovalMode::Persistent);
+                answers.send(scope.to_string()).unwrap();
+                let question = prompts.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                assert_eq!(question.mode,ApprovalMode::ConfirmPersistent);
+                assert!(question.content.contains("ALL permitted native writes"));
+                assert!(question.content.contains(if scope=='g' {"ALL projects"} else {"this project"}));
+                assert!(ApprovalStore::isolated(root.path()).unwrap().matched_scope("write","").is_none());
+                answers.send(if confirmed {"y"} else {"n"}.into()).unwrap();
+                let (result,tools) = worker.join().unwrap();
+                assert_eq!(result.is_ok(),confirmed);
+                assert_eq!(tools.approvals.matched_scope("write","").is_some(),confirmed);
+            }
+        }
+    }
+
+    #[test]
+    fn disconnected_confirmation_never_saves_a_grant() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tools = Tools::new(root.path().into(),Permissions::default()).unwrap();
+        tools.approvals = ApprovalStore::isolated(root.path()).unwrap();
+        let (prompt_tx,prompts)=std::sync::mpsc::channel();
+        let (answers,answer_rx)=std::sync::mpsc::channel();
+        tools.use_tui(prompt_tx,answer_rx);
+        let worker=std::thread::spawn(move ||tools.permission("shell","cargo test"));
+        prompts.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        answers.send("p".into()).unwrap();
+        let confirmation=prompts.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(confirmation.content.contains("this exact shell command"));
+        drop(answers);
+        assert!(worker.join().unwrap().is_err());
+        assert!(ApprovalStore::isolated(root.path()).unwrap().matched_scope("shell","cargo test").is_none());
+    }
+    #[test]
+    fn failed_grant_save_does_not_authorize_the_request() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tools=Tools::new(root.path().into(),Permissions::default()).unwrap();
+        tools.approvals=ApprovalStore::isolated(root.path()).unwrap();
+        let (pt,prompts)=std::sync::mpsc::channel();let (answers,rx)=std::sync::mpsc::channel();tools.use_tui(pt,rx);
+        let worker=std::thread::spawn(move ||{let result=tools.permission("write","path: file.txt");(result,tools)});
+        prompts.recv_timeout(std::time::Duration::from_secs(5)).unwrap();answers.send("p".into()).unwrap();
+        prompts.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        std::fs::create_dir(root.path().join("project-grants.yaml")).unwrap();
+        answers.send("y".into()).unwrap();
+        let (result,tools)=worker.join().unwrap();assert!(result.is_err());
+        assert!(tools.approvals.matched_scope("write","").is_none());
+        assert!(tools.decisions.iter().any(|d|d.contains("request not authorized")));
+    }
     #[tokio::test]
     async fn native_tool_writes_are_journaled_before_returning() {
         let root = tempfile::tempdir().unwrap();

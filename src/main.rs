@@ -15,6 +15,7 @@ mod workspace;
 mod write_journal;
 mod session_execution;
 mod input_pins;
+mod locks;
 #[cfg(test)]
 mod deviation_tests;
 

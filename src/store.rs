@@ -287,6 +287,7 @@ impl Store {
     pub fn add_restoration(
         &self, s: &Session, path: &str, before: Option<&str>, after: Option<&str>,
     ) -> Result<i64> {
+        let tx = self.db.unchecked_transaction()?;
         let dir = self.directory.join("blobs");
         fs::create_dir_all(&dir)?;
         let save = |content: Option<&str>| -> Result<Option<String>> {
@@ -307,6 +308,7 @@ impl Store {
              VALUES (?1,?2,?3,?4,?5,?6)",
             params![event_id, s.id, s.active_branch, path, before_blob, after_blob],
         )?;
+        tx.commit()?;
         Ok(event_id)
     }
 

@@ -8,6 +8,10 @@
 - Earlier manual smoke sessions exercised an agent-created artifact, native file edit journal, detected manual drift, guarded restore refusal and a successful history-based restoration on a disposable calculator project. This is evidence from manual testing, **not** a repeatable automated regression suite.
 - There were no GitHub-hosted CI check runs reported for those PRs. A complete Linux/Bubblewrap end-to-end run, formal terminal-resize test, injected crash/recovery test and network/provider regression test remain outstanding.
 
+## Stabilization branch validation (2026-11-14)
+
+The cloud checkout passed 113 regular tests, with one Bubblewrap integration test ignored by default. That integration test also passed when run explicitly, as did sandbox health, build, check and Clippy. New coverage includes an engine-backed 80×24 Ratatui terminal-buffer scenario with scripted provider responses: deny a write, cancel a persistent grant, approve once, fail verification, inspect artifacts, resume with revised instructions, reject a human gate, expire a lost worker request, recover explicitly and complete after fresh approval. Separate cases cover malformed structured events, missing artifact bodies, confirmation/save failure and injected partial-restore failure. Existing subprocess tests exercise killed owners and interrupted writes. These checks do not establish live-provider quality, real-terminal resize behavior or GitHub CI results.
+
 ## Repeatable validation on a Rust/Linux machine
 
 ```bash

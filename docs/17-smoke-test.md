@@ -93,8 +93,12 @@ Only perform a real restore/fork if you intend to change this disposable fixture
 
 In a prior disposable calculator session, the coding agent added `square()` and tests, while the intentionally broken `add()` caused review to stop. Native edit events were recorded; a manual `calculator.py` drift caused restore refusal; after undoing that manual drift, a historical native-edit restore succeeded. A separate `manual-note.txt` remained. This establishes observed behavior **for that session only**, not a guarantee that every model run reaches the same events or that all restoration failure modes have been tested.
 
-## Outstanding automated coverage
+## Automated baseline and remaining coverage
 
-A future regression suite should include controlled/provider-free assertions for the blocked → inspect → instruct → approve/deny → verify/recover path; cross-process session ownership; worker interruption and pending approval expiry; native-write crash windows; malformed events; partial restores; and 80×24 terminal behavior. The integration test requiring Bubblewrap/user namespaces remains ignored by default and must be run explicitly in a suitable environment.
+`cargo test --locked tui::p0_tests` runs deterministic engine/UI acceptance checks at 80×24 with a scripted provider, including the blocked → inspect → instruct → approve/deny → verify/recover path. It also checks persistent-grant confirmation, malformed events/missing artifacts and partial-restore reporting. The real model-driven calculator exercise above remains a separate manual check.
+
+## Further coverage
+
+The deterministic suite now covers the core controlled/provider-free paths, ownership, pending-request expiry, native-write interruption and partial-restore error reporting. Extend it with actual terminal resize tests, broader fault injection and live-provider/network scenarios as those capabilities evolve. The integration test requiring Bubblewrap/user namespaces remains ignored by default and must be run explicitly in a suitable environment.
 
 See [validation status](06-validation.md), [restore limitations](09-workspace-restore.md), [workspace recording](14-workspace-recording.md) and the [README TODO](../README.md#roadmap--todo).

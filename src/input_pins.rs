@@ -23,6 +23,13 @@ struct Approval {
     inputs: InputManifest,
 }
 
+pub(crate) fn validate_recorded_event(kind: &str, raw: &str) -> Result<()> {
+    if kind=="human.approved" {
+        if !raw.is_empty() { serde_json::from_str::<Approval>(raw)?; }
+    } else { serde_json::from_str::<InputManifest>(raw)?; }
+    Ok(())
+}
+
 impl Store {
     fn input_manifest(
         &self,

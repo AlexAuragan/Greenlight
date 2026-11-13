@@ -13,7 +13,7 @@ Greenlight has **both** a scriptable CLI and a full-screen Ratatui TUI. The CLI 
 - `workspace-status`: compare step-boundary SHA-256 manifests with the current project; this is read-only drift detection, not a backup.
 - `models`: API model discovery.
 
-For tools requiring permission, the CLI defaults to denial and supports one-time (`y`), process (`a`), project (`p`) and global (`g`) scopes where offered. Persistent shell approvals match the **exact command string**; native-write grants cover permitted writes at their stated scope. The TUI uses an explicit single-key choice; **Enter does not approve or deny** in its approval dialog. A deliberate extra confirmation for broad persistent grants is still TODO. See [permission semantics](08-persistent-approvals.md).
+For tools requiring permission, the CLI defaults to denial and supports one-time (`y`), process (`a`), project (`p`) and global (`g`) scopes where offered. Persistent shell approvals match the **exact command string**; native-write grants cover permitted writes at their stated scope. The TUI uses an explicit single-key choice; **Enter does not approve or deny** in its approval dialog. Project/global grants require a separate confirmation stating the full scope before saving or executing. See [permission semantics](08-persistent-approvals.md).
 
 Notifications: Discord webhook when configured, on step blocked or session completed. Remote Discord approval is not implemented.
 

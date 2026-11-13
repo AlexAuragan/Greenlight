@@ -98,14 +98,14 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [x] Local user validation of the pre-rename `master` integration: 57 passing Rust tests, one environment-dependent sandbox test ignored, and clean Clippy. The rename was subsequently reported good locally; automated CI evidence is not available. See [validation](docs/06-validation.md).
 
 ### P0 — stabilize the current interactive baseline
-- [ ] Verify that approval keys, denials, persisted grant scope and human verification are unmistakable in the TUI, with no accidental Enter approval; require an extra explicit confirmation for persistent project/global grants.
-- [ ] Ensure worker errors, interrupted sessions, malformed event content and partial restores surface prominently instead of appearing successful.
+- [x] Use typed, explicit approval choices with inert Enter and ignored key repeats; project/global grants require a separate scope confirmation. Cancellation, disconnection or save failure never authorizes the request.
+- [x] Surface worker errors, blocked steps, malformed structured events, missing artifact bodies and partial restores in scrollable diagnostics. Preserve raw evidence; failed restores report changed/journaled counts and cannot silently fork or claim success.
 - [x] Enforce one execution owner per session with an OS lock and persisted owner record; recover interrupted runs explicitly with `recover-session` or TUI `/recover`. Competing CLI/TUI resumes cannot change the live owner's state.
 - [x] Discard unanswered permission requests on worker loss; disconnected TUI workers clear pending dialogs, and session recovery preserves already-saved grants. A real durable session grant (today `a` only covers the process) remains separate work.
 - [x] Publish artifact metadata and its success event in one SQLite transaction after syncing the blob; test blob, database insertion and commit failures, preserving prior versions and allowing retries. A crash before publication may leave an unreferenced blob for future cleanup.
 - [x] Consolidate deviation detection into one shared evaluator and retain its verdict through routing. Accepted reports are checked once; rejected agent reports continue in the same conversation, while detector errors block. Tests cover pause/retry/goto and engine-generated failures.
 - [x] Persist native-write intent/preimage before atomic file replacement; reconcile interrupted writes explicitly with `recover-writes`, preserving manual edits and blocking execution/restore while unresolved. Process-death and journal-failure tests cover recovery.
-- [ ] Create end-to-end tests for blocked → inspect → instruct → approve/deny → verify/recover, including an 80×24 terminal.
+- [x] Add engine-backed 80×24 terminal-buffer acceptance tests for deny/confirm/cancel, native writes, failed verification, artifact inspection, revised instructions, human gates, worker loss/recovery and completion, using a scripted provider. Separate tests cover process death and injected partial-restore failures.
 
 ### P1 — TUI redesign for daily use
 
