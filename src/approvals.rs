@@ -34,7 +34,7 @@ pub struct ApprovalStore {
 
 impl ApprovalStore {
     pub fn open(root: &Path) -> Result<Self> {
-        let project_path = root.join(".stepwright/state/approvals.yaml");
+        let project_path = crate::paths::state_directory(root)?.join("approvals.yaml");
         let global_path = Self::global_config_path();
         Self::from_paths(project_path, global_path)
     }

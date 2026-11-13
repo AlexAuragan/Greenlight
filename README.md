@@ -1,4 +1,4 @@
-# Stepwright (v0.1 / experimental)
+# Greenlight (v0.1 / experimental)
 
 A **human-supervised, step-centric AI harness in Rust**. Each workflow is a directory containing a `workflow.yaml` and one Markdown-with-YAML-frontmatter file per step. Every step starts with fresh model context, explicitly selects artifacts, and cannot advance until its verification policy has passed.
 
@@ -30,41 +30,43 @@ cargo run -- start fix-bug --goal 'Find and fix the intermittent test failure'
 
 Instead of exporting these, you can put them in a `.env` file (in the current directory or the project root). It is loaded automatically at startup and never overrides variables that already exist in the environment.
 
-Run `stepwright restore SESSION_ID --event EVENT_ID --dry-run` to preview restoring tracked files to a historical event. `fork` now offers workspace restoration before creating a new execution branch; see `docs/09-workspace-restore.md` for limitations.
+Run `greenlight restore SESSION_ID --event EVENT_ID --dry-run` to preview restoring tracked files to a historical event. `fork` now offers workspace restoration before creating a new execution branch; see `docs/09-workspace-restore.md` for limitations.
 
-`stepwright.yaml` specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. `stepwright approvals` shows stored grants and their paths (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
+`greenlight.yaml` specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. `greenlight approvals` shows stored grants and their paths (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
 
-**Important:** Agent shell commands, workflow command steps and command verification now run **inside Bubblewrap**, with a read-only `/workspace`, private `HOME`, no inherited API keys and no network. Shell writes are limited to an isolated `/tmp` and a project-local build cache under `.stepwright/state/sandbox-cache`. Source edits must use native `write` to keep diffs and history. There is **no unsandboxed fallback** if Bubblewrap is unavailable. This is not complete protection against untrusted programs or resource exhaustion; see `docs/10-shell-sandbox.md`.
+**Important:** Agent shell commands, workflow command steps and command verification now run **inside Bubblewrap**, with a read-only `/workspace`, private `HOME`, no inherited API keys and no network. Shell writes are limited to an isolated `/tmp` and a project-local build cache under `.greenlight/state/sandbox-cache`. Source edits must use native `write` to keep diffs and history. There is **no unsandboxed fallback** if Bubblewrap is unavailable. This is not complete protection against untrusted programs or resource exhaustion; see `docs/10-shell-sandbox.md`.
 
 ## Commands
 
 ```text
-stepwright sandbox-check
-stepwright validate fix-bug
-stepwright start fix-bug --goal "..."
-stepwright start add-feature --goal "..." --model "provider/model"
-stepwright resume SESSION_ID --instruction "Do not change dependencies"
-stepwright sessions
-stepwright tui                  # interactive session conversation
-stepwright tui SESSION_ID       # focus on a session, resume or restart
-stepwright history SESSION_ID
-stepwright workspace-status SESSION_ID  # compare step-boundary file hashes
-stepwright branches SESSION_ID
-stepwright switch SESSION_ID --branch BRANCH_ID --step implement
-stepwright artifacts SESSION_ID
-stepwright artifact SESSION_ID plan.md > plan.md
-stepwright put-artifact SESSION_ID plan.md --file plan.md
-stepwright fork SESSION_ID --event 42 --step plan
-stepwright models
+greenlight sandbox-check
+greenlight validate fix-bug
+greenlight start fix-bug --goal "..."
+greenlight start add-feature --goal "..." --model "provider/model"
+greenlight resume SESSION_ID --instruction "Do not change dependencies"
+greenlight sessions
+greenlight tui                  # interactive session conversation
+greenlight tui SESSION_ID       # focus on a session, resume or restart
+greenlight history SESSION_ID
+greenlight workspace-status SESSION_ID  # compare step-boundary file hashes
+greenlight branches SESSION_ID
+greenlight switch SESSION_ID --branch BRANCH_ID --step implement
+greenlight artifacts SESSION_ID
+greenlight artifact SESSION_ID plan.md > plan.md
+greenlight put-artifact SESSION_ID plan.md --file plan.md
+greenlight fork SESSION_ID --event 42 --step plan
+greenlight models
 ```
 
-For a globally installed binary, run `stepwright ...` instead of `cargo run -- ...`.
+For a globally installed binary, run `greenlight ...` instead of `cargo run -- ...`.
 
 `workspace-status SESSION_ID` compares the current project files with the most recent recorded step-boundary manifest and shows changes during the latest completed step. It records **paths, sizes and SHA-256 hashes, not file contents**. The recording omits sensitive paths, symlinks, caches and files above its size limit. Hashes detect drift; they do not restore files or identify whether a human or another process made a change. See [workspace recording](docs/14-workspace-recording.md).
 
-Run with `--root /path/to/project` to select the project directory containing `stepwright.yaml`, `workflows/` and `.stepwright/instructions.md`. Workflows may use includes in `shared/`. Config and workflow reload for each *new step run*.
+Run with `--root /path/to/project` to select the project directory containing `greenlight.yaml`, `workflows/` and `.greenlight/instructions.md`. Workflows may use includes in `shared/`. Config and workflow reload for each *new step run*.
 
-Use `stepwright tui` to open a session conversation, send instructions to resume blocked work, approve tools and human gates, inspect edit diffs, browse workflow artifacts in the **[2] Artifacts** tab, and restart an earlier workflow step. The TUI polls the existing event database, so it can also observe a workflow running in another terminal. To restart, type `/restart`, choose a recorded step and confirm the guarded workspace restore before forking; see `docs/11-tui.md`.
+**Renamed from Stepwright:** The Cargo package and installed command are now `greenlight`. Existing `stepwright.yaml` files remain readable as a fallback, but `greenlight.yaml` takes precedence. On first use, the local `.stepwright/state` directory is moved to `.greenlight/state` (including session history, blobs, approvals and cache). If both exist, Greenlight stops instead of choosing one. See [migration notes](docs/15-name-migration.md).
+
+Use `greenlight tui` to open a session conversation, send instructions to resume blocked work, approve tools and human gates, inspect edit diffs, browse workflow artifacts in the **[2] Artifacts** tab, and restart an earlier workflow step. The TUI polls the existing event database, so it can also observe a workflow running in another terminal. To restart, type `/restart`, choose a recorded step and confirm the guarded workspace restore before forking; see `docs/11-tui.md`.
 
 When execution blocks, use `history`, inspect artifacts and then `resume --instruction`. If an attempt should be superseded without losing history, use `fork` from the desired event. Forking offers to restore **tracked native edits** first. Shell-only or manual changes cannot be reconstructed; preview with `restore --dry-run`.
 

@@ -1,10 +1,10 @@
 # Native file edit history (v0.2 preview)
 
-Greenlight records each successful, changed **native write tool** operation as immutable before/after UTF-8 snapshots in `.stepwright/state/blobs` and indexes them in SQLite `file_changes`. Each entry is tied to the session, branch, step and event ID.
+Greenlight records each successful, changed **native write tool** operation as immutable before/after UTF-8 snapshots in `.greenlight/state/blobs` and indexes them in SQLite `file_changes`. Each entry is tied to the session, branch, step and event ID.
 
 ```bash
-stepwright changes SESSION_ID
-stepwright diff SESSION_ID --edit EVENT_ID
+greenlight changes SESSION_ID
+greenlight diff SESSION_ID --edit EVENT_ID
 ```
 
 The active branch includes inherited edits only up to its fork point. The diff renderer uses a line-based shortest edit script to produce **multiple unified hunks** with three lines of context. Adjacent or overlapping context regions are merged. It also marks lines missing their final newline. Both the approval preview and `diff` command share this renderer. For extremely divergent files (more than 2,048 line edits), a memory-bounded fallback renders the differing middle as one replacement.

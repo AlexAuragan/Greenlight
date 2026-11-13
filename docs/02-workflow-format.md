@@ -3,13 +3,13 @@
 ## File layout
 
 ```text
-stepwright.yaml                    global/provider/security settings
-.stepwright/instructions.md        optional project instructions
+greenlight.yaml                    global/provider/security settings
+.greenlight/instructions.md        optional project instructions
 shared/*.md                        reusable prompt fragments
 workflows/fix-bug/workflow.yaml     workflow graph + step defaults
 workflows/fix-bug/investigate.md    step YAML frontmatter + prompt
-.stepwright/state/history.db       private runtime event database
-.stepwright/state/blobs/           immutable registered artifact bodies
+.greenlight/state/history.db       private runtime event database
+.greenlight/state/blobs/           immutable registered artifact bodies
 ```
 
 `workflow.yaml` declares `id`, `title`, `start`, `steps: [id...]` and `defaults` containing optional `model`, `max_turns`, `tools`, `verification`.
@@ -33,10 +33,10 @@ Additional produced artifacts are permitted and versioned. `source: previous` re
 
 ## Precedence and trust
 
-1. Global `stepwright.yaml` provides provider defaults and absolute permission policies.
+1. Global `greenlight.yaml` provides provider defaults and absolute permission policies.
 2. Workflow defaults fill unset step frontmatter.
 3. Step frontmatter overrides workflow defaults.
-4. `.stepwright/instructions.md` augments step prompt; it does not override permissions.
+4. `.greenlight/instructions.md` augments step prompt; it does not override permissions.
 5. CLI `--model` and `--instruction` apply to the current command's step runs.
 
 Tool permissions are **not** overridable from workflow frontmatter. Default policies are `read: allow`, `shell/write/web: ask` in absence of explicit global settings. An `allow` policy executes directly; `deny` rejects; `ask` offers one-time or process-lifetime approval. Restarting clears process approvals.

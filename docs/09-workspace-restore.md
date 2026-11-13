@@ -1,12 +1,12 @@
 # Workspace restoration and forks
 
-Greenlight can reconstruct **native file edits** recorded in `.stepwright/state` at an event in the active session branch ancestry.
+Greenlight can reconstruct **native file edits** recorded in `.greenlight/state` at an event in the active session branch ancestry.
 
 ```bash
-stepwright --root /path/to/project restore SESSION_ID --event 123 --dry-run
-stepwright --root /path/to/project restore SESSION_ID --event 123
-stepwright --root /path/to/project fork SESSION_ID --event 123 --step implement
-stepwright --root /path/to/project fork SESSION_ID --event 123 --step implement --no-restore
+greenlight --root /path/to/project restore SESSION_ID --event 123 --dry-run
+greenlight --root /path/to/project restore SESSION_ID --event 123
+greenlight --root /path/to/project fork SESSION_ID --event 123 --step implement
+greenlight --root /path/to/project fork SESSION_ID --event 123 --step implement --no-restore
 ```
 
 The dry run shows each proposed file modification/deletion/creation and its unified diff. The apply command asks for confirmation, rechecks tracked snapshots after that confirmation, then applies changes. `fork` previews and **offers restoration before forking**; choosing no leaves the filesystem as-is. The explicit `--no-restore` option skips inspection and preserves the original fork behavior.

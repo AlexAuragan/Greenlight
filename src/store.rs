@@ -32,8 +32,7 @@ pub struct Artifact { pub name: String, pub content: String, pub step: String }
 pub struct Store { db: Connection, pub directory: PathBuf }
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
-        let directory = root.join(".stepwright").join("state");
-        fs::create_dir_all(&directory)?;
+        let directory = crate::paths::state_directory(root)?;
         let db = Connection::open(directory.join("history.db"))?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
            CREATE TABLE IF NOT EXISTS sessions (
@@ -280,6 +279,28 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn old_state_migrates_with_session_and_artifacts_intact() {
+        let root = tempfile::tempdir().unwrap();
+        let session_id;
+        {
+            let store = Store::open(root.path()).unwrap();
+            let session = store.create("demo", "original goal", "plan").unwrap();
+            store.add_artifact(&session, "plan", "plan.md", "original artifact").unwrap();
+            session_id = session.id;
+        }
+        let old_dir = root.path().join(".stepwright");
+        fs::create_dir(&old_dir).unwrap();
+        fs::rename(root.path().join(".greenlight/state"), old_dir.join("state")).unwrap();
+
+        let reopened = Store::open(root.path()).unwrap();
+        let session = reopened.session(&session_id).unwrap();
+        assert_eq!(session.goal, "original goal");
+        assert_eq!(reopened.artifacts(&session, "session").unwrap()[0].content, "original artifact");
+        assert!(!old_dir.join("state").exists());
+        assert!(root.path().join(".greenlight/state/history.db").is_file());
+    }
+
     #[test]
     fn fork_preserves_history_and_artifacts() {
         let d=tempfile::tempdir().unwrap(); let store=Store::open(d.path()).unwrap();

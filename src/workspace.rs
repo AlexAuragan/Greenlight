@@ -58,7 +58,9 @@ fn included(entry: &DirEntry) -> bool {
         return false;
     }
     if name == "state" && entry.path().parent().is_some_and(|parent| {
-        parent.file_name().is_some_and(|folder| folder == ".stepwright")
+        parent.file_name().is_some_and(|folder| {
+            folder == crate::paths::PROJECT_DIR || folder == crate::paths::LEGACY_PROJECT_DIR
+        })
     }) {
         return false;
     }
@@ -219,7 +221,7 @@ mod tests {
     #[test]
     fn scan_excludes_caches_and_sensitive_paths() {
         let root = tempdir().unwrap();
-        for dir in [".git", "target", ".stepwright/state", "node_modules"] {
+        for dir in [".git", "target", ".greenlight/state", ".stepwright/state", "node_modules"] {
             fs::create_dir_all(root.path().join(dir)).unwrap();
             fs::write(root.path().join(dir).join("private.txt"), "secret").unwrap();
         }

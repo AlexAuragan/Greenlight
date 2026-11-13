@@ -313,7 +313,7 @@ impl Engine {
             return;
         };
         // Webhook is deliberately optional; failure is logged, never silently ignored.
-        let payload = json!({"content":format!("Stepwright [{}] {}",s.id,message).chars().take(1900).collect::<String>()});
+        let payload = json!({"content":format!("Greenlight [{}] {}",s.id,message).chars().take(1900).collect::<String>()});
         match self.tools.client.post(url).json(&payload).send().await {
             Ok(r) if r.status().is_success() => {}
             Ok(r) => console_eprintln!(self, "[notification error] Discord HTTP {}", r.status()),
@@ -837,10 +837,17 @@ enum Outcome {
 }
 
 fn project_instructions(root: &Path) -> Result<String> {
-    let path = root.join(".stepwright").join("instructions.md");
-    if path.exists() {
-        Ok(std::fs::read_to_string(path)?)
-    } else {
-        Ok(String::new())
+    let current = root.join(crate::paths::PROJECT_DIR).join("instructions.md");
+    match std::fs::read_to_string(&current) {
+        Ok(instructions) => Ok(instructions),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let legacy = root.join(crate::paths::LEGACY_PROJECT_DIR).join("instructions.md");
+            match std::fs::read_to_string(&legacy) {
+                Ok(instructions) => Ok(instructions),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+                Err(error) => Err(error).with_context(|| format!("reading {}", legacy.display())),
+            }
+        }
+        Err(error) => Err(error).with_context(|| format!("reading {}", current.display())),
     }
 }

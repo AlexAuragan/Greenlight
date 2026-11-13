@@ -38,8 +38,7 @@ fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     if parts.iter().any(|part| {
         let name = part.as_os_str().to_string_lossy();
         matches!(name.as_ref(), ".git" | ".env" | ".ssh")
-    }) || (parts.len() >= 2 && parts[0].as_os_str() == ".stepwright"
-        && parts[1].as_os_str() == "state")
+    }) || crate::paths::is_internal_state(p)
     {
         bail!("internal or sensitive path cannot be restored: {relative}");
     }
@@ -299,6 +298,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         assert!(checked_path(root.path(), "../outside").is_err());
         assert!(checked_path(root.path(), ".stepwright/state/history.db").is_err());
+        assert!(checked_path(root.path(), ".greenlight/state/history.db").is_err());
         #[cfg(unix)]
         {
             use std::os::unix::fs::symlink;

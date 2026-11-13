@@ -2,7 +2,7 @@
 
 **Status:** documentation of the **currently implemented** model-to-harness YAML contract on the `feat/ratatui-session-viewer` branch. This is the canonical **human-readable reference for agent responses**, not a second permitted YAML syntax. The runtime implementation remains the enforcement authority: [`src/tools.rs`](../src/tools.rs) (`AgentAction`, `parse_action`, `Tools::call`) and [`src/engine.rs`](../src/engine.rs) (`PROTOCOL` and action dispatch). If this file, the prompt and the parser disagree, **the running code determines what is accepted** and all three should be reconciled.
 
-Scope: *one model response describing one action*. This document is **not** the schema for `stepwright.yaml`, `workflows/*/workflow.yaml` or step Markdown frontmatter; those are independent authoring interfaces covered by [`02-workflow-format.md`](02-workflow-format.md) and the strict serde types in `src/config.rs`. The deviation detector's `detected`/`reason` response is likewise a separate internal schema.
+Scope: *one model response describing one action*. This document is **not** the schema for `greenlight.yaml`, `workflows/*/workflow.yaml` or step Markdown frontmatter; those are independent authoring interfaces covered by [`02-workflow-format.md`](02-workflow-format.md) and the strict serde types in `src/config.rs`. The deviation detector's `detected`/`reason` response is likewise a separate internal schema.
 
 ## 1. Wire format and validation
 
@@ -157,7 +157,7 @@ Before adding it, update `AgentAction`, `PROTOCOL`, tests and this reference tog
 
 | YAML surface | Implemented schema / reference | Difference |
 | --- | --- | --- |
-| Root `stepwright.yaml` | `Config`, `ProviderConfig`, `SessionConfig`, `Permissions`, `Notifications` in [`config.rs`](../src/config.rs) | Configures default provider, budgets, policies and notifications |
+| Root `greenlight.yaml` | `Config`, `ProviderConfig`, `SessionConfig`, `Permissions`, `Notifications` in [`config.rs`](../src/config.rs) | Configures default provider, budgets, policies and notifications |
 | Workflow `workflow.yaml` | `Workflow`, `StepDefaults` in [`config.rs`](../src/config.rs); [workflow format](02-workflow-format.md) | Declares graph, start and defaults |
 | Step Markdown frontmatter | `Step`, `Inputs`, `Outputs`, `Verify`, `Deviation`, `Transition` in [`config.rs`](../src/config.rs); [workflow format](02-workflow-format.md) | Defines step kind, selected artifacts, constraints, verification, deviations and transitions |
 | Deviation detector result | Local `Detection { detected: bool, reason: String }` in [`engine.rs`](../src/engine.rs) | Internal response from an independent check, **not** a coding-agent action |
