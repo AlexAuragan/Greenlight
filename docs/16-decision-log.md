@@ -60,6 +60,10 @@ A combined diff of already-journaled native edits within a step/attempt can help
 
 Greenlight must not create automatic Git commits by default; the user controls checkpoints. Registered artifacts are immutable, branch-aware UTF-8 versions and are not necessarily project files. External editing plus registration of a new artifact version is preferable to a premature embedded editor. Future approval/context views must reference the **exact historical artifact version** used, not silently substitute latest-by-name content.
 
+## Planned decision — Token usage and pricing (2026-11-14)
+
+Track usage for every model request, including input, cached input and output tokens. Prefer provider-reported usage; tokenizer/tiktoken fallbacks must be labelled estimates and cannot infer cache hits. Configured models should surface provider-specific prices and their provenance, with historical rate snapshots and explicit unknown values. Keep incurred spending separate from fork-inherited history. This is a P1 TODO, not an implemented capability; see [the accounting plan](18-token-usage-and-pricing.md).
+
 ## Correctness issue discovered during documentation audit (2026-11-13; resolved)
 
 **Deviation detector duplication:** the earlier inner/outer checks could evaluate one report twice. Detection now uses one shared evaluator with a retained verdict: rejected agent reports return to the same conversation, accepted reports route without rechecking, and malformed/failed detector responses block. Regression tests cover pause, retry, goto and engine-generated failures; see the [execution contract](01-execution-contract.md).

@@ -109,6 +109,8 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 ### P1 — TUI redesign for daily use
 
+- [ ] Track input, cached-input and output tokens for **every model request**, including coding, verification, deviation detection, retries and future manager/summary calls. Persist per-request usage and aggregate by attempt/session/model, distinguishing actual spending from inherited fork history. Prefer provider usage; fall back to a model-compatible tokenizer or explicitly approximate tiktoken counts. Cache hits and unreported billing remain unknown rather than fabricated. See [token usage and pricing plan](docs/18-token-usage-and-pricing.md).
+- [ ] Associate each configured provider/model with input, cached-input and output pricing, currency, billing unit and effective/source date; discover rates when supported or accept explicit configuration. Show unknown/stale prices and estimated costs clearly, retain historical rate snapshots, and expose totals in CLI/TUI without double-counting cached input.
 - [ ] Replace the raw log-centric layout with a session workspace: **status + stepper + context + primary action**, backed by typed events.
 - [ ] Add a session home/picker with readable names, blocked-first visibility, last activity, search and an in-TUI start flow.
 - [ ] Implement contextual blocked-state cards: show reason/evidence, inspect related artifacts, retry, resume or restart safely.
