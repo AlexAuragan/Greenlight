@@ -75,8 +75,8 @@ fn cells(line: &str) -> Option<Vec<&str>> {
 }
 
 fn table_at<'a>(lines: &[&'a str], start: usize) -> Option<(Vec<Vec<&'a str>>, usize)> {
-    let head = cells(*lines.get(start)?)?;
-    let rule = cells(*lines.get(start + 1)?)?;
+    let head = cells(lines.get(start)?)?;
+    let rule = cells(lines.get(start + 1)?)?;
     if head.len() != rule.len() || !rule.iter().all(|cell| {
         let dashes = cell.trim_matches(':');
         dashes.len() >= 3 && dashes.bytes().all(|b| b == b'-')
