@@ -455,3 +455,106 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
     assert!(cancel.load(Ordering::SeqCst));
     assert!(app.notice.contains("in-flight request may finish"));
 }
+
+#[test]
+fn activity_cards_expand_exact_tool_request_and_output_and_keep_raw_audit_mode() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    let request = store
+        .event(
+            &s,
+            Some("work"),
+            "tool.request",
+            "action: tool\ntool: read\npath: notes.md\n",
+        )
+        .unwrap();
+    let output = store
+        .tool_outcome(
+            &s,
+            "work",
+            request,
+            "read",
+            "tool.result",
+            "file body\nall tests passed",
+        )
+        .unwrap();
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    assert_eq!(app.events.len(), 2);
+    assert_eq!(app.event().unwrap().id, output);
+    assert!(screen(&mut app, 80, 24).contains("Tool · read · returned"));
+    key(&mut app, &store, root.path(), KeyCode::Enter);
+    let detail = app.detail();
+    assert!(detail.contains(&format!("Recorded request #{request}")));
+    assert!(detail.contains(&format!("Recorded output #{output}")));
+    assert!(detail.contains("path: notes.md"));
+    assert!(detail.contains("file body"));
+    store
+        .event(&s, Some("work"), "artifact.created", "later.md")
+        .unwrap();
+    app.refresh(&store).unwrap();
+    assert_eq!(app.event().unwrap().id, output);
+    assert!(!app.follow_activity);
+    key(&mut app, &store, root.path(), KeyCode::Left);
+    key(&mut app, &store, root.path(), KeyCode::Char('v'));
+    app.refresh(&store).unwrap();
+    assert!(app.events.iter().any(|e| e.kind == "tool.finished"));
+    assert!(app.events.iter().any(|e| e.id == request));
+    assert!(!app.detail().contains("Recorded request"));
+    assert!(app.detail().contains("file body"));
+    screen(&mut app, 40, 14);
+}
+#[test]
+fn artifact_card_opens_its_exact_version_and_file_card_uses_journal_diff() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    store
+        .add_artifact(&s, "work", "report.md", "older body")
+        .unwrap();
+    let old = store.artifacts(&s, "session").unwrap()[0].event_id;
+    store
+        .add_artifact(&s, "work", "report.md", "latest body")
+        .unwrap();
+    let change = store
+        .add_change(&s, "work", "file.rs", Some("before\n"), "after\n")
+        .unwrap();
+    let count = store.history(&s).unwrap().len();
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    app.event_index = app.events.iter().position(|e| e.id == old).unwrap();
+    app.follow_activity = false;
+    key(&mut app, &store, root.path(), KeyCode::Char('o'));
+    assert_eq!(app.artifact_browser.as_ref().unwrap().text, "older body");
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    app.event_index = app.events.iter().position(|e| e.id == change).unwrap();
+    key(&mut app, &store, root.path(), KeyCode::Char('d'));
+    assert!(app.detail().contains("-before"));
+    assert!(app.detail().contains("+after"));
+    assert_eq!(app.focus, Focus::Detail);
+    assert!(screen(&mut app, 80, 24).contains("-before"));
+    assert_eq!(store.history(&s).unwrap().len(), count);
+}
+#[test]
+fn invalid_card_correlations_remain_inspectable_in_concise_history() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    let id = store
+        .event(
+            &s,
+            Some("work"),
+            "tool.finished",
+            r#"{"request_event":9999,"outcome_event":9998,"tool":"read","exit_code":null}"#,
+        )
+        .unwrap();
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    assert!(app.diagnostic.as_ref().unwrap().contains("branch-visible"));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    assert_eq!(app.event().unwrap().id, id);
+    assert_eq!(app.event().unwrap().kind, "event.invalid");
+    assert!(screen(&mut app, 80, 24).contains("Malformed record"));
+    assert!(app.detail().contains("9999"));
+}

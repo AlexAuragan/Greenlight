@@ -380,6 +380,9 @@ impl App {
                 );
                 self.detail_scroll = 0;
             }
+            KeyCode::Char('o') if self.view == View::Conversation => {
+                self.open_card_artifact(store)?
+            }
             KeyCode::Char('e') if self.workspace.as_ref().is_some_and(|w| w.blocker.is_some()) => {
                 self.inspect_blocker()
             }

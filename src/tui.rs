@@ -108,6 +108,8 @@ struct App {
     viewport: (u16,u16),
     artifact_browser: Option<crate::artifact_history::Browser>,
     reader:reader::Reader,
+    activity_cards:crate::activity_cards::Projection,
+    activity_generation:Option<(String,String,Option<i64>)>,
 }
 
 impl App {
@@ -168,6 +170,8 @@ impl App {
             viewport: (80,24),
             artifact_browser: None,
             reader:reader::Reader::default(),
+            activity_cards:crate::activity_cards::Projection::default(),
+            activity_generation:None,
         }
     }
     fn raise_diagnostic(&mut self, message: String) {
@@ -238,10 +242,15 @@ impl App {
             }
             if session_changed {self.context_detail=None;self.follow_activity=true;}
             let show_all = self.show_all;
+            let generation=(session.id.clone(),session.active_branch.clone(),history.last().map(|event|event.0));
+            if self.activity_generation.as_ref()!=Some(&generation) {
+                self.activity_cards=crate::activity_cards::Projection::build(&history);
+                self.activity_generation=Some(generation);
+            }
             self.events = history
                 .into_iter()
                 .map(|(id, step, kind, data)| {
-                    if let Some(error) = invalid_event_payload(&kind,&data) {
+                    if let Some(error) = self.activity_cards.malformed.get(&id).cloned().or_else(||invalid_event_payload(&kind,&data)) {
                         EventRow {id,step,kind:"event.invalid".into(),data:format!("Malformed {kind} event #{id}: {error}\n\nRaw evidence:\n{data}")}
                     } else { EventRow {id,step,kind,data} }
                 })
@@ -278,6 +287,7 @@ impl App {
             };
         } else {
             self.events.clear();
+            self.activity_cards=crate::activity_cards::Projection::default();self.activity_generation=None;
             self.artifacts.clear();
             self.diagnostic=None;self.usage_detail=None;self.usage_error=None;
             self.usage_line="Usage: no session selected".into();

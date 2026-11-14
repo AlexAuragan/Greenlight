@@ -2,7 +2,9 @@
 pub(super) const HELP: &str = "Navigation
 ←/→ or Tab: move between sessions, activity/artifacts, evidence and composer
 ↑/↓ or j/k: select items or scroll evidence
-Enter: open selected evidence; from evidence, focus composer
+Enter: expand selected activity card; from evidence, focus composer
+o: open an artifact card’s exact version · d: journal diff for a file card
+v or /events: raw audit history; Left returns from expanded evidence
 1/2: activity/artifacts · m: toggle artifact Markdown/raw
 v in artifacts: saved versions · p provenance · d previous-version diff
 Version browser: Enter read, Left list, o content, Esc close
@@ -10,7 +12,6 @@ f: search sessions · n: create a ready session
 c or /context: saved attempt and input versions
 e: inspect blocker · h: activity · b: blocker card
 r or /restart: choose earlier step; preview before confirming
-v or /events: include protocol events · d: recorded file diff
 
 Activity following
 Opening evidence or navigating activity pauses following.

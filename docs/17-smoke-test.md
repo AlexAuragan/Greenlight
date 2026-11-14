@@ -145,3 +145,12 @@ See [validation status](06-validation.md), [restore limitations](09-workspace-re
 2. Switch versions/modes and resize rapidly. A ready viewport must correspond to the selected creation ID and mode; older content must not flash into the new panel. Resize back to a previous width: the panel must finish preparing rather than wait forever.
 3. Scroll to End, resize, then scroll upward. The prepared viewport should match normal wrapping and clamp to content as before. Repeat in literal mode and in artifact-version content/provenance/diff panels.
 4. Trigger an approval while a large preview is pending. The request must take priority, retain its explicit decision keys and never be replaced by a preview result.
+
+
+## Semantic activity cards
+
+1. Run a tool or command step, then open its activity card. The request/output IDs and complete recorded arguments/output should agree with raw history (`v`). Read/web content beginning with exit_code or saying “tests passed” must not turn into a shell/verification success.
+2. Inspect an agent reviewer report and the aggregate verification verdict separately. Under an any-of policy, a failed check must not overwrite the meaning of a later aggregate pass.
+3. Select an older artifact-created card and press o after publishing another same-name version. It must open the selected creation ID, not latest-by-name. Use d on a file card to inspect the journal-backed diff.
+4. Open raw mode, return to cards, resize to 40×14 and expand evidence. Selection/following and scrolling should retain their established behavior; no approval or execution action should be triggered by inspection.
+5. Legacy tool results should say unlinked; malformed/missing/cross-fork tool references should remain inspectable as diagnostics. Routine tool-permission decisions remain hidden until raw mode is enabled.

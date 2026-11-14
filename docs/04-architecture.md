@@ -39,7 +39,8 @@ flowchart TD
 - `tools.rs` — permissioned native file access and sandboxed shell/web dispatch.
 - `tui.rs` — foreground application state, store refresh, worker lifecycle and the terminal loop.
 - `tui/focus.rs`, `tui/routing.rs` — focus/selection/draft state and modal keyboard precedence.
-- `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — recorded activity/evidence, workspace layout and discoverable keys.
+- `activity_cards.rs` — atomic tool outcome/correlation publication and pure branch-visible semantic card projections.
+- `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — card/audit presentation, evidence expansion, workspace layout and discoverable keys.
 - `tui/approval.rs`, `tui/recovery.rs` — explicit approval choices and guarded restart/restore interactions.
 - `tui/reader.rs`, `markdown.rs` — bounded background preparation of large document viewports and terminal-safe Markdown/literal presentation.
 - `tui_actions.rs` — Engine workers and typed restart candidates; document rendering never invokes this execution path.

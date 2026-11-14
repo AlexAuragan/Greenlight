@@ -448,11 +448,14 @@ impl Engine {
             }
             "command" => {
                 let cmd = step.command.as_deref().context("command missing")?;
-                let execution = self.tools.shell(cmd).await;
-                self.log_permissions(s, step)?;
-                let result = execution?;
-                self.store
-                    .event(s, Some(&step.id), "tool.result", &result)?;
+                let action=crate::tools::AgentAction{action:"tool".into(),tool:Some("shell".into()),input:Some(cmd.into()),path:None,content:None,name:None,summary:None,deviation_id:None};
+                let request=self.store.event(s,Some(&step.id),"tool.request",&serde_yaml::to_string(&action)?)?;
+                let execution=self.tools.shell(cmd).await;
+                self.log_permissions(s,step)?;
+                let result=match execution {
+                    Ok(result)=>{self.store.tool_outcome(s,&step.id,request,"shell","tool.result",&result)?;result},
+                    Err(error)=>{self.store.tool_outcome(s,&step.id,request,"shell","tool.error",&format!("{error:#}"))?;return Err(error);},
+                };
                 console_println!(self, "{result}");
                 if !result.starts_with("exit_code: 0\n") {
                     return Ok(Outcome::Deviation("command_failed".into(), result));
@@ -525,7 +528,7 @@ impl Engine {
             match action.action.as_str() {
                 "tool" => {
                     let kind = action.tool.as_deref().context("tool action missing tool")?;
-                    self.store.event(
+                    let request_event=self.store.event(
                         s,
                         Some(&step.id),
                         "tool.request",
@@ -556,7 +559,7 @@ impl Engine {
                                 result.chars().take(350).collect::<String>()
                             );
                             self.store
-                                .event(s, Some(&step.id), "tool.result", &result)?;
+                                .tool_outcome(s,&step.id,request_event,kind,"tool.result",&result)?;
                             messages.push(
                                 json!({"role":"user","content":format!("Tool result:\n{result}")}),
                             );
@@ -564,7 +567,7 @@ impl Engine {
                         Err(e) => {
                             let error = format!("{e:#}");
                             console_println!(self, "[tool error] {error}");
-                            self.store.event(s, Some(&step.id), "tool.error", &error)?;
+                            self.store.tool_outcome(s,&step.id,request_event,kind,"tool.error",&error)?;
                             messages.push(json!({"role":"user","content":format!(
                                 "Tool error:\n{error}\n\nThe tool did not run; do not invent its output. If this step enables another tool that can achieve the same goal, use it; if this step's required outputs are already registered, reply with a finish action; otherwise report one of this step's declared deviations."
                             )}));
