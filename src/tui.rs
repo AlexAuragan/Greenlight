@@ -1222,7 +1222,7 @@ fn draw(frame: &mut Frame, app: &App) {
         let items = app.artifacts.iter().map(|artifact| {
             ListItem::new(format!(
                 "{}\n  step: {}  ·  {} bytes",
-                artifact.name, artifact.step, artifact.content.len()
+                inline_display(&artifact.name), inline_display(&artifact.step), artifact.content.len()
             ))
         });
         let artifacts = List::new(items)
@@ -1245,11 +1245,11 @@ fn draw(frame: &mut Frame, app: &App) {
             Some(artifact) => {
                 let mut lines = vec![
                     Line::styled(
-                        artifact.name.clone(),
+                        inline_display(&artifact.name),
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ),
                     Line::styled(
-                        format!("Produced by: {}  ·  {} bytes", artifact.step, artifact.content.len()),
+                        format!("Produced by: {}  ·  {} bytes", inline_display(&artifact.step), artifact.content.len()),
                         Style::default().fg(Color::DarkGray),
                     ),
                     Line::default(),
@@ -1257,7 +1257,7 @@ fn draw(frame: &mut Frame, app: &App) {
                 if app.render_markdown {
                     lines.extend(crate::markdown::render(&artifact.content).lines);
                 } else {
-                    lines.extend(Text::raw(artifact.content.clone()).lines);
+                    lines.extend(crate::markdown::raw(&artifact.content).lines);
                 }
                 Text::from(lines)
             }

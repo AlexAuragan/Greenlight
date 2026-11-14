@@ -111,3 +111,11 @@ See [validation status](06-validation.md), [restore limitations](09-workspace-re
 3. Open the latest event's evidence while another process appends activity. The event and reading position should stay fixed. Return to the activity list and press End to follow new events again.
 4. Resize through 120×40, 80×24, 60×20 and 40×14. Verify the active pane remains usable, long message endings stay visible, and restoring the size retains drafts/selections. Scroll to End, resize wider and press Up: content should remain visible and scroll back immediately.
 5. With a pending approval, shrink below 40×20. Decision keys should do nothing; Escape may deny. Resize to 60×20 and confirm the original request is still present. Enter must never approve.
+
+
+## Markdown preview hardening
+
+1. Register a document containing CJK, combining accents and emoji in a simple table. Compare Markdown and literal modes (`m`); ordinary table borders should line up in rendered mode.
+2. Include literal ANSI/OSC escape bytes, C1 characters, a lone carriage return and a bidirectional formatting control. Both modes should show visible code-point escapes, not execute controls. CRLF becomes newline and tabs become four spaces.
+3. Use a four-backtick fence containing three-backtick lines and Markdown-looking content. It should stay code until a matching closing fence.
+4. With an appropriately increased artifact-size policy, register a document over a preview limit. Scroll to the end in both modes: a truncation notice should appear. Export with `greenlight artifact SESSION NAME > artifact.md` and confirm the complete stored content remains available; preview limits must not modify it.

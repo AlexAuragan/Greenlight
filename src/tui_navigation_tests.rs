@@ -259,3 +259,44 @@ fn compact_layout_shows_picker_then_activity_and_handles_zero_size() {
     assert_eq!(app.focus, Focus::Sessions);
     assert!(screen(&mut app, 60, 20).contains("Readable goal"));
 }
+
+#[test]
+fn artifact_modes_escape_controls_and_keep_the_original_stored_source() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "Goal", "work").unwrap();
+    let original = "# Unsafe \x1b[2J\n\u{009b}31m\t漢字";
+    store
+        .add_artifact(&session, "work", "report.md", original)
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    app.switch_view(View::Artifacts);
+    app.focus = Focus::Detail;
+    for markdown in [true, false] {
+        app.render_markdown = markdown;
+        let output = screen(&mut app, 120, 40);
+        assert!(output.contains("\\u{001b}"));
+        assert!(output.contains("\\u{009b}"));
+        assert!(!output.contains('\x1b'));
+        assert!(!output.contains('\u{009b}'));
+    }
+    assert_eq!(
+        store.artifacts(&session, "session").unwrap()[0].content,
+        original
+    );
+    let large = "large line ".repeat(10_000);
+    store
+        .add_artifact(&session, "work", "report.md", &large)
+        .unwrap();
+    app.refresh(&store).unwrap();
+    for markdown in [true, false] {
+        app.render_markdown = markdown;
+        app.detail_scroll = u16::MAX;
+        assert!(screen(&mut app, 120, 40).contains("Preview truncated"));
+    }
+    assert_eq!(
+        store.artifacts(&session, "session").unwrap()[0].content,
+        large
+    );
+}
