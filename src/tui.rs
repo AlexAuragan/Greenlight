@@ -94,6 +94,7 @@ struct App {
     help: bool,
     rendered_scroll: Cell<Option<(u16,u16)>>,
     viewport: (u16,u16),
+    artifact_browser: Option<crate::artifact_history::Browser>,
 }
 
 impl App {
@@ -152,6 +153,7 @@ impl App {
             help: false,
             rendered_scroll: Cell::new(None),
             viewport: (80,24),
+            artifact_browser: None,
         }
     }
     fn raise_diagnostic(&mut self, message: String) {
@@ -349,6 +351,13 @@ impl App {
         if (changed_session || event_changed) && self.view==View::Conversation && self.diagnostic.is_none() && self.approval.is_none() && self.usage_detail.is_none() && self.context_detail.is_none() && !self.help && !self.blocker_card {
             self.detail_scroll=0;
         }
+        if let Some(mut browser)=self.artifact_browser.take() {
+            if let Some(session)=self.session() {
+                if browser.session==session.id && browser.branch==session.active_branch {
+                    match browser.refresh(store,session) {Ok(())=>self.artifact_browser=Some(browser),Err(error)=>self.notice=format!("Version browser closed: {error:#}")}
+                } else {self.notice="Version browser closed because session/branch changed.".into();}
+            }
+        }
         if self.diff.as_ref().is_some_and(|(id, _)| self.event().map(|event| event.id) != Some(*id)) {
             self.diff = None;
         }
@@ -475,6 +484,7 @@ impl App {
         if self.approval.is_none() {
             match runner.prompts.try_recv() {
                 Ok(question) => {
+                    self.artifact_browser=None;
                     self.help=false;
                     self.searching=false;
                     self.session_query.clear();
@@ -715,6 +725,30 @@ impl App {
             return Ok(false);
         }
 
+        if self.artifact_browser.is_some() {
+            if key.kind!=KeyEventKind::Press && matches!(key.code,KeyCode::Enter|KeyCode::Char('d')|KeyCode::Char('p')|KeyCode::Char('m')) {return Ok(false);}
+            let mut browser=self.artifact_browser.take().unwrap();
+            let session=self.session().cloned().context("No session selected")?;
+            match key.code {
+                KeyCode::Esc=>{self.detail_scroll=0;return Ok(false);},
+                KeyCode::Left=>{browser.reading=false;self.detail_scroll=0;},
+                KeyCode::Enter|KeyCode::Right=>{browser.reading=true;self.detail_scroll=0;},
+                KeyCode::Char('d')=>{browser.mode=crate::artifact_history::Mode::Diff;browser.load(store,&session);browser.reading=true;self.detail_scroll=0;},
+                KeyCode::Char('p')=>{browser.mode=crate::artifact_history::Mode::Provenance;browser.load(store,&session);browser.reading=true;self.detail_scroll=0;},
+                KeyCode::Char('m')=>{browser.mode=crate::artifact_history::Mode::Content;self.render_markdown = !self.render_markdown;browser.load(store,&session);self.detail_scroll=0;},
+                KeyCode::Char('o')=>{browser.mode=crate::artifact_history::Mode::Content;browser.load(store,&session);browser.reading=true;self.detail_scroll=0;},
+                KeyCode::Down|KeyCode::Char('j') if browser.reading=>self.scroll_detail(1),
+                KeyCode::Up|KeyCode::Char('k') if browser.reading=>self.scroll_detail(-1),
+                KeyCode::PageDown if browser.reading=>self.scroll_detail(8),
+                KeyCode::PageUp if browser.reading=>self.scroll_detail(-8),
+                KeyCode::Home if browser.reading=>self.detail_scroll=0,
+                KeyCode::End if browser.reading=>self.detail_scroll=u16::MAX,
+                KeyCode::Down|KeyCode::Char('j')=>{browser.index=move_index(browser.index,1,browser.versions.len());browser.load(store,&session);self.detail_scroll=0;},
+                KeyCode::Up|KeyCode::Char('k')=>{browser.index=move_index(browser.index,-1,browser.versions.len());browser.load(store,&session);self.detail_scroll=0;},
+                _=>{},
+            }
+            self.artifact_browser=Some(browser);return Ok(false);
+        }
         if self.help {
             match key.code {
                 KeyCode::Esc|KeyCode::Char('?')=>{self.help=false;self.detail_scroll=0;},
@@ -915,6 +949,12 @@ impl App {
             KeyCode::Char('G') | KeyCode::End => {
                 if self.focus != Focus::Detail { self.select_end(true); }
             }
+            KeyCode::Char('v') if self.view==View::Artifacts=>{
+                let name=self.artifact().map(|a|a.name.clone()).or_else(||self.events.iter().rev().find(|e|e.kind=="artifact.created").map(|e|e.data.clone()));
+                if let (Some(session),Some(name))=(self.session(),name) {
+                    match crate::artifact_history::Browser::open(store,session,&name){Ok(browser)=>{self.artifact_browser=Some(browser);self.detail_scroll=0;},Err(error)=>self.raise_diagnostic(format!("Version history unavailable: {error:#}"))}
+                } else {self.notice="No artifact selected.".into();}
+            },
             KeyCode::Char('v') if self.view == View::Conversation => self.toggle_verbose(),
             KeyCode::Char('d') if self.view == View::Conversation => self.toggle_diff(store)?,
             _ => {}
@@ -1032,6 +1072,8 @@ const HELP: &str = "Navigation
 ↑/↓ or j/k: select items or scroll evidence
 Enter: open selected evidence; from evidence, focus composer
 1/2: activity/artifacts · m: toggle artifact Markdown/raw
+v in artifacts: saved versions · p provenance · d previous-version diff
+Version browser: Enter read, Left list, o content, Esc close
 f: search sessions · n: create a ready session
 c or /context: saved attempt and input versions
 e: inspect blocker · h: activity · b: blocker card
@@ -1108,7 +1150,7 @@ fn draw(frame: &mut Frame, app: &App) {
             Span::styled(" [2] Artifacts ",if app.view==View::Artifacts{active_tab}else{inactive_tab}),Span::raw(" ? help · f find · n new · c context")]),
     ]).block(border(" Session workspace ",false)),outer[0]);
 
-    let overlay=app.approval.is_some() || app.new_session.is_some() || app.searching || app.help || app.diagnostic.is_some() || app.usage_detail.is_some() || app.context_detail.is_some() || app.restart_plan.is_some() || !app.restart_choices.is_empty();
+    let overlay=app.artifact_browser.is_some() || app.approval.is_some() || app.new_session.is_some() || app.searching || app.help || app.diagnostic.is_some() || app.usage_detail.is_some() || app.context_detail.is_some() || app.restart_plan.is_some() || !app.restart_choices.is_empty();
     let widths=if compact {
         if app.focus==Focus::Sessions && !overlay {[Constraint::Percentage(100),Constraint::Length(0)]}
         else {[Constraint::Length(0),Constraint::Percentage(100)]}
@@ -1164,6 +1206,15 @@ fn draw(frame: &mut Frame, app: &App) {
                 .block(border(" Press a key to decide — no Enter needed ", true)),
             approval_areas[1],
         );
+    } else if let Some(browser)=&app.artifact_browser {
+        let panes=if browser.reading {Layout::horizontal([Constraint::Length(0),Constraint::Min(1)]).split(columns[1])}else{Layout::horizontal([Constraint::Percentage(45),Constraint::Percentage(55)]).split(columns[1])};
+        let versions=browser.versions.iter().map(|v|ListItem::new(format!("{}\n{}",inline_display(&format!("#{} · {}{}",v.event_id,v.step,if app.session().is_some_and(|s|s.active_branch!=v.branch){" · inherited"}else{""})),inline_display(&v.timestamp))));
+        let mut selected=ListState::default();selected.select(Some(browser.index));
+        frame.render_stateful_widget(List::new(versions).highlight_symbol("▶ ").highlight_style(Style::default().fg(Color::Cyan)).block(border(" Versions · newest first ",!browser.reading)),panes[0],&mut selected);
+        let current=browser.versions.get(browser.index);
+        let title=format!(" #{} · {:?} · {} ",current.map(|v|v.event_id).unwrap_or(0),browser.mode,inline_display(&browser.name));
+        let content=if let Some(error)=&browser.error {crate::markdown::raw(error)}else if browser.mode==crate::artifact_history::Mode::Content && app.render_markdown {crate::markdown::render(&browser.text)}else{crate::markdown::raw(&browser.text)};
+        draw_scrolled(frame,app,Paragraph::new(content).wrap(Wrap{trim:false}).block(Block::default().borders(Borders::ALL).title(title).border_style(Style::default().fg(if browser.error.is_some(){Color::Red}else{Color::Cyan}))),panes[1]);
     } else if app.help {
         draw_scrolled(frame,app,Paragraph::new(HELP).wrap(Wrap{trim:false}).block(border(" Keyboard help · Esc closes ",true)),columns[1]);
     } else if let Some(form)=&app.new_session {
@@ -1227,7 +1278,7 @@ fn draw(frame: &mut Frame, app: &App) {
         });
         let artifacts = List::new(items)
             .block(
-                border(" Artifacts · latest versions ", app.focus == Focus::Artifacts)
+                border(" Artifacts · v versions ", app.focus == Focus::Artifacts)
                     .title(format!(" {} saved ", app.artifacts.len())),
             )
             .highlight_symbol("▶ ")
@@ -1335,6 +1386,8 @@ fn draw(frame: &mut Frame, app: &App) {
 
     let footer = if app.approval.is_some() {
         "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
+    } else if app.artifact_browser.is_some() {
+        "↑/↓ select/scroll · Enter read · Left list · p provenance · d diff · o content · m raw · Esc close".into()
     } else if app.help {
         "↑/↓ or j/k scroll · PgUp/PgDn page · Home/End · Esc close".into()
     } else if app.new_session.is_some() {

@@ -300,3 +300,108 @@ fn artifact_modes_escape_controls_and_keep_the_original_stored_source() {
         large
     );
 }
+
+#[test]
+fn artifact_history_navigation_provenance_diff_and_refresh_are_read_only() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    store
+        .add_artifact(&s, "work", "report.md", "old line\n")
+        .unwrap();
+    let old = store.artifacts(&s, "session").unwrap()[0].event_id;
+    store
+        .add_artifact(&s, "work", "report.md", "new line\n")
+        .unwrap();
+    let current = store.artifacts(&s, "session").unwrap()[0].event_id;
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    app.composer = "Keep this draft".into();
+    app.switch_view(View::Artifacts);
+    key(&mut app, &store, root.path(), KeyCode::Char('v'));
+    assert!(screen(&mut app, 80, 24).contains("Versions"));
+    assert_eq!(
+        app.artifact_browser.as_ref().unwrap().versions[0].event_id,
+        current
+    );
+    key(&mut app, &store, root.path(), KeyCode::Down);
+    assert_eq!(
+        app.artifact_browser.as_ref().unwrap().versions[1].event_id,
+        old
+    );
+    assert_eq!(app.artifact_browser.as_ref().unwrap().text, "old line\n");
+    key(&mut app, &store, root.path(), KeyCode::Char('p'));
+    assert!(screen(&mut app, 80, 24).contains("Creation event:"));
+    assert!(app
+        .artifact_browser
+        .as_ref()
+        .unwrap()
+        .text
+        .contains(&format!("#{old}")));
+    key(&mut app, &store, root.path(), KeyCode::Left);
+    key(&mut app, &store, root.path(), KeyCode::Up);
+    key(&mut app, &store, root.path(), KeyCode::Char('d'));
+    assert!(screen(&mut app, 80, 24).contains("-old line"));
+    assert!(app
+        .artifact_browser
+        .as_ref()
+        .unwrap()
+        .text
+        .contains("+new line"));
+    store
+        .add_artifact(&s, "work", "report.md", "latest line\n")
+        .unwrap();
+    let history_count = store.history(&s).unwrap().len();
+    app.refresh(&store).unwrap();
+    let browser = app.artifact_browser.as_ref().unwrap();
+    assert_eq!(browser.versions[browser.index].event_id, current);
+    assert!(browser.text.contains("+new line"));
+    assert!(!browser.text.contains("latest line"));
+    screen(&mut app, 60, 20);
+    key(&mut app, &store, root.path(), KeyCode::Char('o'));
+    assert_eq!(app.artifact_browser.as_ref().unwrap().text, "new line\n");
+    key(&mut app, &store, root.path(), KeyCode::Char('m'));
+    assert!(screen(&mut app, 60, 20).contains("new line"));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    assert!(app.artifact_browser.is_none());
+    assert_eq!(app.composer, "Keep this draft");
+    assert_eq!(app.artifact().unwrap().content, "latest line\n");
+    assert_eq!(store.history(&s).unwrap().len(), history_count);
+}
+#[test]
+fn artifact_history_closes_after_branch_switch_and_approvals_take_priority() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut s = store.create("demo", "Goal", "work").unwrap();
+    store
+        .add_artifact(&s, "work", "report.md", "ancestor")
+        .unwrap();
+    let cutoff = store.artifacts(&s, "session").unwrap()[0].event_id;
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    app.switch_view(View::Artifacts);
+    key(&mut app, &store, root.path(), KeyCode::Char('v'));
+    store.fork(&mut s, cutoff, "work").unwrap();
+    app.refresh(&store).unwrap();
+    assert!(app.artifact_browser.is_none());
+    key(&mut app, &store, root.path(), KeyCode::Char('v'));
+    let (pt, prompts) = mpsc::channel();
+    let (answers, _rx) = mpsc::channel();
+    let (_ft, finished) = mpsc::channel();
+    app.runner = Some(Runner {
+        session_id: Some(s.id),
+        prompts,
+        answers,
+        finished,
+    });
+    pt.send(ApprovalPrompt {
+        content: "Review request".into(),
+        mode: ApprovalMode::Human,
+    })
+    .unwrap();
+    app.tick();
+    assert!(app.artifact_browser.is_none());
+    assert!(app.approval.is_some());
+    key(&mut app, &store, root.path(), KeyCode::Char('v'));
+    assert!(app.artifact_browser.is_none());
+}

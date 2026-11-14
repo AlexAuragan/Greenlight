@@ -93,3 +93,10 @@ Composer drafts are keyed by session ID and kept in memory only. Filtering, reor
 ## 2026-11-14 — Bounded, terminal-safe document previews
 
 Markdown and literal artifact previews share control escaping and display limits. Escape/C1 bytes and bidirectional formatting controls become visible code-point text; CRLF is normalized and tabs use four spaces. Stored artifact bytes are unchanged. Full CLI exports remain available, while preview truncation is explicit at the first source/output-byte, line-count or per-line limit. Table padding uses terminal widths, caps columns/padding, and parses each cell once. Fences track their opening run length. This hardens the lightweight renderer without expanding its CommonMark/GFM scope. Tests cover real terminal buffers, CJK/combining/emoji alignment, adversarial markup, sparse tables, control expansion and oversized documents in both display modes.
+
+
+## 2026-11-14 — Immutable artifact history and provider-error backlog
+
+The artifact browser follows branch-visible creation IDs and fork cutoffs. Metadata discovery does not require blob bodies; opening content/diffs reads exact versions. Provenance uses recorded attempt intervals and exact input/approval references, never latest-name reconstruction or an inferred author. Incoming activity keeps the inspected ID pinned; changing ancestry closes the browser. Adjacent-version diffs compare full originals within a per-input size limit. CLI `artifact --event` provides the same visibility checks for export.
+
+Provider failure management is added as an **open P1 TODO**, not implemented by this artifact change. Today errors surface largely as generic HTTP/request errors. The follow-up must classify authentication, credit/quota and rate limiting from status plus provider codes, give safe actionable CLI/TUI guidance, and bound eligible retries while preserving usage/uncertain-billing records. In particular, a 429 is not sufficient evidence to retry an exhausted account.

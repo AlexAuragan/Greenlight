@@ -18,9 +18,9 @@ pub(crate) struct InputManifest {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Approval {
-    input_manifest: i64,
-    inputs: InputManifest,
+pub(crate) struct Approval {
+    pub(crate) input_manifest: i64,
+    pub(crate) inputs: InputManifest,
 }
 
 pub(crate) fn validate_recorded_event(kind: &str, raw: &str) -> Result<()> {

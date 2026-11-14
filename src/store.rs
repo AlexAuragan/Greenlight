@@ -155,7 +155,7 @@ impl Store {
         self.event(s,Some(step),"branch.forked",&format!("from_event: {event_id}"))?;
         Ok(())
     }
-    fn lineage(&self, branch: &str) -> Result<Vec<(String,i64)>> {
+    pub(crate) fn lineage(&self, branch: &str) -> Result<Vec<(String,i64)>> {
         let mut line = vec![];
         let mut cursor = branch.to_string();
         let mut cutoff = i64::MAX;
@@ -369,19 +369,17 @@ impl Store {
         Ok(self.attempts(s)?.into_iter().map(|a|format!("{}  {}  {}  events {}..{}",a.id,a.step,a.status,a.start_event,a.end_event.map(|end|end.to_string()).unwrap_or_else(||"open".into()))).collect())
     }
     pub fn artifacts(&self,s:&Session, source: &str) -> Result<Vec<Artifact>> {
-        let mut versions: std::collections::BTreeMap<String,Artifact> = std::collections::BTreeMap::new();
+        // Choose visible versions before opening blobs: a missing historical body
+        // must not prevent inspection of a healthy latest version.
+        let mut versions=std::collections::BTreeMap::new();
         for (branch,cutoff) in self.lineage(&s.active_branch)? {
-            let mut st = self.db.prepare("SELECT step,name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id")?;
-            let rows = st.query_map(params![s.id,branch,cutoff],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))?;
-            for row in rows {
-                let (step,name,blob,event_id) = row?;
-                if source != "session" && source != step { continue; }
-                let content = fs::read_to_string(self.directory.join("blobs").join(blob))?;
-                versions.insert(name.clone(), Artifact{name,content,step,event_id});
-            }
+            let mut st=self.db.prepare("SELECT step,name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id")?;
+            let rows=st.query_map(params![s.id,branch,cutoff],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))?;
+            for row in rows {let (step,name,blob,event)=row?;if source=="session" || source==step {versions.insert(name,(step,blob,event));}}
         }
-        Ok(versions.into_values().collect())
+        versions.into_iter().map(|(name,(step,blob,event_id))|Ok(Artifact{name,step,event_id,content:fs::read_to_string(self.directory.join("blobs").join(blob))?})).collect()
     }
+
 }
 
 #[cfg(test)]

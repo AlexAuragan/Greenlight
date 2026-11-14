@@ -3,6 +3,7 @@ mod changes;
 mod config;
 mod engine;
 mod markdown;
+mod artifact_history;
 mod paths;
 mod provider;
 mod restore;
@@ -93,7 +94,7 @@ enum Commands {
     /// List session artifacts on current branch
     Artifacts { session: String },
     /// Display a specific artifact
-    Artifact { session: String, name: String },
+    Artifact { session: String, name: String, #[arg(long, help="Export this exact creation event if visible on the active branch")] event: Option<i64> },
     /// Register a hand-edited artifact version for the current branch
     PutArtifact {
         session: String,
@@ -304,15 +305,11 @@ async fn main() -> Result<()> {
                 println!("{}  ({}, {} bytes)", a.name, a.step, a.content.len());
             }
         }
-        Commands::Artifact { session, name } => {
-            let engine = engine::Engine::open(&root)?;
-            let s = engine.store.session(&session)?;
-            let artifacts = engine.store.artifacts(&s, "session")?;
-            let item = artifacts
-                .iter()
-                .find(|a| a.name == name)
-                .context("artifact not found")?;
-            println!("{}", item.content);
+        Commands::Artifact { session, name, event } => {
+            let engine=engine::Engine::open(&root)?;
+            let session=engine.store.session(&session)?;
+            let artifact=if let Some(event)=event {engine.store.artifact_version(&session,&name,event)?} else {engine.store.artifacts(&session,"session")?.into_iter().find(|a|a.name==name).context("artifact not found")?};
+            println!("{}",artifact.content);
         }
         Commands::PutArtifact {
             session,

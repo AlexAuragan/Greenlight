@@ -119,3 +119,12 @@ See [validation status](06-validation.md), [restore limitations](09-workspace-re
 2. Include literal ANSI/OSC escape bytes, C1 characters, a lone carriage return and a bidirectional formatting control. Both modes should show visible code-point escapes, not execute controls. CRLF becomes newline and tabs become four spaces.
 3. Use a four-backtick fence containing three-backtick lines and Markdown-looking content. It should stay code until a matching closing fence.
 4. With an appropriately increased artifact-size policy, register a document over a preview limit. Scroll to the end in both modes: a truncation notice should appear. Export with `greenlight artifact SESSION NAME > artifact.md` and confirm the complete stored content remains available; preview limits must not modify it.
+
+
+## Artifact history and diffs
+
+1. Register two versions of one artifact with `put-artifact`. Open Artifacts, select its name and press `v`; both creation IDs should be visible. Read the older body with Enter, then inspect `p` provenance.
+2. Left returns to versions. Select the newer version and press `d`; inspect removed/added lines. The oldest visible version should explain that it has no predecessor. `o` returns to content; `m` toggles its preview.
+3. Publish a third version from another terminal. Refresh should keep the inspected creation ID and diff pinned. Escape returns to the latest artifact list; the composer draft should be retained.
+4. Fork at an earlier event and reopen versions. Parent versions after the cutoff must be absent; inherited versions should identify their source branch. Switching branch while browsing closes the browser.
+5. Export each side with `artifact SESSION NAME --event ID > version.md`. Compare originals externally if they exceed the diff limit. Version inspection/export must not add events, approve anything, or resume work.

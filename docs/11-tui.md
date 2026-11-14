@@ -55,7 +55,19 @@ Both preview modes visibly escape terminal controls (including ANSI/OSC escape b
 
 Preview processing stops at the first of 256 KiB of source/sanitized text, 4,096 source lines or 8,192 sanitized bytes on one line. Both modes show an explicit truncation notice. Tables recognize up to 32 columns, with at most 240 cells of padding width per row; excessive-column tables stay literal. These are display limits independent of the workflow's artifact-size policy. To retrieve the full stored artifact, use `greenlight artifact SESSION NAME > artifact.md`; the CLI output is unfiltered, so redirect it to a file rather than relying on a terminal preview. The literal toggle preserves Markdown syntax, but is not an unfiltered terminal or unlimited export.
 
-Artifacts are inputs to later workflow steps and an important human-review surface. This tab deliberately uses the same branch-aware `Store::artifacts` lookup as the CLI and does not alter artifact content. It currently shows **latest versions only**. To register a manually edited version, use `greenlight put-artifact SESSION_ID NAME --file PATH` from another terminal; version browsing and direct artifact editing are follow-on features.
+Artifacts are inputs to later workflow steps and an important human-review surface. This tab deliberately uses the same branch-aware `Store::artifacts` lookup as the CLI and does not alter artifact content. The default list shows **latest versions**; press `v` for historical versions. To register a manually edited version, use `greenlight put-artifact SESSION_ID NAME --file PATH` from another terminal; direct artifact editing remains a follow-on feature.
+
+## Artifact versions and provenance
+
+In the Artifacts tab, select an artifact and press `v`. The version browser shows saved creation-event IDs, producing steps and UTC timestamps, newest first. It only includes versions visible in the active branch's ancestry at each fork cutoff. Parent changes made after the fork and sibling/session versions remain excluded.
+
+Use arrows or `j/k` to select a version. Enter/Right opens its content at the available width; Left returns to the version list. `o` opens content, `m` toggles literal/Markdown content, `p` opens provenance, and `d` compares the selected version with its immediate older visible version. In reading mode arrows/j/k, PgUp/PgDn and Home/End scroll. Escape closes the browser and returns to latest artifacts. Controls are read-only and preserve composer drafts. The inspected creation ID stays pinned when newer versions arrive; changing session/branch closes the browser. Incoming approvals take priority and close it.
+
+Provenance shows the exact creation event, source branch (including inheritance), associated recorded attempt/definition when the creation falls in that step's attempt interval, selected-input consumers and human approval events referring to that exact artifact event. An interval association does not identify whether a human or model authored the content. Unknown/legacy metadata is explicit. Historical approvals describe recorded review, not a fresh authorization or approval of later replacements. Malformed manifests/approval payloads are reported rather than reconstructed from latest names.
+
+Missing blobs show an error for content/diffs while metadata/provenance remains available. The first visible version has no predecessor. Identical bodies are labelled as identical; differing versions use the existing newline-aware unified diff. Unified diff generation is limited to 256 KiB per input; full originals, never clipped previews, are compared within the limit. Result previews retain terminal escaping and display limits.
+
+Export a specific visible version with `greenlight artifact SESSION NAME --event EVENT_ID > version.md`. Without `--event`, the CLI still exports the latest visible version. The event must belong to that artifact, session and active branch ancestry. Exports do not modify history or trigger execution.
 
 ## Restart from a historical step
 
