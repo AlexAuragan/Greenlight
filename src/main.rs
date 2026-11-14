@@ -16,6 +16,7 @@ mod tools;
 mod tui;
 mod tui_actions;
 mod workspace;
+mod workspace_audit;
 mod write_journal;
 mod session_execution;
 mod input_pins;
@@ -84,7 +85,9 @@ enum Commands {
     /// List durable step attempts visible on the session's active branch
     Attempts { session: String },
     /// Compare current project files with the latest recorded step-boundary hashes
-    WorkspaceStatus { session: String },
+    WorkspaceStatus { session: String, #[arg(long)] json: bool },
+    /// Measure bounded read-only workspace scans without running a session
+    WorkspaceBenchmark { #[arg(long, default_value_t=5, value_parser=clap::value_parser!(u8).range(1..=20))] runs:u8, #[arg(long)] json:bool },
     /// Show event history, including current branch ancestry
     History { session: String },
     /// List session branches and their fork points
@@ -227,37 +230,25 @@ async fn main() -> Result<()> {
         Commands::Tui { session } => {
             tui::run(&root, session.as_deref())?;
         }
-        Commands::WorkspaceStatus { session } => {
-            let engine = engine::Engine::open(&root)?;
-            let selected = engine.store.session(&session)?;
-            let Some((event, step, recorded)) = workspace::latest(&engine.store, &selected)? else {
-                bail!("no workspace recording for session {session}; run at least one step");
-            };
-            let current = workspace::scan(&root)?;
-            let changes = workspace::differences(&recorded, &current);
-            if let Some((step_name, step_changes)) =
-                workspace::latest_step_changes(&engine.store, &selected)?
-            {
-                println!("Latest finished step recording: {step_name}");
-                if step_changes.is_empty() {
-                    println!("  No scanned project-file changes during that step.");
-                } else {
-                    for change in step_changes {
-                        println!("  {} during step: {}", change.change, change.path);
-                    }
-                }
+        Commands::WorkspaceStatus { session,json } => {
+            let store=store::Store::open(&root)?;
+            let selected=store.session(&session)?;
+            let report=workspace_audit::status(&root,&store,&selected)?;
+            if json {println!("{}",serde_json::to_string_pretty(&report)?);} else {
+                if let Some(step)=&report.latest_step {println!("Latest complete step recording:\n{}",step.display());}
+                println!("Current workspace on branch {}:\n{}",selected.active_branch,report.current.display());
             }
-            println!("Current workspace vs recorded event #{event} (step {step}, branch {})", selected.active_branch);
-            println!("Recorded: {} files; current: {} files", recorded.files.len(), current.files.len());
-            println!("Skipped oversized/non-UTF8 paths: {} recorded; {} current", recorded.skipped.len(), current.skipped.len());
-            if changes.is_empty() {
-                println!("No changes since the most recent workspace recording.");
-            } else {
-                for change in changes {
-                    println!("{} since recording: {}", change.change, change.path);
-                }
+        }
+        Commands::WorkspaceBenchmark {runs,json} => {
+            let mut samples=Vec::new();
+            for _ in 0..runs {
+                let manifest=workspace::scan(&root)?;
+                samples.push(serde_json::json!({"scan":manifest.scan_stats,"skipped":manifest.skipped.len(),"manifest_json_bytes":serde_json::to_vec(&manifest)?.len()}));
             }
-            println!("Hashes detect differences only; no file was modified or restored.");
+            if json {println!("{}",serde_json::to_string_pretty(&samples)?);} else {
+                for (index,sample) in samples.iter().enumerate() {println!("Scan {}: {} files, {} bytes hashed, {} µs, {} manifest JSON bytes, {} skipped",index+1,sample["scan"]["files"],sample["scan"]["bytes_hashed"],sample["scan"]["elapsed_us"],sample["manifest_json_bytes"],sample["skipped"]);}
+                println!("Read-only scans; no contents saved. Cache state and disk speed affect timings; this does not measure full step/restore time.");
+            }
         }
         Commands::Sessions => {
             let engine = engine::Engine::open(&root)?;

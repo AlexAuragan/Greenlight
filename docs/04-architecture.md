@@ -43,6 +43,7 @@ flowchart TD
 - `activity_cards.rs` — atomic tool outcome/correlation publication and pure branch-visible semantic card projections.
 - `activity_titles.rs` — strict optional coding-action title validation and response-linked annotation schema. Intent cards never establish execution outcomes or grant permissions.
 - `pricing.rs` — bounded public DeepInfra pricing discovery, exact-provider matching, private local caching and explicit-override precedence. `usage.rs` snapshots resolved prices, freshness, context tiers and cache-creation estimates per request.
+- `workspace.rs`, `workspace_audit.rs` — bounded step-boundary SHA-256 scans and metrics, plus interval-scoped branch-visible write/restore hash-chain correlation. Reports distinguish journal agreement, unexplained drift and unavailable coverage; they never restore files or identify an editor.
 - `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — card/audit presentation, evidence expansion, workspace layout and discoverable keys.
 - `tui/approval.rs`, `tui/recovery.rs` — explicit approval choices and guarded restart/restore interactions.
 - `tui/reader.rs`, `markdown.rs` — bounded background preparation of large document viewports and terminal-safe Markdown/literal presentation.

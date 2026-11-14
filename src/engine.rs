@@ -123,7 +123,7 @@ impl Engine {
             let before = match workspace::record(
                 &self.root, &self.store, &s, &step.id, "before",
             ) {
-                Ok((_, manifest)) => manifest,
+                Ok(recording) => recording,
                 Err(error) => {
                     self.block(
                         &mut s, &format!("workspace recording failed: {error:#}"), &step.id,
@@ -138,13 +138,17 @@ impl Engine {
             // disappear from the observed step's workspace history.
             let audit = workspace::record(
                 &self.root, &self.store, &s, &step.id, "after",
-            ).and_then(|(_, after)| {
-                let changes = workspace::differences(&before, &after);
+            ).and_then(|(after_event, after)| {
+                let changes = workspace::differences(&before.1, &after);
                 if !changes.is_empty() {
                     self.store.event(
                         &s, Some(&step.id), "workspace.delta",
                         &serde_json::to_string(&changes)?,
                     )?;
+                }
+                let audit=crate::workspace_audit::correlate(&self.store,&s,before.0,after_event,Some(after_event),&before.1,&after)?;
+                if !audit.paths.is_empty() || !audit.warnings.is_empty() {
+                    self.store.event(&s,Some(&step.id),"workspace.correlation",&serde_json::to_string(&audit)?)?;
                 }
                 Ok(())
             });

@@ -304,6 +304,20 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
         );
     }
     match kind {
+        "workspace.correlation" => match serde_json::from_str::<crate::workspace_audit::Audit>(raw)
+        {
+            Ok(audit) => {
+                let (explained, unexplained, unknown) = audit.counts();
+                card(format!("Workspace audit · {explained} explained · {unexplained} unexplained · {unknown} unknown"),
+                    format!("Hash/journal agreement, not authorship · baseline #{}",audit.baseline_event),
+                    if unexplained>0 || unknown>0 || !audit.warnings.is_empty() {Tone::Attention} else {Tone::Info})
+            }
+            Err(_) => card(
+                "Workspace audit unavailable",
+                "Malformed correlation record; inspect raw evidence",
+                Tone::Error,
+            ),
+        },
         "activity.title" => card(
             "Agent intent · unvalidated",
             "Unvalidated annotation; inspect raw evidence",

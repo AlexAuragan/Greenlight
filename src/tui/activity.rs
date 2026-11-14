@@ -117,6 +117,13 @@ impl App {
                         "\n\nRecorded model response #{}:\n{}",
                         evidence.annotation.model_event, evidence.response
                     ));
+                } else if event.kind == "workspace.correlation" {
+                    if let Ok(audit) =
+                        serde_json::from_str::<crate::workspace_audit::Audit>(&event.data)
+                    {
+                        detail.push_str(&format!("\n{}", audit.display()));
+                    }
+                    detail.push_str(&format!("\nRaw recorded evidence:\n{}", event.data));
                 } else {
                     detail.push_str(&format!("\nRaw recorded evidence:\n{}", event.data));
                 }
@@ -148,6 +155,7 @@ pub(super) fn conversational_label(kind: &str) -> &str {
     match kind {
         "user.instruction" => "You",
         "activity.title" => "Agent intent (model-authored)",
+        "workspace.correlation" => "Workspace hash/journal audit",
         "step.started" => "Step started",
         "step.completed" => "Step completed",
         "step.blocked" => "Blocked",
@@ -189,6 +197,9 @@ pub(super) fn invalid_event_payload(kind: &str, data: &str) -> Option<String> {
             }
             "activity.title" => {
                 serde_json::from_str::<crate::activity_titles::Annotation>(data)?;
+            }
+            "workspace.correlation" => {
+                serde_json::from_str::<crate::workspace_audit::Audit>(data)?;
             }
             "verification.evidence" => {
                 let value: serde_json::Value = serde_json::from_str(data)?;

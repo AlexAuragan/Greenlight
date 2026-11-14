@@ -631,3 +631,23 @@ fn malformed_intent_annotation_stays_visible_as_diagnostic() {
     assert!(screen(&mut app, 80, 24).contains("Malformed record"));
     assert!(app.detail().contains("9999"));
 }
+
+#[test]
+fn workspace_audit_card_expands_classification_and_scan_metrics_without_mutation() {
+    let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
+    let s=store.create("demo","Goal","work").unwrap();
+    let before=crate::workspace::record(root.path(),&store,&s,"work","before").unwrap();
+    std::fs::write(root.path().join("manual.txt"),"external body").unwrap();
+    let after=crate::workspace::record(root.path(),&store,&s,"work","after").unwrap();
+    let audit=crate::workspace_audit::correlate(&store,&s,before.0,after.0,Some(after.0),&before.1,&after.1).unwrap();
+    let id=store.event(&s,Some("work"),"workspace.correlation",&serde_json::to_string(&audit).unwrap()).unwrap();
+    let count=store.history(&s).unwrap().len();
+    let mut app=App::new(Some(&s.id));app.refresh(&store).unwrap();
+    assert_eq!(app.event().unwrap().id,id);
+    assert!(screen(&mut app,100,24).contains("Workspace audit · 0 explained · 1 unexplained"));
+    key(&mut app,&store,root.path(),KeyCode::Enter);
+    let detail=app.detail();assert!(detail.contains("manual.txt"));assert!(detail.contains("Actor is unknown"));assert!(detail.contains("bytes hashed"));
+    assert!(!detail.contains("external body"));screen(&mut app,40,14);
+    assert_eq!(count,store.history(&s).unwrap().len());
+    assert_eq!(std::fs::read_to_string(root.path().join("manual.txt")).unwrap(),"external body");
+}
