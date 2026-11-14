@@ -6,6 +6,7 @@ impl App {
         if self.view == view {
             return;
         }
+        self.remember_reading();
         self.view = view;
         if self.focus != Focus::Compose && self.focus != Focus::Detail {
             self.focus = match view {
@@ -13,7 +14,7 @@ impl App {
                 View::Artifacts => Focus::Artifacts,
             };
         }
-        self.detail_scroll = 0;
+        self.restore_reading();
     }
     pub(super) fn main_focus(&self) -> Focus {
         match self.view {

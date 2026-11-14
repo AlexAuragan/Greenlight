@@ -9,6 +9,9 @@ v or /events: raw audit history; Left returns from expanded evidence
 v in artifacts: saved versions · p provenance · d previous-version diff
 Version browser: Enter read, Left list, o content, Esc close
 f: search sessions · n: create a ready session
+F: filter activity metadata/summaries · Enter applies, Esc clears
+C: copy full selected text to this machine’s clipboard
+E: review a temporary snapshot in VISUAL/EDITOR (idle worker only)
 c or /context: saved attempt and input versions
 e: inspect blocker · h: activity · b: blocker card
 r or /restart: choose earlier step; preview before confirming
@@ -26,6 +29,8 @@ Messages and drafts
 i: compose · Enter: send · Ctrl+J: newline · Backspace: delete
 Esc/Tab: leave composer while keeping draft
 Drafts belong to their session and remain in memory until exit.
+Activity/artifact tabs retain selection, scroll and journal diff per session/branch.
+Help/context/diagnostic scroll stays separate from the underlying tab.
 New sessions have their own empty draft. Nothing is saved to disk.
 /resume: run a ready/blocked session without extra instructions
 /usage: token and cost report · /recover: recover interrupted owner

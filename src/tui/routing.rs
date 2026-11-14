@@ -3,6 +3,18 @@ use super::*;
 
 impl App {
     pub(super) fn on_key(&mut self, key: KeyEvent, root: &Path, store: &Store) -> Result<bool> {
+        self.remember_reading();
+        let overlay = self.reading_overlay();
+        self.reading.modal = overlay;
+        let result = self.route_key(key, root, store);
+        self.reading.modal = false;
+        if overlay && !self.reading_overlay() {
+            self.restore_reading();
+        }
+        self.remember_reading();
+        result
+    }
+    fn route_key(&mut self, key: KeyEvent, root: &Path, store: &Store) -> Result<bool> {
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
             return Ok(false);
         }
@@ -54,6 +66,53 @@ impl App {
             return Ok(false);
         }
 
+        if self.activity_filtering {
+            match key.code {
+                KeyCode::Esc => {
+                    self.activity_query.clear();
+                    self.commit_activity_filter();
+                    self.activity_filtering = false;
+                }
+                KeyCode::Enter => {
+                    self.commit_activity_filter();
+                    self.activity_filtering = false;
+                }
+                KeyCode::Backspace => {
+                    self.activity_query.pop();
+                }
+                KeyCode::Char(c)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                        && self.activity_query.len() < 256 =>
+                {
+                    self.activity_query.push(c)
+                }
+                _ => {}
+            }
+            self.filter_activity();
+            return Ok(false);
+        }
+        if key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && (self.focus != Focus::Compose || self.reading_overlay())
+            && !self.searching
+            && self.new_session.is_none()
+        {
+            match key.code {
+                KeyCode::Char('C') => {
+                    self.start_copy();
+                    return Ok(false);
+                }
+                KeyCode::Char('E') => {
+                    self.request_editor();
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
         if self.artifact_browser.is_some() {
             if key.kind != KeyEventKind::Press
                 && matches!(
@@ -344,6 +403,9 @@ impl App {
 
         match key.code {
             KeyCode::Char('?') => self.open_help(),
+            KeyCode::Char('F') if self.view == View::Conversation => {
+                self.activity_filtering = true;
+            }
             KeyCode::Char('f') => {
                 self.searching = true;
                 self.focus = Focus::Sessions;

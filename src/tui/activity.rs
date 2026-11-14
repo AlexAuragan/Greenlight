@@ -124,6 +124,9 @@ impl App {
                 "Event #{}  ·  {}  ·  {}\n\n{}",
                 event.id, event.step, event.kind, event.data
             ),
+            None if !self.activity_query.is_empty() => {
+                "No activity matches this filter. Press F then Esc to clear it.".into()
+            }
             None => "No events. Start a workflow from another terminal.".into(),
         }
     }
@@ -347,18 +350,25 @@ pub(super) fn draw(
                 })
             });
             let list = List::new(events)
-                .block(border(
-                    if app.show_all && app.follow_activity {
-                        " Activity · full · following "
-                    } else if app.show_all {
-                        " Activity · full · paused · End follows "
-                    } else if app.follow_activity {
-                        " Cards · following · Enter expands "
-                    } else {
-                        " Cards · paused · End follows "
-                    },
-                    app.focus == Focus::Events,
-                ))
+                .block(
+                    border(
+                        if app.show_all && app.follow_activity {
+                            " Activity · full · following "
+                        } else if app.show_all {
+                            " Activity · full · paused · End follows "
+                        } else if app.follow_activity {
+                            " Cards · following · Enter expands "
+                        } else {
+                            " Cards · paused · End follows "
+                        },
+                        app.focus == Focus::Events,
+                    )
+                    .title_bottom(format!(
+                        " F filter: {} · {} records ",
+                        inline_display(&app.activity_query),
+                        app.events.len()
+                    )),
+                )
                 .highlight_symbol("▶ ")
                 .highlight_style(
                     Style::default()

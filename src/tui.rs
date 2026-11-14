@@ -24,6 +24,11 @@ mod routing;
 mod view;
 mod help;
 mod reader;
+mod reading;
+mod exports;
+#[cfg(test)]
+#[path="tui_reading_tests.rs"]
+mod reading_tests;
 use activity::{is_chatter,conversational_label,invalid_event_payload};
 use help::HELP;
 use view::draw;
@@ -63,7 +68,8 @@ enum View {
 struct App {
     sessions: Vec<Session>,
     session_index: usize,
-    events: Vec<EventRow>,
+    events: Vec<std::sync::Arc<EventRow>>,
+    activity_rows:Vec<std::sync::Arc<EventRow>>,
     event_index: usize,
     artifacts: Vec<Artifact>,
     artifact_index: usize,
@@ -110,6 +116,11 @@ struct App {
     reader:reader::Reader,
     activity_cards:crate::activity_cards::Projection,
     activity_generation:Option<(String,String,Option<i64>)>,
+    reading:reading::Reading,
+    activity_query:String,
+    activity_filtering:bool,
+    copy_job:Option<std::sync::mpsc::Receiver<Result<String,String>>>,
+    pending_editor:Option<exports::Snapshot>,
 }
 
 impl App {
@@ -118,6 +129,7 @@ impl App {
             sessions: Vec::new(),
             session_index: 0,
             events: Vec::new(),
+            activity_rows:Vec::new(),
             event_index: 0,
             artifacts: Vec::new(),
             artifact_index: 0,
@@ -172,6 +184,9 @@ impl App {
             reader:reader::Reader::default(),
             activity_cards:crate::activity_cards::Projection::default(),
             activity_generation:None,
+            reading:reading::Reading::default(),
+            activity_query:String::new(),activity_filtering:false,
+            copy_job:None,pending_editor:None,
         }
     }
     fn raise_diagnostic(&mut self, message: String) {
@@ -185,7 +200,7 @@ impl App {
     }
 
     fn event(&self) -> Option<&EventRow> {
-        self.events.get(self.event_index)
+        self.events.get(self.event_index).map(std::sync::Arc::as_ref)
     }
 
     fn artifact(&self) -> Option<&Artifact> {
@@ -202,6 +217,7 @@ impl App {
 
 
     fn refresh(&mut self, store: &Store) -> Result<()> {
+        self.remember_reading();
         let old_session = self.session().map(|s| s.id.clone());
         let old_event = self.event().map(|e| e.id);
         let old_artifact = self.artifact().map(|a| a.name.clone());
@@ -223,6 +239,8 @@ impl App {
         }
         let loaded_session_changed=self.workspace_session.as_deref()!=self.session().map(|s|s.id.as_str());
         self.sync_draft();
+        let reading_scope_changed=self.reading_scope();
+        let old_artifact_version=self.artifact().map(|a|a.event_id);
         let changed_session = old_session.as_deref() != self.session().map(|s| s.id.as_str());
         if let Some(session) = self.session().cloned() {
             let history = store.history(&session)?;
@@ -247,7 +265,7 @@ impl App {
                 self.activity_cards=crate::activity_cards::Projection::build(&history);
                 self.activity_generation=Some(generation);
             }
-            self.events = history
+            self.activity_rows = history
                 .into_iter()
                 .map(|(id, step, kind, data)| {
                     if let Some(error) = self.activity_cards.malformed.get(&id).cloned().or_else(||invalid_event_payload(&kind,&data)) {
@@ -255,7 +273,9 @@ impl App {
                     } else { EventRow {id,step,kind,data} }
                 })
                 .filter(|event| show_all || !is_chatter(&event.kind))
+                .map(std::sync::Arc::new)
                 .collect();
+            self.filter_activity();
             if session_changed { self.diagnostic = None; self.usage_detail=None; }
             match store.usage_report(&session,crate::usage::Scope::Session) {
                 Ok(report)=>{self.usage_line=report.totals.compact();self.usage_error=None;if self.usage_detail.is_some(){self.usage_detail=Some(report.display());}}
@@ -286,7 +306,7 @@ impl App {
                 }
             };
         } else {
-            self.events.clear();
+            self.events.clear();self.activity_rows.clear();
             self.activity_cards=crate::activity_cards::Projection::default();self.activity_generation=None;
             self.artifacts.clear();
             self.diagnostic=None;self.usage_detail=None;self.usage_error=None;
@@ -321,6 +341,8 @@ impl App {
         if self.diff.as_ref().is_some_and(|(id, _)| self.event().map(|event| event.id) != Some(*id)) {
             self.diff = None;
         }
+        if reading_scope_changed {self.restore_reading();}
+        else if self.view==View::Artifacts && old_artifact_version!=self.artifact().map(|a|a.event_id) && !self.reading_overlay(){self.detail_scroll=0;}
         Ok(())
     }
 
@@ -330,10 +352,13 @@ impl App {
 
 
     fn tick(&mut self) {
+        self.remember_reading();
+        self.poll_copy();
         let Some(runner) = &self.runner else { return };
         if self.approval.is_none() {
             match runner.prompts.try_recv() {
                 Ok(question) => {
+                    self.activity_filtering=false;
                     self.artifact_browser=None;
                     self.help=false;
                     self.searching=false;
@@ -503,6 +528,11 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
             let size=terminal.size()?;
             app.viewport=(size.width,size.height);
             app.tick();
+            if let Some(snapshot)=app.pending_editor.take(){
+                let result=exports::with_terminal_suspended(||exports::open_editor(&snapshot))?;
+                terminal.clear()?;
+                match result{Ok(())=>app.notice="Editor closed; snapshot changes were not imported.".into(),Err(error)=>app.raise_diagnostic(format!("Editor unavailable: {error:#}"))}
+            }
             if app.requested_session.is_some() || app.composer_session.as_deref()!=app.session().map(|s|s.id.as_str()) || last_refresh.elapsed() >= Duration::from_millis(600) {
                 app.refresh(&store)?;
                 last_refresh = Instant::now();

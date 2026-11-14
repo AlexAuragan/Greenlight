@@ -87,14 +87,15 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
                         inactive_tab
                     },
                 ),
-                Span::raw(" ? help · f find · n new · c context"),
+                Span::raw(" ? help · C copy · E editor · F filter"),
             ]),
         ])
         .block(border(" Session workspace ", false)),
         outer[0],
     );
 
-    let overlay = app.artifact_browser.is_some()
+    let overlay = app.activity_filtering
+        || app.artifact_browser.is_some()
         || app.approval.is_some()
         || app.new_session.is_some()
         || app.searching
@@ -220,6 +221,14 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
                     Color::Cyan
                 })),
             panes[1],
+        );
+    } else if app.activity_filtering {
+        let message=format!("Filter activity: {}▌\n\n{} matching records.\nMatches event kind, step, card title or summary.\nEnter keeps this filter; Esc clears it.\nFull payload search is available in exported history.",app.activity_query,app.events.len());
+        frame.render_widget(
+            Paragraph::new(safe_display(&message))
+                .wrap(Wrap { trim: false })
+                .block(border(" Filter activity · F ", true)),
+            columns[1],
         );
     } else if app.help {
         draw_scrolled(
@@ -428,6 +437,8 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
 
     let footer = if app.approval.is_some() {
         "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
+    } else if app.activity_filtering {
+        "Type to filter activity · Enter keep · Esc clear".into()
     } else if app.artifact_browser.is_some() {
         "↑/↓ select/scroll · Enter read · Left list · p provenance · d diff · o content · m raw · Esc close".into()
     } else if app.help {
@@ -446,7 +457,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
     } else {
         format!(
-            "{}   │   ? help · f search · n new · i message · ←/→ pane · ↑/↓ navigate",
+            "{}   │   ? help · C copy · E editor · F filter · f sessions · i message",
             app.notice
         )
     };
@@ -456,7 +467,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             if compact && app.approval.is_some() {
                 "Approval: explicit keys only"
             } else if compact {
-                "? help · f find · n new · i message"
+                "? help · C copy · E editor · F filter"
             } else {
                 &app.usage_line
             }

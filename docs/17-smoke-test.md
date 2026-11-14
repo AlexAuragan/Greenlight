@@ -154,3 +154,13 @@ See [validation status](06-validation.md), [restore limitations](09-workspace-re
 3. Select an older artifact-created card and press o after publishing another same-name version. It must open the selected creation ID, not latest-by-name. Use d on a file card to inspect the journal-backed diff.
 4. Open raw mode, return to cards, resize to 40×14 and expand evidence. Selection/following and scrolling should retain their established behavior; no approval or execution action should be triggered by inspection.
 5. Legacy tool results should say unlinked; malformed/missing/cross-fork tool references should remain inspectable as diagnostics. Routine tool-permission decisions remain hidden until raw mode is enabled.
+
+
+## Reading positions and local exports
+
+1. Read an activity event at a nonzero scroll offset, switch to Artifacts, read at another offset and switch back. Each tab should preserve its place. Repeat across sessions/branches, including a journal diff, and check that help/context scroll does not replace the saved tab offset.
+2. Replace an artifact with a newer version of the same name. Its new body should start at offset zero. Unsent drafts should remain unchanged.
+3. F filters activity metadata/summaries, Enter keeps the query, and F then Escape clears it. Test an accented filename and no matches. C/E typed inside the filter/search/composer must be text rather than export actions.
+4. With a clipboard utility and a desktop session, press C on an artifact longer than the preview limit and inspect the copied source. It should be the full original, not clipped/escaped display text. On a server without a clipboard backend, expect an actionable diagnostic, not a success claim.
+5. Set VISUAL/EDITOR to a command that waits, press E and close the review snapshot. The TUI should regain input/appearance; stored artifacts/history/project files must remain unchanged. Repeat with a nonexistent editor. Own-worker execution should refuse editor handoff while leaving approvals available.
+6. For automated/local smoke checks, prepend fake clipboard/editor programs to PATH and capture their stdin/file in a private temporary fixture. Verify exact UTF-8/control-byte content, snapshot deletion, unchanged event counts and zero model calls; do not overwrite the real desktop clipboard.

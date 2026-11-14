@@ -131,7 +131,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] Correlate the **already implemented** SHA-256 step manifests with native-write journal events; classify explained/unexplained drift and measure scanning overhead on real projects. Hashes alone cannot restore file contents.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.
 - [x] Split the TUI into focus/routing, activity, layout, reader, approval and recovery components. Large artifact/version previews parse, wrap and paint on a bounded background worker; the UI paints only a ready viewport and discards stale results. Storage refresh and explicit diff construction retain their existing synchronous paths.
-- [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.
+- [x] Preserve per-session drafts and per-session/branch tab selections, scroll, follow state and journal-diff reading in memory. `F` filters activity metadata/summaries; `C` sends full selected text to a local clipboard utility; `E` opens a private temporary review snapshot in VISUAL/EDITOR, without importing edits. New artifact versions reset stale offsets. See [TUI reading/export controls](docs/11-tui.md#reading-state-filtering-and-export).
 
 ### P2 — supervised intelligence and stronger recovery
 

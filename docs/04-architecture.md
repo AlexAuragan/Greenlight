@@ -38,7 +38,8 @@ flowchart TD
 - `provider.rs` — HTTP chat-completions and model discovery through the DeepInfra OpenAI-compatible API.
 - `tools.rs` — permissioned native file access and sandboxed shell/web dispatch.
 - `tui.rs` — foreground application state, store refresh, worker lifecycle and the terminal loop.
-- `tui/focus.rs`, `tui/routing.rs` — focus/selection/draft state and modal keyboard precedence.
+- `tui/focus.rs`, `tui/reading.rs`, `tui/routing.rs` — focus/draft state, session/branch reading positions, cached-row activity filtering and modal keyboard precedence.
+- `tui/exports.rs` — explicit clipboard exports and private editor-review snapshots, with terminal handoff/restoration. Helpers receive selected text, never a mutable Store/Engine handle.
 - `activity_cards.rs` — atomic tool outcome/correlation publication and pure branch-visible semantic card projections.
 - `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — card/audit presentation, evidence expansion, workspace layout and discoverable keys.
 - `tui/approval.rs`, `tui/recovery.rs` — explicit approval choices and guarded restart/restore interactions.
