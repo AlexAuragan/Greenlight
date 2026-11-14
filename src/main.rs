@@ -5,6 +5,7 @@ mod engine;
 mod markdown;
 mod artifact_history;
 mod activity_cards;
+mod activity_titles;
 mod paths;
 mod provider;
 mod provider_failure;

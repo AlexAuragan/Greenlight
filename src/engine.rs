@@ -34,6 +34,8 @@ Available actions:
   summary: |
     Description and evidence that step is complete
 Use exactly one action per response. An artifact action registers a session artifact, it does NOT modify code. Each step is one stage of a multi-step workflow with its own fresh context and tools, and `finish` completes only the current step: the harness then advances to the next step, which continues the work. Finish this step as soon as its required outputs are registered, even when the overall session goal is not yet fully achieved, and only request the tools this step enables. Commands and edits require authorization. Shell commands run without network or host HOME access, with project files read-only. Use the native write tool for all source edits; shell writes cannot alter project files. Tool failure is a fact; don't hide it. If a tool fails, describe it instead of working around an environment mismatch.
+Any action may include an optional activity_title string, for example: activity_title: Exploring call sites
+Use a short plain-text description of intent, 1–80 Unicode characters after trimming surrounding whitespace; no control characters, newlines, invisible direction/format controls, or claims of verified success. Omit it when unnecessary. It is only a model-authored annotation, never permission or execution evidence. Keep exactly one action per response; there is no separate title action.
 No invented tool results. If blocked, report a deviation. Keep outputs concise.
 "#;
 
@@ -448,7 +450,7 @@ impl Engine {
             }
             "command" => {
                 let cmd = step.command.as_deref().context("command missing")?;
-                let action=crate::tools::AgentAction{action:"tool".into(),tool:Some("shell".into()),input:Some(cmd.into()),path:None,content:None,name:None,summary:None,deviation_id:None};
+                let action=crate::tools::AgentAction{action:"tool".into(),activity_title:None,tool:Some("shell".into()),input:Some(cmd.into()),path:None,content:None,name:None,summary:None,deviation_id:None};
                 let request=self.store.event(s,Some(&step.id),"tool.request",&serde_yaml::to_string(&action)?)?;
                 let execution=self.tools.shell(cmd).await;
                 self.log_permissions(s,step)?;
@@ -508,7 +510,7 @@ impl Engine {
             .unwrap_or(self.cfg.session.max_turns_per_attempt);
         for turn in 0..limit {
             let raw = self.model_call(s, &step.id, "coding", model, &messages).await?;
-            self.store.event(s, Some(&step.id), "model.output", &raw)?;
+            let model_event = self.store.event(s, Some(&step.id), "model.output", &raw)?;
             // An in-flight response cannot authorize work against an input
             // version that changed while the model was running.
             self.enforce_input_approvals(s, wf, step, &self.select_inputs(s, wf, step)?)?;
@@ -525,6 +527,18 @@ impl Engine {
                     continue;
                 }
             };
+            if let Some(title) = &action.activity_title {
+                let annotation = crate::activity_titles::Annotation {
+                    model_event,
+                    title: title.clone(),
+                };
+                self.store.event(
+                    s,
+                    Some(&step.id),
+                    "activity.title",
+                    &serde_json::to_string(&annotation)?,
+                )?;
+            }
             match action.action.as_str() {
                 "tool" => {
                     let kind = action.tool.as_deref().context("tool action missing tool")?;

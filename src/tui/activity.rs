@@ -98,8 +98,7 @@ impl App {
         match self.event() {
             Some(event) if !self.show_all => {
                 let tool = self.activity_cards.tools.get(&event.id);
-                let card =
-                    crate::activity_cards::describe(event.id, &event.kind, &event.data, tool);
+                let card = self.card(event);
                 let mut detail = format!(
                     "{}\n{}\n\nEvent #{} · step {} · {}\n",
                     card.title, card.summary, event.id, event.step, event.kind
@@ -108,6 +107,15 @@ impl App {
                     detail.push_str(&format!(
                         "\nRecorded request #{}:\n{}\n\nRecorded output #{}:\n{}",
                         tool.metadata.request_event, tool.request, event.id, event.data
+                    ));
+                } else if let Some(evidence) = self.activity_cards.titles.get(&event.id) {
+                    detail.push_str(&format!(
+                        "\nModel-authored intent only. This does not establish that the requested action ran or succeeded.\n\nRecorded annotation:\n{}",
+                        event.data
+                    ));
+                    detail.push_str(&format!(
+                        "\n\nRecorded model response #{}:\n{}",
+                        evidence.annotation.model_event, evidence.response
                     ));
                 } else {
                     detail.push_str(&format!("\nRaw recorded evidence:\n{}", event.data));
@@ -139,6 +147,7 @@ pub(super) fn is_chatter(kind: &str) -> bool {
 pub(super) fn conversational_label(kind: &str) -> &str {
     match kind {
         "user.instruction" => "You",
+        "activity.title" => "Agent intent (model-authored)",
         "step.started" => "Step started",
         "step.completed" => "Step completed",
         "step.blocked" => "Blocked",
@@ -177,6 +186,9 @@ pub(super) fn invalid_event_payload(kind: &str, data: &str) -> Option<String> {
             }
             "tool.finished" => {
                 serde_json::from_str::<crate::activity_cards::ToolFinished>(data)?;
+            }
+            "activity.title" => {
+                serde_json::from_str::<crate::activity_titles::Annotation>(data)?;
             }
             "verification.evidence" => {
                 let value: serde_json::Value = serde_json::from_str(data)?;

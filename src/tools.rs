@@ -10,6 +10,8 @@ use crate::{approvals::{ApprovalStore, Scope}, config::Permissions};
 #[serde(deny_unknown_fields)]
 pub struct AgentAction {
     pub action: String, // tool | artifact | finish | deviation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity_title: Option<crate::activity_titles::Title>,
     pub tool: Option<String>,
     pub input: Option<String>,
     pub path: Option<String>,

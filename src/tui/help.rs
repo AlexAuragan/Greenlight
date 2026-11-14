@@ -17,6 +17,7 @@ e: inspect blocker · h: activity · b: blocker card
 r or /restart: choose earlier step; preview before confirming
 
 Activity following
+Agent intent cards are model-authored; outcomes and verification stay separate.
 Opening evidence or navigating activity pauses following.
 End/G in activity: select latest event and follow new events.
 Home/g in activity: select first event and pause.

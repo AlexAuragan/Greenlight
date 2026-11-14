@@ -558,3 +558,76 @@ fn invalid_card_correlations_remain_inspectable_in_concise_history() {
     assert!(screen(&mut app, 80, 24).contains("Malformed record"));
     assert!(app.detail().contains("9999"));
 }
+
+#[test]
+fn model_intent_cards_are_labelled_searchable_and_expand_original_response() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    let raw = "action: tool\ntool: write\npath: source.rs\ncontent: full source evidence\nactivity_title: Exploring call sites";
+    let source = store.event(&s, Some("work"), "model.output", raw).unwrap();
+    let title = store
+        .event(
+            &s,
+            Some("work"),
+            "activity.title",
+            &serde_json::json!({
+                "model_event": source, "title": "Exploring call sites"
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    assert!(!app.events.iter().any(|e| e.id == source));
+    assert_eq!(app.event().unwrap().id, title);
+    assert!(screen(&mut app, 100, 24).contains("Agent intent · Exploring call sites"));
+    key(&mut app, &store, root.path(), KeyCode::Enter);
+    let detail = app.detail();
+    assert!(detail.contains("Model-authored intent only"));
+    assert!(detail.contains(&format!("Recorded model response #{source}")));
+    assert!(detail.contains(raw));
+    let snapshot = app.export_snapshot().unwrap();
+    assert!(snapshot.text.contains(raw));
+    screen(&mut app, 80, 24);
+    screen(&mut app, 40, 14);
+    key(&mut app, &store, root.path(), KeyCode::Left);
+    key(&mut app, &store, root.path(), KeyCode::Char('F'));
+    for ch in "EXPLORING".chars() {
+        key(&mut app, &store, root.path(), KeyCode::Char(ch));
+    }
+    key(&mut app, &store, root.path(), KeyCode::Enter);
+    assert_eq!(app.events.len(), 1);
+    assert_eq!(app.event().unwrap().id, title);
+    key(&mut app, &store, root.path(), KeyCode::Char('F'));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    key(&mut app, &store, root.path(), KeyCode::Char('v'));
+    app.refresh(&store).unwrap();
+    assert!(app.events.iter().any(|e| e.id == source));
+    app.event_index = app.events.iter().position(|e| e.id == title).unwrap();
+    assert!(app.detail().contains("\"model_event\""));
+    assert!(!app.detail().contains("Recorded model response"));
+}
+
+#[test]
+fn malformed_intent_annotation_stays_visible_as_diagnostic() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    let id = store
+        .event(
+            &s,
+            Some("work"),
+            "activity.title",
+            r#"{"model_event":9999,"title":"Verified success"}"#,
+        )
+        .unwrap();
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    assert!(app.diagnostic.as_ref().unwrap().contains("branch-visible"));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    assert_eq!(app.event().unwrap().id, id);
+    assert_eq!(app.event().unwrap().kind, "event.invalid");
+    assert!(screen(&mut app, 80, 24).contains("Malformed record"));
+    assert!(app.detail().contains("9999"));
+}

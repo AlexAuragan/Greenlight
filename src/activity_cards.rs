@@ -1,6 +1,7 @@
 //! Recorded tool correlations and read-only semantic card projections. Titles describe harness records,
-//! never inferred execution or model-authored claims.
+//! never inferred execution. Model-authored intent has separately labelled cards.
 use crate::{
+    activity_titles::Annotation,
     store::{Session, Store},
     tools::AgentAction,
 };
@@ -73,11 +74,17 @@ pub struct ToolEvidence {
     pub request: String,
     pub target: String,
 }
+#[derive(Clone, Debug)]
+pub struct TitleEvidence {
+    pub annotation: Annotation,
+    pub response: String,
+}
 #[derive(Default)]
 pub struct Projection {
     pub cards: HashMap<i64, Card>,
     pub tools: HashMap<i64, ToolEvidence>,
     pub malformed: HashMap<i64, String>,
+    pub titles: HashMap<i64, TitleEvidence>,
 }
 impl Projection {
     pub fn build(history: &[Event]) -> Self {
@@ -90,6 +97,53 @@ impl Projection {
         boundaries.sort_unstable();
         let mut result = Self::default();
         let mut seen_requests = std::collections::HashSet::new();
+        let mut titled_responses = std::collections::HashSet::new();
+        for (id, step, kind, raw) in history {
+            if kind != "activity.title" {
+                continue;
+            }
+            let annotation = (|| -> Result<Annotation> {
+                let annotation: Annotation = serde_json::from_str(raw)?;
+                let source = records
+                    .get(&annotation.model_event)
+                    .context("model response is not branch-visible")?;
+                if source.2 != "model.output" || source.1 != *step || source.0 >= *id {
+                    bail!("activity title references incompatible type, step or order");
+                }
+                let boundary = boundaries.partition_point(|boundary| *boundary <= source.0);
+                if boundaries
+                    .get(boundary)
+                    .is_some_and(|boundary| *boundary < *id)
+                {
+                    bail!("activity title crosses an attempt or branch boundary");
+                }
+                let action = crate::tools::parse_action(&source.3)?;
+                if action.activity_title.as_ref() != Some(&annotation.title) {
+                    bail!("activity title disagrees with recorded model response");
+                }
+                if !titled_responses.insert(annotation.model_event) {
+                    bail!("duplicate activity title for one model response");
+                }
+                Ok(annotation)
+            })();
+            match annotation {
+                Ok(annotation) => {
+                    let response = records[&annotation.model_event].3.clone();
+                    result.titles.insert(
+                        *id,
+                        TitleEvidence {
+                            annotation,
+                            response,
+                        },
+                    );
+                }
+                Err(error) => {
+                    result
+                        .malformed
+                        .insert(*id, format!("Invalid activity title #{id}: {error:#}"));
+                }
+            }
+        }
         for (id, step, kind, raw) in history {
             if kind != "tool.finished" {
                 continue;
@@ -165,7 +219,19 @@ impl Projection {
         }
         for (id, _, kind, raw) in history {
             if !is_protocol(kind) {
-                let card = describe(*id, kind, raw, result.tools.get(id));
+                let card = if let Some(evidence) = result.titles.get(id) {
+                    let annotation = &evidence.annotation;
+                    card(
+                        format!("Agent intent · {}", annotation.title.as_str()),
+                        format!(
+                            "Model-authored · response #{} · not execution evidence",
+                            annotation.model_event
+                        ),
+                        Tone::Info,
+                    )
+                } else {
+                    describe(*id, kind, raw, result.tools.get(id))
+                };
                 result.cards.insert(*id, card);
             }
         }
@@ -238,6 +304,11 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
         );
     }
     match kind {
+        "activity.title" => card(
+            "Agent intent · unvalidated",
+            "Unvalidated annotation; inspect raw evidence",
+            Tone::Attention,
+        ),
         "tool.result" => card("Tool output · unlinked", short(raw), Tone::Info),
         "tool.error" => card("Tool error · unlinked", short(raw), Tone::Error),
         "verification.passed" => card(

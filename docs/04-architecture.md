@@ -41,6 +41,7 @@ flowchart TD
 - `tui/focus.rs`, `tui/reading.rs`, `tui/routing.rs` — focus/draft state, session/branch reading positions, cached-row activity filtering and modal keyboard precedence.
 - `tui/exports.rs` — explicit clipboard exports and private editor-review snapshots, with terminal handoff/restoration. Helpers receive selected text, never a mutable Store/Engine handle.
 - `activity_cards.rs` — atomic tool outcome/correlation publication and pure branch-visible semantic card projections.
+- `activity_titles.rs` — strict optional coding-action title validation and response-linked annotation schema. Intent cards never establish execution outcomes or grant permissions.
 - `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — card/audit presentation, evidence expansion, workspace layout and discoverable keys.
 - `tui/approval.rs`, `tui/recovery.rs` — explicit approval choices and guarded restart/restore interactions.
 - `tui/reader.rs`, `markdown.rs` — bounded background preparation of large document viewports and terminal-safe Markdown/literal presentation.
@@ -92,4 +93,4 @@ Keep the native-write journal as the recovery basis. Record bounded SHA-256 mani
 
 ### ADR-006: Model suggestions are not authority
 
-Future activity titles, summaries and manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
+Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
