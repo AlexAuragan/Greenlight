@@ -1,0 +1,309 @@
+//! Engine retries use mock completions; no paid API calls or credentials.
+use super::*;
+use crate::{
+    provider::{Completion, Script},
+    provider_failure::Kind,
+    usage::Scope,
+};
+use std::{
+    fs,
+    sync::{atomic::Ordering, Arc, Mutex},
+};
+fn fixture(responses: Vec<Completion>) -> (tempfile::TempDir, Engine, Session) {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("greenlight.yaml"),
+        "provider:\n  model: fixture\n",
+    )
+    .unwrap();
+    let mut engine = Engine::open(root.path()).unwrap();
+    engine.provider.script = Some(Arc::new(Mutex::new(Script {
+        completions: responses.into(),
+        ..Default::default()
+    })));
+    let s = engine.store.create("demo", "goal", "work").unwrap();
+    engine
+        .store
+        .begin_attempt(&s, "work", "id: work", "fixture")
+        .unwrap();
+    (root, engine, s)
+}
+fn rate(wait: u64) -> Completion {
+    let mut c = Completion::parse(
+        429,
+        r#"{"error":{"code":"rate_limit_exceeded","message":"fixture-secret"}}"#,
+    )
+    .unwrap();
+    let f = c.failure.as_mut().unwrap();
+    f.retry_after_seconds = Some(wait);
+    c.content = Err(f.to_string());
+    c
+}
+fn success() -> Completion {
+    Completion::parse(200,r#"{"choices":[{"message":{"content":"done"}}],"usage":{"prompt_tokens":10,"completion_tokens":2}}"#).unwrap()
+}
+#[tokio::test]
+async fn rate_limit_retries_have_distinct_durable_usage_records() {
+    let (_root, engine, s) = fixture(vec![rate(0), success()]);
+    assert_eq!(
+        engine
+            .model_call(&s, "work", "coding", "fixture", &[])
+            .await
+            .unwrap(),
+        "done"
+    );
+    let report = engine.store.usage_report(&s, Scope::Session).unwrap();
+    assert_eq!(report.totals.requests, 2);
+    assert_ne!(report.calls[0].id, report.calls[1].id);
+    assert!(report.calls.iter().all(|c| c.attempt.is_some()));
+    assert_eq!(report.totals.output.reported, 2);
+    assert_eq!(report.totals.output.unknown_requests, 1);
+    assert!(engine
+        .store
+        .history(&s)
+        .unwrap()
+        .iter()
+        .any(|(_, _, kind, _)| kind == "provider.retry"));
+    assert!(!serde_json::to_string(&report)
+        .unwrap()
+        .contains("fixture-secret"));
+}
+#[tokio::test]
+async fn auth_billing_unknown_rate_and_service_failures_never_retry() {
+    for (status, body) in [
+        (
+            401,
+            r#"{"error":{"code":"invalid_api_key","message":"fixture-secret"}}"#,
+        ),
+        (429, r#"{"error":{"code":"insufficient_quota"}}"#),
+        (429, r#"{"error":{"message":"fixture-secret"}}"#),
+        (503, "fixture-secret"),
+    ] {
+        let (_root, engine, s) = fixture(vec![Completion::parse(status, body).unwrap(), success()]);
+        let error = engine
+            .model_call(&s, "work", "coding", "fixture", &[])
+            .await
+            .unwrap_err();
+        assert!(!error.to_string().contains("fixture-secret"));
+        assert_eq!(
+            engine
+                .store
+                .usage_report(&s, Scope::Session)
+                .unwrap()
+                .totals
+                .requests,
+            1
+        );
+        assert_eq!(
+            engine
+                .provider
+                .script
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .requests
+                .len(),
+            1
+        );
+        assert!(!serde_json::to_string(&engine.store.history(&s).unwrap())
+            .unwrap()
+            .contains("fixture-secret"));
+    }
+}
+#[tokio::test]
+async fn retries_stop_at_three_requests_or_excessive_server_wait() {
+    let (_root, engine, s) = fixture(vec![rate(0), rate(0), rate(0), success()]);
+    assert!(engine
+        .model_call(&s, "work", "coding", "fixture", &[])
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("budget"));
+    assert_eq!(
+        engine
+            .store
+            .usage_report(&s, Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        3
+    );
+    let (_root, engine, s) = fixture(vec![rate(60), success()]);
+    assert!(format!(
+        "{:#}",
+        engine
+            .model_call(&s, "work", "coding", "fixture", &[])
+            .await
+            .unwrap_err()
+    )
+    .contains("60s"));
+    assert_eq!(
+        engine
+            .store
+            .usage_report(&s, Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        1
+    );
+}
+#[tokio::test]
+async fn cancel_during_wait_records_no_second_request() {
+    let (_root, engine, s) = fixture(vec![rate(15), success()]);
+    let cancel = engine.provider.retry_cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        cancel.store(true, Ordering::SeqCst);
+    });
+    let error = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        engine.model_call(&s, "work", "coding", "fixture", &[]),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<crate::provider_failure::Failure>()
+            .unwrap()
+            .kind,
+        Kind::Cancelled
+    );
+    assert_eq!(
+        engine
+            .store
+            .usage_report(&s, Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        1
+    );
+    assert!(engine
+        .store
+        .history(&s)
+        .unwrap()
+        .iter()
+        .any(|(_, _, kind, _)| kind == "provider.retry-cancelled"));
+}
+
+#[tokio::test]
+async fn provider_failure_during_verification_blocks_without_workflow_retry_or_detector() {
+    let coding = Completion::parse(
+        200,
+        r#"{"choices":[{"message":{"content":"action: finish"}}]}"#,
+    )
+    .unwrap();
+    let rejected = Completion::parse(
+        401,
+        r#"{"error":{"code":"invalid_api_key","message":"fixture-secret"}}"#,
+    )
+    .unwrap();
+    let (root, mut engine, s) = fixture(vec![coding, rejected, success()]);
+    let folder = root.path().join("workflows/demo");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("workflow.yaml"),
+        "id: demo\ntitle: Demo\nstart: work\nsteps: [work]\n",
+    )
+    .unwrap();
+    fs::write(folder.join("work.md"),"---\nid: work\nverification:\n  type: agent\n  prompt: review.md\ndeviations:\n  - id: verification_failed\n    action: retry\n    max_retries: 3\n    prompt: review.md\n---\nWork\n").unwrap();
+    fs::write(folder.join("review.md"), "Review").unwrap();
+    engine.run(&s.id, None, None).await.unwrap();
+    assert_eq!(engine.store.session(&s.id).unwrap().status, "blocked");
+    assert_eq!(
+        engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+            .len(),
+        2
+    );
+    let history = engine.store.history(&s).unwrap();
+    assert!(history
+        .iter()
+        .any(|(_, _, kind, body)| kind == "step.blocked" && body.contains("credentials")));
+    assert!(!history
+        .iter()
+        .any(|(_, _, kind, _)| kind == "step.deviation"));
+    assert!(!serde_json::to_string(&history)
+        .unwrap()
+        .contains("fixture-secret"));
+}
+
+#[tokio::test]
+async fn local_auth_failure_is_not_sent_and_pre_cancel_creates_no_request() {
+    let (_root, mut engine, s) = fixture(vec![]);
+    engine.provider.script = None;
+    engine.provider.cfg.api_key_env =
+        format!("GREENLIGHT_MISSING_{}", uuid::Uuid::new_v4().simple());
+    let error = engine
+        .model_call(&s, "work", "coding", "fixture", &[])
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<crate::provider_failure::Failure>()
+            .unwrap()
+            .kind,
+        Kind::Credentials
+    );
+    let report = engine.store.usage_report(&s, Scope::Session).unwrap();
+    assert_eq!(report.calls[0].status, "not-sent");
+    assert!(report.calls[0]
+        .counts
+        .notes
+        .iter()
+        .any(|note| note.contains("No HTTP request was sent")));
+    let (_root, engine, s) = fixture(vec![success()]);
+    engine.provider.retry_cancel.store(true, Ordering::SeqCst);
+    assert!(engine
+        .model_call(&s, "work", "coding", "fixture", &[])
+        .await
+        .is_err());
+    assert_eq!(
+        engine
+            .store
+            .usage_report(&s, Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        0
+    );
+}
+
+#[tokio::test]
+async fn usage_persistence_failure_never_schedules_a_second_request() {
+    let (_root, engine, s) = fixture(vec![rate(0), success()]);
+    engine.store.db.execute_batch("CREATE TRIGGER reject_usage_update BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'injected ledger failure'); END;").unwrap();
+    let error = engine
+        .model_call(&s, "work", "coding", "fixture", &[])
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("could not persist model usage"));
+    assert_eq!(
+        engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+            .len(),
+        1
+    );
+    let report = engine.store.usage_report(&s, Scope::Session).unwrap();
+    assert_eq!(report.totals.requests, 1);
+    assert_eq!(report.calls[0].status, "started-or-interrupted");
+    assert!(!engine
+        .store
+        .history(&s)
+        .unwrap()
+        .iter()
+        .any(|(_, _, kind, _)| kind == "provider.retry"));
+}

@@ -43,6 +43,12 @@ Worker failures/disconnects, blocked-step reasons, malformed known structured ev
 
 Restore failures include files changed versus files journaled. A failed restart does not fork, and a restore-then-fork failure is explicitly distinguished. Inspect workspace/history before retrying; a partial restore is not automatically rolled back. Artifact read failures preserve history access.
 
+## Provider failures and retry waits
+
+Provider errors show actionable guidance for credentials, account credit/quota, rate limiting, permissions, invalid requests and provider/network problems. Final failures block the session and appear in the existing diagnostic/history panels. Errors during verification stop the run directly; they cannot trigger a verification-failed workflow retry or detector call.
+
+Eligible rate-limit rejections or connection failures can retry with at most three requests. The activity list records each failure and retry delay. Press `x` in navigation (including a reading/help/diagnostic panel) to cancel a retry wait and stop future provider requests from this worker. It does not interrupt an in-flight HTTP request or stop a tool already running; a returned action may still finish before the next provider-call boundary. `x` stays literal text in the composer/search, and is inactive during approval dialogs. A fresh resume creates a new worker with cancellation cleared. See [provider failures](19-provider-failures.md) for retry/billing limits.
+
 ## Token usage
 
 The footer reports input/cached-input/output token totals for recorded requests across the selected session’s branches. `~` marks estimates and `?` marks incomplete counts. Enter `/usage` in the composer for live-refreshed counts and estimated cost subtotals by model/attempt; arrows scroll and Escape closes the view. Unknown rates or cache hits do not become zero charges. Use CLI `usage SESSION_ID --json` for per-request provenance. Historical calls before the ledger was introduced are not reconstructed.

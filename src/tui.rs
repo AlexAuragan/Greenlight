@@ -697,6 +697,13 @@ impl App {
         }
 
         self.sync_draft();
+        if self.approval.is_none() && self.focus!=Focus::Compose && !self.searching && self.new_session.is_none() && key.code==KeyCode::Char('x') {
+            if let Some(cancel)=self.runner.as_ref().and_then(|r|r.cancel_retry.as_ref()) {
+                cancel.store(true,std::sync::atomic::Ordering::SeqCst);
+                self.notice="Stop requested: retry waits cancel promptly; an in-flight request may finish, and no further provider request will start.".into();
+                return Ok(false);
+            }
+        }
         if self.too_small() {
             if key.code==KeyCode::Esc && self.approval.is_some() {self.deliver_approval('n')?;}
             return Ok(key.code==KeyCode::Char('q') && self.runner.is_none());
@@ -1004,6 +1011,9 @@ fn conversational_label(kind: &str) -> &str {
         "runner.error" => "Worker error",
         "step.deviation" => "Needs attention",
         "verification.failed" => "Verification failed",
+        "provider.failure"=>"Provider failure",
+        "provider.retry"=>"Waiting for provider retry (x cancels)",
+        "provider.retry-stopped"|"provider.retry-cancelled"=>"Provider retry stopped",
         "tool.error" => "Tool failed",
         "tool.result" => "Tool output",
         "file.changed" => "Code edit",
@@ -1108,6 +1118,7 @@ Small terminals
 Below 72 columns or 22 rows: one pane at a time; arrows switch panes.
 Below 40×14: resize notice; approvals require 40×20. Esc denies.
 Resizing preserves drafts and selections; scroll clamps to content.
+x: stop future provider requests/cancel retry wait; in-flight request may finish
 q: quit when this TUI has no active worker
 ";
 
@@ -1367,7 +1378,7 @@ fn draw(frame: &mut Frame, app: &App) {
         input
     };
     let input_title = if app.runner.is_some() {
-        " Agent running — input disabled until done "
+        " Agent running · x stops future provider requests "
     } else {
         " Message agent · i or Enter to focus · Enter sends "
     };
@@ -1471,7 +1482,7 @@ mod tests {
         let (answers, old_answers) = std::sync::mpsc::channel();
         let (finished_tx, finished) = std::sync::mpsc::channel();
         let mut app = App::new(None);
-        app.runner = Some(Runner { prompts, answers, finished, session_id:None });
+        app.runner = Some(Runner { cancel_retry:None, prompts, answers, finished, session_id:None });
         app.approval = Some(ApprovalPrompt {
             content: "old request".into(), mode: ApprovalMode::Persistent,
         });
@@ -1485,7 +1496,7 @@ mod tests {
         let (_prompt_tx, prompts) = std::sync::mpsc::channel();
         let (answers, fresh_answers) = std::sync::mpsc::channel();
         let (_finished_tx, finished) = std::sync::mpsc::channel();
-        app.runner = Some(Runner { prompts, answers, finished, session_id:None });
+        app.runner = Some(Runner { cancel_retry:None, prompts, answers, finished, session_id:None });
         assert!(app.deliver_approval('y').is_err());
         assert!(fresh_answers.try_recv().is_err());
     }
@@ -1581,7 +1592,7 @@ mod tests {
         let (answer_tx, answer_rx) = std::sync::mpsc::channel();
         let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
         let mut app = App::new(None);
-        app.runner = Some(Runner {
+        app.runner = Some(Runner { cancel_retry:None,
             session_id: None,
             prompts: prompts_rx, answers: answer_tx, finished: finish_rx,
         });
@@ -1610,7 +1621,7 @@ mod tests {
         let (answer_tx, answer_rx) = std::sync::mpsc::channel();
         let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
         let mut app = App::new(None);
-        app.runner = Some(Runner {
+        app.runner = Some(Runner { cancel_retry:None,
             session_id: None,
             prompts: prompts_rx, answers: answer_tx, finished: finish_rx,
         });

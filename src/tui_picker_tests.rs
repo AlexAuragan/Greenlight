@@ -119,7 +119,7 @@ fn pending_approval_clears_filter_that_hides_its_owner() {
     let (sender, prompts) = mpsc::channel();
     let (answers, _received) = mpsc::channel();
     let (_finished, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { cancel_retry:None,
         session_id: Some(owner.id.clone()),
         prompts,
         answers,

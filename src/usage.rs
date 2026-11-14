@@ -575,6 +575,7 @@ mod tests {
     }
     fn response(raw: Value) -> Completion {
         Completion {
+            failure:None,
             content: Ok("hello world".into()),
             raw_usage: Some(raw),
             response_id: Some("response-fixture".into()),
@@ -607,6 +608,7 @@ mod tests {
         let s = store.create("demo", "goal", "work").unwrap();
         let mut record = call(&s);
         record.finish(&Completion {
+            failure:None,
             content: Ok("Bonjour 世界".into()),
             raw_usage: None,
             response_id: None,
@@ -738,7 +740,7 @@ mod tests {
             assert_eq!(record.counts.output.value, Some(20));
             assert_eq!(record.status, "failed-response");
         }
-        assert!(Completion::parse(502, "not-json").is_err());
+        assert!(Completion::parse(502, "not-json").unwrap().content.is_err());
     }
 
     #[test]
@@ -906,6 +908,7 @@ mod tests {
             responses: responses.into_iter().map(|s| Ok(s.into())).collect(),
             usages: (0..6).map(|_| Some(usage())).collect(),
             requests: Vec::new(),
+            ..Default::default()
         })));
         let session = engine.store.create("demo", "goal", "work").unwrap();
         engine.run(&session.id, None, None).await.unwrap();

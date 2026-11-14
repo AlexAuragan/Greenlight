@@ -169,6 +169,7 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        cancel_retry: None,
         session_id: None,
         prompts,
         answers,
@@ -219,6 +220,7 @@ fn approval_owner_switch_preserves_both_session_drafts() {
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        cancel_retry: None,
         session_id: Some(owner.id.clone()),
         prompts,
         answers,
@@ -389,6 +391,7 @@ fn artifact_history_closes_after_branch_switch_and_approvals_take_priority() {
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        cancel_retry: None,
         session_id: Some(s.id),
         prompts,
         answers,
@@ -404,4 +407,39 @@ fn artifact_history_closes_after_branch_switch_and_approvals_take_priority() {
     assert!(app.approval.is_some());
     key(&mut app, &store, root.path(), KeyCode::Char('v'));
     assert!(app.artifact_browser.is_none());
+}
+
+#[test]
+fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut app = App::new(None);
+    let cancel = std::sync::Arc::new(AtomicBool::new(false));
+    let (_pt, prompts) = mpsc::channel();
+    let (answers, _rx) = mpsc::channel();
+    let (_ft, finished) = mpsc::channel();
+    app.runner = Some(Runner {
+        cancel_retry: Some(cancel.clone()),
+        session_id: None,
+        prompts,
+        answers,
+        finished,
+    });
+    app.focus_composer();
+    key(&mut app, &store, root.path(), KeyCode::Char('x'));
+    assert_eq!(app.composer, "x");
+    assert!(!cancel.load(Ordering::SeqCst));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    app.approval = Some(ApprovalPrompt {
+        content: "Approval stays explicit".into(),
+        mode: ApprovalMode::Human,
+    });
+    key(&mut app, &store, root.path(), KeyCode::Char('x'));
+    assert!(!cancel.load(Ordering::SeqCst));
+    assert!(app.approval.is_some());
+    app.approval = None;
+    key(&mut app, &store, root.path(), KeyCode::Char('x'));
+    assert!(cancel.load(Ordering::SeqCst));
+    assert!(app.notice.contains("in-flight request may finish"));
 }

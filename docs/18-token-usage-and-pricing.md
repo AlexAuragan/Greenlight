@@ -74,3 +74,8 @@ All three rates are optional: omitted/null means unknown, never free. A pricing 
 - Unknown cache usage prevents a point cost estimate when cached and uncached rates differ. If the configured rates are identical, an estimate can use total input without pretending the cache split is known. Known-cost subtotals and incomplete-cost request counts are shown separately, with currencies never combined.
 - The ledger groups actual dispatched request records, not provider invoices. It deduplicates repeated recording of a request ID; separate network attempts are separate records even if responses resemble one another. No past usage is inferred from old event history.
 - Pricing discovery/freshness, tier selection, actual invoice reconciliation and budgets remain separate work. Provider-reported raw usage is retained; calculated costs are explicitly estimates.
+
+
+## Provider failures and retries
+
+Each inference request attempt, including an automatic retry, has its own durable call UUID and usage record under the same workflow attempt/purpose. Local preflight failures are marked `not-sent`; their input estimate is prepared text, not billed usage. Rejected requests retain any reported usage, fallback input estimates and unknown output/cache values; rejection is not a fabricated zero-cost response. Error bodies/messages are not retained as diagnostics. Safe failure details and retry scheduling events refer to call IDs. If processing/billing is uncertain, the call's notes say so and no per-call cost estimate is supplied. Cancelling a backoff adds an event without inventing another sent request. A process exit during a wait retains the already-finished failed-request record. See [provider failure policy](19-provider-failures.md).

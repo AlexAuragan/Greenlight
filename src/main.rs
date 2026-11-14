@@ -6,6 +6,7 @@ mod markdown;
 mod artifact_history;
 mod paths;
 mod provider;
+mod provider_failure;
 mod restore;
 mod sandbox;
 mod store;

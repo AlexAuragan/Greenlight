@@ -13,6 +13,7 @@ use std::{
 };
 
 pub struct Runner {
+    pub cancel_retry:Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub session_id: Option<String>,
     pub prompts: Receiver<ApprovalPrompt>,
     pub finished: Receiver<Result<(), String>>,
@@ -24,10 +25,13 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
     let (answers, answer_rx) = mpsc::channel();
     let (finished_tx, finished) = mpsc::channel();
     let owner_session=session_id.clone();
+    let cancel_retry=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_cancel=cancel_retry.clone();
 
     std::thread::spawn(move || {
         let result = (|| -> Result<()> {
             let mut engine = Engine::open(&root)?;
+            engine.provider.retry_cancel=worker_cancel;
             engine.tools.use_tui(prompt_tx, answer_rx);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all().build()?;
@@ -36,7 +40,7 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
 
-    Runner { prompts, finished, answers, session_id:Some(owner_session) }
+    Runner { prompts, finished, answers, session_id:Some(owner_session),cancel_retry:Some(cancel_retry) }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

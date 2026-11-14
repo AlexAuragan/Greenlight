@@ -62,7 +62,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
         ));
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { cancel_retry:None,
             session_id: None,
         prompts,
         answers,
@@ -78,7 +78,7 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
     let (_pt, prompts) = mpsc::channel();
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { cancel_retry:None,
             session_id: None,
         prompts,
         answers,
@@ -225,7 +225,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
         mode: ApprovalMode::Human,
     })
     .unwrap();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { cancel_retry:None,
             session_id: None,
         prompts,
         answers,
@@ -428,7 +428,7 @@ fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
     let (sender,prompts)=mpsc::channel();
     let (answers,_received)=mpsc::channel();
     let (_finished,finished)=mpsc::channel();
-    app.runner=Some(Runner{session_id:Some(owner.id.clone()),prompts,answers,finished});
+    app.runner=Some(Runner{cancel_retry:None,session_id:Some(owner.id.clone()),prompts,answers,finished});
     sender.send(ApprovalPrompt{content:"Owner permission".into(),mode:ApprovalMode::Human}).unwrap();
     app.tick();
     assert_eq!(app.session().unwrap().id,owner.id);

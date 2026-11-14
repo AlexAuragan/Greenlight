@@ -128,3 +128,12 @@ See [validation status](06-validation.md), [restore limitations](09-workspace-re
 3. Publish a third version from another terminal. Refresh should keep the inspected creation ID and diff pinned. Escape returns to the latest artifact list; the composer draft should be retained.
 4. Fork at an earlier event and reopen versions. Parent versions after the cutoff must be absent; inherited versions should identify their source branch. Switching branch while browsing closes the browser.
 5. Export each side with `artifact SESSION NAME --event ID > version.md`. Compare originals externally if they exceed the diff limit. Version inspection/export must not add events, approve anything, or resume work.
+
+
+## Provider failure handling (use a mock endpoint)
+
+1. Return 401/invalid_api_key, 402 or 429/insufficient_quota. CLI/TUI should explain the key or billing problem, block the run and send no retry. Put a fake secret in the error message and verify it is absent from history/usage/diagnostics.
+2. Return 429/rate_limit_exceeded with Retry-After: 0, then a valid completion. Verify two request UUIDs in `usage`, one failed and one successful. Repeated limits stop after three requests; Retry-After: 60 stops immediately rather than shortening the wait.
+3. During an eligible retry wait, press x in TUI navigation. It should cancel promptly, retain the first call record and send no second request. Resuming creates a fresh worker. x must remain text in the composer/search and must not answer an approval.
+4. Return HTML/non-JSON 503 or simulate a timeout. The message should explain service/network uncertainty without exposing the body/URL or automatically repeating inference.
+5. Fail an agent-verification request with an authentication error in a workflow with verification_failed retry/detector rules. It should block immediately with no additional provider calls.

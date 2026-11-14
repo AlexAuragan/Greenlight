@@ -272,19 +272,47 @@ impl Engine {
         Ok(Some(verdict))
     }
     async fn model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value])->Result<String> {
-        let metadata=self.cfg.provider.model_metadata.get(model).cloned().unwrap_or_default();
-        // Persist only the service origin, never URL user-info or query secrets.
-        let provider=reqwest::Url::parse(&self.cfg.provider.base_url).map(|url|url.origin().ascii_serialization()).unwrap_or_else(|_|"unknown provider".into());
-        let mut call=crate::usage::Call::new(s,step,purpose,model,&provider,metadata,messages);
-        self.store.begin_model_call(s,&mut call)?;
-        let result=self.provider.complete(model,messages).await;
-        match &result {
-            Ok(response)=>call.finish(response),
-            Err(_)=>call.status="failed-or-unknown-billing".into(),
+        use crate::provider_failure::{Failure,Kind};
+        for attempt in 1..=3 {
+            if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
+            let metadata=self.cfg.provider.model_metadata.get(model).cloned().unwrap_or_default();
+            let provider=reqwest::Url::parse(&self.cfg.provider.base_url).map(|url|url.origin().ascii_serialization()).unwrap_or_else(|_|"unknown provider".into());
+            let mut call=crate::usage::Call::new(s,step,purpose,model,&provider,metadata,messages);
+            self.store.begin_model_call(s,&mut call)?;
+            let result=self.provider.complete(model,messages).await;
+            let failure=match &result {
+                Ok(response)=>{call.finish(response);response.failure.clone()},
+                Err(error)=>{call.status="failed-or-unknown-billing".into();error.downcast_ref::<Failure>().cloned()},
+            };
+            if let Some(failure)=&failure {
+                call.counts.notes.push(failure.to_string());
+                if failure.status.is_none() && matches!(failure.kind,Kind::Credentials|Kind::Request) {call.status="not-sent".into();call.counts.notes.push("No HTTP request was sent; input counts describe the prepared request, not billed usage.".into());}
+                if failure.billing_uncertain {call.estimated_cost=None;}
+            }
+            self.store.finish_model_call(s,&call).context("could not persist model usage; initial request record retained")?;
+            if let Some(failure)=failure {
+                console_eprintln!(self,"[provider] {failure}");
+                self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"request_number":attempt,"failure":failure}))?)?;
+                if let Some(delay)=failure.delay(attempt) {
+                    console_eprintln!(self,"[provider retry] request {}/3 in {:.2}s",attempt+1,delay.as_secs_f64());
+                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":"Waiting before provider retry; x in TUI cancels future provider requests"}).to_string())?;
+                    if let Err(cancelled)=crate::provider_failure::wait(delay,&self.provider.retry_cancel).await {
+                        self.store.event(s,Some(step),"provider.retry-cancelled",&cancelled.to_string())?;
+                        return Err(cancelled.into());
+                    }
+                    continue;
+                }
+                if failure.retryable {
+                    self.store.event(s,Some(step),"provider.retry-stopped","Automatic retry budget exhausted or Retry-After exceeds the 15-second per-wait limit; resume explicitly later.")?;
+                    return Err(anyhow::Error::new(failure).context("Automatic retry budget exhausted or requested wait exceeds 15s; resume explicitly later."));
+                }
+                return Err(failure.into());
+            }
+            return result?.content.map_err(anyhow::Error::msg);
         }
-        self.store.finish_model_call(s,&call).context("could not persist model usage; initial request record retained")?;
-        result?.content.map_err(anyhow::Error::msg)
+        unreachable!("last request cannot schedule another retry")
     }
+
     async fn block(&self, s: &mut Session, reason: &str, step: &str) -> Result<()> {
         s.status = "blocked".into();
         self.store.save(s)?;
@@ -410,6 +438,7 @@ impl Engine {
                 }
                 self.store.approve_inputs(s, &step.id, input_manifest, &inputs, || self.select_inputs(s, wf, step))?;
                 if let Err(e) = self.verify(s, wf, step, model).await {
+                    if e.downcast_ref::<crate::provider_failure::Failure>().is_some() {return Err(e);}
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
                         format!("{e:#}"),
@@ -429,6 +458,7 @@ impl Engine {
                     return Ok(Outcome::Deviation("command_failed".into(), result));
                 }
                 if let Err(e) = self.verify(s, wf, step, model).await {
+                    if e.downcast_ref::<crate::provider_failure::Failure>().is_some() {return Err(e);}
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
                         format!("{e:#}"),
@@ -605,6 +635,7 @@ impl Engine {
                         }
                     }
                     if let Err(e) = self.verify(s, wf, step, model).await {
+                        if e.downcast_ref::<crate::provider_failure::Failure>().is_some() {return Err(e);}
                         return Ok(Outcome::Deviation(
                             "verification_failed".into(),
                             format!("{e:#}"),
@@ -862,3 +893,7 @@ mod name_tests {
         assert_eq!(project_instructions(root.path()).unwrap(), "new instructions");
     }
 }
+
+#[cfg(test)]
+#[path = "provider_engine_tests.rs"]
+mod provider_failure_tests;
