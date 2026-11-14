@@ -23,7 +23,7 @@ Sessions show their goal, workflow/status, current step and latest recorded acti
 
 From navigation press `f` to search goals, workflows, current steps, statuses or full session IDs. Matching is case-insensitive and accepts Unicode. Use arrows to select, Enter to keep the filter, or Escape to clear it. To clear an applied filter, press `f`, then Escape. The sidebar shows matching/total counts. A worker's approval switches back to its owning session and clears a filter that might hide it.
 
-Press `n` to choose a workflow from the project's `workflows/` directories. Arrows or `j/k` select; Enter opens the goal form. Invalid workflows are labelled and show their validation error. Enter a nonempty goal and press Enter to create a **ready** session; Escape cancels without creating one. Creation reloads and validates the workflow, preserves the existing composer draft, and runs no model requests. Press `i`, type `/resume` or instructions, then Enter to execute through the normal engine and approval policy. Creation is disabled while this TUI has an active worker. Workflow authoring and provider configuration remain CLI/file operations.
+Press `n` to choose a workflow from the project's `workflows/` directories. Arrows or `j/k` select; Enter opens the goal form. Invalid workflows are labelled and show their validation error. Enter a nonempty goal and press Enter to create a **ready** session; Escape cancels without creating one. Creation reloads and validates the workflow, retains the previous session’s draft separately, opens an empty draft for the new session, and runs no model requests. Press `i`, type `/resume` or instructions, then Enter to execute through the normal engine and approval policy. Creation is disabled while this TUI has an active worker. Workflow authoring and provider configuration remain CLI/file operations.
 
 ## Main interaction
 
@@ -61,7 +61,7 @@ The restore planner refuses mismatched file snapshots, manual drift, symlinks, a
 
 ## Keys
 
-The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, return with Left/Escape, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown are intentionally not bound**. Navigation opens without focusing the composer, even for blocked sessions.
+The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, return with Left/Escape, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown optionally scroll eight lines**, and Home/End jump to the beginning/end of reading panels. Navigation opens without focusing the composer, even for blocked sessions.
 
 - **Left/Right** (or **Escape/Enter**) navigate from Sessions → event/artifact list → detail pane; focused detail content scrolls independently of the selected item.
 - **i** focuses the composer directly; **Enter** from the detail pane also focuses it, and **Enter** in the composer sends. **Escape** from the composer returns to the previous pane.
@@ -71,8 +71,19 @@ The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, retu
 - **j/k**, Up/Down and **g/G** or Home/End navigate sessions, events and artifacts when a list is focused; Up/Down or j/k scroll line by line when detail is focused.
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
 - **Up/Down** (or **j/k**) also scroll permission requests and restoration previews when those dialogs are open.
+- **?** opens scrollable keyboard help in navigation; **/help** opens it from the composer. Escape closes it. During text entry, `?` is literal text; during approvals, help/navigation shortcuts are inactive.
 - **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/recover** recovers the selected session's interrupted execution owner without running it; **/events** toggles raw event visibility; **/help** lists shortcuts.
 - **q** quits from navigation mode when no agent is running. The TUI intentionally prevents quitting while its own worker is active, to avoid silently abandoning a pending prompt.
+
+## Drafts, following and terminal size
+
+Unsent composer text belongs to the selected session ID. Switching sessions, changing filters, opening help, cancelling restart and returning to an approval's owning session retain each session's draft separately. A new session starts with an empty draft. Drafts remain **in memory only**; exiting the TUI discards them. Long messages scroll to keep their end visible.
+
+Activity initially follows incoming events. Opening evidence or navigating activity pauses following, including when reading the latest event. Background polling preserves that event and its scroll position. In the activity list, End or `G` selects the latest visible event and resumes following; Home or `g` selects the first and pauses. The activity title indicates following/paused. Artifact and diagnostic scrolling remains independent of new activity.
+
+Below 72 columns or 22 rows, the TUI uses a compact header and the session list or active workspace at full width; Left/Right switches panes. Wrapped-content scroll bounds are recomputed at the current size, so overscrolling and resizing do not leave a blank reading panel. Below 40×14 it shows a resize notice and retains drafts/selections. Approval requests require at least 40×20; until then decision keys are disabled and Escape denies. Restoring the terminal size restores the pending request. Enter remains inert during approvals at every size.
+
+The wrapped-line calculation uses Ratatui's `unstable-rendered-line-info` feature on the version recorded in `Cargo.lock`; dependency upgrades must retain the resize/scroll tests.
 
 ## Limitations
 

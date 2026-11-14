@@ -2,6 +2,7 @@
 
 > **Status:** dated product/UX research and design history, **not a current implementation specification**. Some descriptions and proposed keys are deliberately preserved as historical evidence.
 > **Original baseline:** `feat/ratatui-session-viewer` / PR #6, 2026-11-12. **Current as of 2026-11-13:** PRs #6–#9 are merged; the Ratatui TUI, basic Markdown renderer, guarded native-file restore, workspace manifests and Greenlight rename exist. See [current TUI behavior](11-tui.md), [execution contract](01-execution-contract.md), [README status](../README.md#roadmap--todo) and the [decision log](16-decision-log.md).
+> **Implementation update (2026-11-14):** the P1 branch now has session workspaces, a searchable picker, in-TUI creation, keyboard help, explicit activity following, per-session memory-only drafts and compact resizing. The proposals below remain historical; current keys and limits are in [the TUI contract](11-tui.md).
 > **Audience:** people using Greenlight to supervise AI coding workflows; contributors implementing the terminal interface.
 > **Companion:** the prioritized checklist in [README.md](../README.md#roadmap--todo).
 >

@@ -10,7 +10,8 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 crossterm = "0.29"
 clap = { version = "4", features = ["derive"] }
-ratatui = "0.30.2"
+# Wrapped line counts keep scrolling accurate at different terminal widths.
+ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

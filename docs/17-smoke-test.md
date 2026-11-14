@@ -102,3 +102,12 @@ In a prior disposable calculator session, the coding agent added `square()` and 
 The deterministic suite now covers the core controlled/provider-free paths, ownership, pending-request expiry, native-write interruption and partial-restore error reporting. Extend it with actual terminal resize tests, broader fault injection and live-provider/network scenarios as those capabilities evolve. The integration test requiring Bubblewrap/user namespaces remains ignored by default and must be run explicitly in a suitable environment.
 
 See [validation status](06-validation.md), [restore limitations](09-workspace-restore.md), [workspace recording](14-workspace-recording.md) and the [README TODO](../README.md#roadmap--todo).
+
+
+## P1 navigation and resize check
+
+1. Open `?`, scroll with arrows/j/k or PgUp/PgDn, and close with Escape. Enter `/help` in the composer and verify it opens the same panel.
+2. Draft different instructions in two sessions, switch between them, filter to no results and clear the filter. Each session should retain its own draft; creating a new session should open an empty draft. Exit/reopen discards drafts.
+3. Open the latest event's evidence while another process appends activity. The event and reading position should stay fixed. Return to the activity list and press End to follow new events again.
+4. Resize through 120×40, 80×24, 60×20 and 40×14. Verify the active pane remains usable, long message endings stay visible, and restoring the size retains drafts/selections. Scroll to End, resize wider and press Up: content should remain visible and scroll back immediately.
+5. With a pending approval, shrink below 40×20. Decision keys should do nothing; Escape may deny. Resize to 60×20 and confirm the original request is still present. Enter must never approve.

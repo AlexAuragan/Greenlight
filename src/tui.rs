@@ -17,6 +17,8 @@ use ratatui::{
     Frame,
 };
 use std::{
+    cell::Cell,
+    collections::HashMap,
     io::{self, IsTerminal},
     path::{Path, PathBuf},
     sync::mpsc::TryRecvError,
@@ -86,6 +88,12 @@ struct App {
     session_total: usize,
     session_activity: crate::session_picker::Activity,
     new_session: Option<crate::session_picker::NewSession>,
+    drafts: HashMap<Option<String>, String>,
+    composer_session: Option<String>,
+    follow_activity: bool,
+    help: bool,
+    rendered_scroll: Cell<Option<(u16,u16)>>,
+    viewport: (u16,u16),
 }
 
 impl App {
@@ -138,6 +146,12 @@ impl App {
             session_total: 0,
             session_activity: Default::default(),
             new_session: None,
+            drafts: HashMap::new(),
+            composer_session: None,
+            follow_activity: true,
+            help: false,
+            rendered_scroll: Cell::new(None),
+            viewport: (80,24),
         }
     }
     fn raise_diagnostic(&mut self, message: String) {
@@ -157,6 +171,7 @@ impl App {
         if let Some(id)=self.workspace.as_ref().and_then(|w|w.blocker.as_ref()).map(|b|b.event_id) {
             if let Some(index)=self.events.iter().position(|e|e.id==id) {self.event_index=index;}
         }
+        self.follow_activity=false;
         self.blocker_card=false;
         self.view=View::Conversation;
         self.focus=Focus::Detail;
@@ -198,7 +213,8 @@ impl App {
     fn focus_right(&mut self) {
         self.focus = match self.focus {
             Focus::Sessions => self.main_focus(),
-            Focus::Events | Focus::Artifacts => Focus::Detail,
+            Focus::Events => {self.follow_activity=false;Focus::Detail},
+            Focus::Artifacts => Focus::Detail,
             other => other,
         };
     }
@@ -212,14 +228,28 @@ impl App {
     }
 
     fn scroll_detail(&mut self, delta: i16) {
-        self.detail_scroll = self.detail_scroll.saturating_add_signed(delta);
+        let current=self.rendered_scroll.get().filter(|(requested,_)|*requested==self.detail_scroll).map(|(_,clamped)|clamped).unwrap_or(self.detail_scroll);
+        self.detail_scroll = current.saturating_add_signed(delta);
     }
+
+    fn sync_draft(&mut self) {
+        let selected=self.session().map(|s|s.id.clone());
+        if selected!=self.composer_session {
+            self.drafts.insert(self.composer_session.take(),std::mem::take(&mut self.composer));
+            self.composer=self.drafts.remove(&selected).unwrap_or_default();
+            self.composer_session=selected;
+        }
+    }
+
+    fn open_help(&mut self) {self.help=true;self.detail_scroll=0;}
+    fn too_small(&self)->bool {self.viewport.0<40 || self.viewport.1<14 || (self.approval.is_some() && self.viewport.1<20)}
+
 
     fn refresh(&mut self, store: &Store) -> Result<()> {
         let old_session = self.session().map(|s| s.id.clone());
         let old_event = self.event().map(|e| e.id);
         let old_artifact = self.artifact().map(|a| a.name.clone());
-        let following_tail = self.events.len().checked_sub(1) == Some(self.event_index);
+        let following_tail = self.follow_activity;
 
         self.sessions = store.list()?;
         self.session_total=self.sessions.len();
@@ -235,6 +265,8 @@ impl App {
         } else {
             self.session_index = 0;
         }
+        let loaded_session_changed=self.workspace_session.as_deref()!=self.session().map(|s|s.id.as_str());
+        self.sync_draft();
         let changed_session = old_session.as_deref() != self.session().map(|s| s.id.as_str());
         if let Some(session) = self.session().cloned() {
             let history = store.history(&session)?;
@@ -252,7 +284,7 @@ impl App {
                 }
                 Err(error)=>{self.workspace=None;self.workspace_error=Some(format!("Workspace projection unavailable: {error:#}"));}
             }
-            if session_changed {self.context_detail=None;}
+            if session_changed {self.context_detail=None;self.follow_activity=true;}
             let show_all = self.show_all;
             self.events = history
                 .into_iter()
@@ -308,20 +340,14 @@ impl App {
         } else {
             self.artifact_index = 0;
         }
-        if changed_session || following_tail {
+        if changed_session || loaded_session_changed || following_tail {
             self.event_index = self.events.len().saturating_sub(1);
-            if (changed_session || self.view == View::Conversation) && self.diagnostic.is_none() && self.approval.is_none() && self.usage_detail.is_none() && self.context_detail.is_none() && !self.blocker_card {
-                self.detail_scroll = 0;
-            }
-            self.diff = None;
         } else if let Some(id) = old_event {
-            self.event_index = self
-                .events
-                .iter()
-                .position(|event| event.id == id)
-                .unwrap_or(self.events.len().saturating_sub(1));
-        } else {
-            self.event_index = self.events.len().saturating_sub(1);
+            self.event_index=self.events.iter().position(|event|event.id==id).unwrap_or(self.events.len().saturating_sub(1));
+        } else {self.event_index=self.events.len().saturating_sub(1);}
+        let event_changed=old_event!=self.event().map(|e|e.id);
+        if (changed_session || event_changed) && self.view==View::Conversation && self.diagnostic.is_none() && self.approval.is_none() && self.usage_detail.is_none() && self.context_detail.is_none() && !self.help && !self.blocker_card {
+            self.detail_scroll=0;
         }
         if self.diff.as_ref().is_some_and(|(id, _)| self.event().map(|event| event.id) != Some(*id)) {
             self.diff = None;
@@ -345,6 +371,7 @@ impl App {
                 }
             }
             Focus::Events => {
+                self.follow_activity=false;
                 let next = move_index(self.event_index, delta, self.events.len());
                 if next != self.event_index {
                     self.event_index = next;
@@ -378,6 +405,7 @@ impl App {
                 }
             }
             Focus::Events => {
+                self.follow_activity=last;
                 self.event_index = if last { self.events.len().saturating_sub(1) } else { 0 };
                 self.detail_scroll = 0;
                 self.diff = None;
@@ -447,6 +475,7 @@ impl App {
         if self.approval.is_none() {
             match runner.prompts.try_recv() {
                 Ok(question) => {
+                    self.help=false;
                     self.searching=false;
                     self.session_query.clear();
                     self.new_session=None;
@@ -485,6 +514,7 @@ impl App {
             return;
         }
         if instruction == "/restart" {
+            self.composer.clear();
             self.open_restart(root, store);
             return;
         }
@@ -494,9 +524,7 @@ impl App {
             return;
         }
         if instruction == "/help" {
-            self.notice = "f searches sessions; n creates a ready session; type a message to resume; /context shows attempt/input evidence; /usage shows token/cost accounting; /recover recovers a dead owner; /restart selects an earlier step; /events toggles protocol detail; Ctrl+J adds a newline.".into();
-            self.composer.clear();
-            return;
+            self.open_help();self.composer.clear();return;
         }
         if instruction=="/usage" {
             if let Some(session)=self.session() {
@@ -572,7 +600,6 @@ impl App {
                     .position(|candidate| candidate.step == session.current_step)
                     .unwrap_or(choices.len() - 1);
                 self.restart_choices = choices;
-                self.composer.clear();
                 self.notice = "Select the step to restart. Enter previews; Esc cancels.".into();
             }
             Ok(_) => self.notice = "No recorded step attempts to restart.".into(),
@@ -629,7 +656,6 @@ impl App {
         }
         self.restart_choices.clear();
         self.restart_branch = None;
-        self.composer.clear();
         self.focus_composer();
         self.detail_scroll = 0;
     }
@@ -660,6 +686,11 @@ impl App {
             return Ok(false);
         }
 
+        self.sync_draft();
+        if self.too_small() {
+            if key.code==KeyCode::Esc && self.approval.is_some() {self.deliver_approval('n')?;}
+            return Ok(key.code==KeyCode::Char('q') && self.runner.is_none());
+        }
         if let Some(mode) = self.approval.as_ref().map(|request| request.mode) {
             if key.kind != KeyEventKind::Press { return Ok(false); }
             match key.code {
@@ -673,6 +704,10 @@ impl App {
                 // Enter is intentionally inert. Approval must be an explicit
                 // choice, never an accidental confirmation of a default.
                 KeyCode::Enter => {}
+                KeyCode::PageDown=>self.scroll_detail(8),
+                KeyCode::PageUp=>self.scroll_detail(-8),
+                KeyCode::Home=>self.detail_scroll=0,
+                KeyCode::End=>self.detail_scroll=u16::MAX,
                 KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
                 KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
                 _ => {}
@@ -680,6 +715,29 @@ impl App {
             return Ok(false);
         }
 
+        if self.help {
+            match key.code {
+                KeyCode::Esc|KeyCode::Char('?')=>{self.help=false;self.detail_scroll=0;},
+                KeyCode::Down|KeyCode::Char('j')=>self.scroll_detail(1),
+                KeyCode::Up|KeyCode::Char('k')=>self.scroll_detail(-1),
+                KeyCode::PageDown=>self.scroll_detail(8),
+                KeyCode::PageUp=>self.scroll_detail(-8),
+                KeyCode::Home=>self.detail_scroll=0,
+                KeyCode::End=>self.detail_scroll=u16::MAX,
+                _=>{},
+            }
+            return Ok(false);
+        }
+        let scrolling=self.approval.is_some() || self.diagnostic.is_some() || self.usage_detail.is_some() || self.context_detail.is_some() || self.restart_plan.is_some() || self.focus==Focus::Detail || (self.blocker_card && self.focus==Focus::Events);
+        if scrolling {
+            match key.code {
+                KeyCode::PageDown=>{self.scroll_detail(8);return Ok(false);},
+                KeyCode::PageUp=>{self.scroll_detail(-8);return Ok(false);},
+                KeyCode::Home=>{self.detail_scroll=0;return Ok(false);},
+                KeyCode::End=>{self.detail_scroll=u16::MAX;return Ok(false);},
+                _=>{},
+            }
+        }
         if self.new_session.is_some() {
             if key.kind!=KeyEventKind::Press {return Ok(false);}
             match key.code {
@@ -798,6 +856,7 @@ impl App {
         }
 
         match key.code {
+            KeyCode::Char('?')=>self.open_help(),
             KeyCode::Char('f')=>{self.searching=true;self.focus=Focus::Sessions;},
             KeyCode::Char('n')=>{
                 if self.runner.is_some(){self.notice="Wait for the active worker before creating another session.".into();}
@@ -968,10 +1027,65 @@ fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
     options
 }
 
+const HELP: &str = "Navigation
+←/→ or Tab: move between sessions, activity/artifacts, evidence and composer
+↑/↓ or j/k: select items or scroll evidence
+Enter: open selected evidence; from evidence, focus composer
+1/2: activity/artifacts · m: toggle artifact Markdown/raw
+f: search sessions · n: create a ready session
+c or /context: saved attempt and input versions
+e: inspect blocker · h: activity · b: blocker card
+r or /restart: choose earlier step; preview before confirming
+v or /events: include protocol events · d: recorded file diff
+
+Activity following
+Opening evidence or navigating activity pauses following.
+End/G in activity: select latest event and follow new events.
+Home/g in activity: select first event and pause.
+
+Reading
+↑/↓ or j/k: scroll · PgUp/PgDn: page · Home/End: top/bottom
+Esc: close help, diagnostic or context
+
+Messages and drafts
+i: compose · Enter: send · Ctrl+J: newline · Backspace: delete
+Esc/Tab: leave composer while keeping draft
+Drafts belong to their session and remain in memory until exit.
+New sessions have their own empty draft. Nothing is saved to disk.
+/resume: run a ready/blocked session without extra instructions
+/usage: token and cost report · /recover: recover interrupted owner
+/help or ?: this panel (? is literal text inside composer/search)
+
+Approvals
+Only explicit decision keys approve. Enter never decides.
+y: once · a: process · p: project · g: global (when offered)
+Persistent grants require a second confirmation. n/Esc: deny.
+Navigation/help shortcuts stay inactive during approvals.
+
+Small terminals
+Below 72 columns or 22 rows: one pane at a time; arrows switch panes.
+Below 40×14: resize notice; approvals require 40×20. Esc denies.
+Resizing preserves drafts and selections; scroll clamps to content.
+q: quit when this TUI has no active worker
+";
+
+fn draw_scrolled(frame:&mut Frame,app:&App,paragraph:Paragraph<'_>,area:ratatui::layout::Rect) {
+    if area.width==0 || area.height==0 {return;}
+    let max=paragraph.line_count(area.width.saturating_sub(2)).saturating_sub(area.height as usize).min(u16::MAX as usize) as u16;
+    let offset=app.detail_scroll.min(max);
+    app.rendered_scroll.set(Some((app.detail_scroll,offset)));
+    frame.render_widget(paragraph.scroll((offset,0)),area);
+}
+
 fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
+    if area.width<40 || area.height<14 || (app.approval.is_some() && area.height<20) {
+        let text=if app.approval.is_some(){"Resize to at least 40×20 to review approval. Decisions disabled. Esc denies."}else{"Terminal too small. Resize to at least 40×14. Drafts preserved. q quits when idle."};
+        frame.render_widget(Paragraph::new(text).wrap(Wrap{trim:false}),area);return;
+    }
+    let compact=area.width<72 || area.height<22;
     let outer = Layout::vertical([
-        Constraint::Length(7), Constraint::Min(6), Constraint::Length(4), Constraint::Length(2),
+        Constraint::Length(if compact{4}else{7}), Constraint::Min(6), Constraint::Length(if compact{3}else{4}), Constraint::Length(2),
     ]).split(area);
     let (workflow, raw_status, step) = match app.session() {
         Some(session)=>(session.workflow.as_str(),session.status.as_str(),session.current_step.as_str()),
@@ -991,13 +1105,15 @@ fn draw(frame: &mut Frame, app: &App) {
         Line::from(inline_display(&progress)),
         Line::from(inline_display(&format!(" Next: {next}"))).style(Style::default().fg(Color::Yellow)),
         Line::from(vec![Span::styled(" [1] Activity ",if app.view==View::Conversation{active_tab}else{inactive_tab}),
-            Span::styled(" [2] Artifacts ",if app.view==View::Artifacts{active_tab}else{inactive_tab}),Span::raw(" f find · n new · c context")]),
+            Span::styled(" [2] Artifacts ",if app.view==View::Artifacts{active_tab}else{inactive_tab}),Span::raw(" ? help · f find · n new · c context")]),
     ]).block(border(" Session workspace ",false)),outer[0]);
 
-    let columns = Layout::horizontal([
-        Constraint::Percentage(27),
-        Constraint::Percentage(73),
-    ]).split(outer[1]);
+    let overlay=app.approval.is_some() || app.new_session.is_some() || app.searching || app.help || app.diagnostic.is_some() || app.usage_detail.is_some() || app.context_detail.is_some() || app.restart_plan.is_some() || !app.restart_choices.is_empty();
+    let widths=if compact {
+        if app.focus==Focus::Sessions && !overlay {[Constraint::Percentage(100),Constraint::Length(0)]}
+        else {[Constraint::Length(0),Constraint::Percentage(100)]}
+    }else{[Constraint::Percentage(27),Constraint::Percentage(73)]};
+    let columns=Layout::horizontal(widths).split(outer[1]);
 
     let sessions = app.sessions.iter().map(|session| {
         ListItem::new(format!("{}\n{} [{}]\n{}\n{}",inline_display(&session.goal),inline_display(&session.workflow),inline_display(&session.status),inline_display(&session.current_step),app.session_activity.get(&session.id).map(|(_,date)|format!("Last {}Z",date.get(5..16).unwrap_or(date))).unwrap_or_else(||"Last: not recorded".into())))
@@ -1032,14 +1148,14 @@ fn draw(frame: &mut Frame, app: &App) {
         } else {
             " Tool permission required "
         };
-        frame.render_widget(
+        draw_scrolled(frame,app,
             Paragraph::new(
                 prompt.content.rsplit_once("\n[y]")
                     .map_or(prompt.content.as_str(), |(description, _)| description)
                     .to_string(),
             )
                 .wrap(Wrap { trim: false })
-                .scroll((app.detail_scroll, 0))
+
                 .block(border(title, true)),
             approval_areas[0],
         );
@@ -1048,6 +1164,8 @@ fn draw(frame: &mut Frame, app: &App) {
                 .block(border(" Press a key to decide — no Enter needed ", true)),
             approval_areas[1],
         );
+    } else if app.help {
+        draw_scrolled(frame,app,Paragraph::new(HELP).wrap(Wrap{trim:false}).block(border(" Keyboard help · Esc closes ",true)),columns[1]);
     } else if let Some(form)=&app.new_session {
         if let Some(goal)=&form.goal {
             let choice=&form.workflows[form.cursor];
@@ -1065,20 +1183,20 @@ fn draw(frame: &mut Frame, app: &App) {
         let content=format!("Search: {}▌\n\n{} of {} sessions\nMatches goal, workflow, step, status or full ID.\nBlocked sessions first; then latest recorded activity.\n\n↑/↓ select · Enter keep filter · Esc clear\nAfter searching: n new session · Right open selected session",app.session_query,app.sessions.len(),app.session_total);
         frame.render_widget(Paragraph::new(safe_display(&content)).wrap(Wrap{trim:false}).block(border(" Find session ",true)),columns[1]);
     } else if let Some(message) = &app.diagnostic {
-        frame.render_widget(Paragraph::new(crate::markdown::render(message))
-            .wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
+        draw_scrolled(frame,app,Paragraph::new(crate::markdown::render(message))
+            .wrap(Wrap {trim:false})
             .block(Block::default().borders(Borders::ALL).title(" ATTENTION — Esc closes; arrows scroll ").border_style(Style::default().fg(Color::Red))),columns[1]);
     } else if let Some(message)=&app.usage_detail {
-        frame.render_widget(Paragraph::new(crate::markdown::render(message)).wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
+        draw_scrolled(frame,app,Paragraph::new(crate::markdown::render(message)).wrap(Wrap {trim:false})
             .block(border(" Usage — session spending · Esc closes ",true)),columns[1]);
     } else if let Some(message)=&app.context_detail {
-        frame.render_widget(Paragraph::new(crate::markdown::render(&safe_display(message))).wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
+        draw_scrolled(frame,app,Paragraph::new(crate::markdown::render(&safe_display(message))).wrap(Wrap {trim:false})
             .block(border(" Attempt context · Esc closes ",true)),columns[1]);
     } else if app.restart_plan.is_some() {
-        frame.render_widget(
+        draw_scrolled(frame,app,
             Paragraph::new(app.restart_preview.clone())
                 .wrap(Wrap { trim: false })
-                .scroll((app.detail_scroll, 0))
+
                 .block(border(" Restart preview — y confirm / n cancel ", true)),
             columns[1],
         );
@@ -1152,10 +1270,10 @@ fn draw(frame: &mut Frame, app: &App) {
         } else {
             " Artifact · Raw text · ↑/↓ scroll · m Markdown "
         };
-        frame.render_widget(
+        draw_scrolled(frame,app,
             Paragraph::new(content)
                 .wrap(Wrap { trim: false })
-                .scroll((app.detail_scroll, 0))
+
                 .block(border(title, app.focus == Focus::Detail)),
             panes[1],
         );
@@ -1164,7 +1282,7 @@ fn draw(frame: &mut Frame, app: &App) {
         let mut message=format!("{}\n{}\n\n",workspace.objective,workspace.attempt_label());
         if let Some(blocker)=&workspace.blocker {message.push_str(&format!("{}\n\nEvidence: event #{}\n\n",blocker.reason,blocker.event_id));}
         message.push_str(&format!("Next: {}\n\ne: inspect evidence\nh: activity history\nc: exact context and version references\n",workspace.primary.label()));
-        frame.render_widget(Paragraph::new(crate::markdown::render(&safe_display(&message))).wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
+        draw_scrolled(frame,app,Paragraph::new(crate::markdown::render(&safe_display(&message))).wrap(Wrap {trim:false})
             .block(Block::default().borders(Borders::ALL).title(" Needs attention — evidence before recovery ").border_style(Style::default().fg(Color::Yellow))),columns[1]);
     } else {
         let right=Layout::vertical([Constraint::Length(4),Constraint::Min(3)]).split(columns[1]);
@@ -1173,14 +1291,14 @@ fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(Paragraph::new(safe_display(&context)).wrap(Wrap {trim:false}).block(border(" Step context · c for exact records ",false)),right[0]);
         let show_detail=app.focus==Focus::Detail || (app.focus==Focus::Compose && app.focus_before_compose==Focus::Detail);
         if show_detail {
-            frame.render_widget(Paragraph::new(safe_display(&app.detail())).wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
+            draw_scrolled(frame,app,Paragraph::new(safe_display(&app.detail())).wrap(Wrap {trim:false})
                 .block(border(if app.diff.is_some(){" Recorded diff · Left returns "}else{" Evidence · Left returns to activity "},true)),right[1]);
         } else {
             let events=app.events.iter().map(|event| {
                 let item=ListItem::new(inline_display(&format!("#{} {}: {}",event.id,conversational_label(&event.kind),event.data.lines().next().unwrap_or(""))));
                 if matches!(event.kind.as_str(),"event.invalid"|"step.error"|"runner.error"|"workspace.restore-failed"|"verification.failed"|"tool.error"){item.style(Style::default().fg(Color::Red))}else{item}
             });
-            let list=List::new(events).block(border(if app.show_all{" Activity · full history "}else{" Activity · Enter opens evidence "},app.focus==Focus::Events))
+            let list=List::new(events).block(border(if app.show_all && app.follow_activity{" Activity · full · following "}else if app.show_all{" Activity · full · paused · End follows "}else if app.follow_activity{" Activity · following · Enter inspects "}else{" Activity · paused · End follows "},app.focus==Focus::Events))
                 .highlight_symbol("▶ ").highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD));
             let mut selected=ListState::default();if !app.events.is_empty(){selected.select(Some(app.event_index));}
             frame.render_stateful_widget(list,right[1],&mut selected);
@@ -1211,10 +1329,14 @@ fn draw(frame: &mut Frame, app: &App) {
         .style(composer_style)
         .wrap(Wrap { trim: false })
         .block(border(input_title, app.focus == Focus::Compose));
-    frame.render_widget(composer, outer[2]);
+    let lines=composer.line_count(outer[2].width.saturating_sub(2));
+    let offset=lines.saturating_sub(outer[2].height as usize).min(u16::MAX as usize) as u16;
+    frame.render_widget(composer.scroll((offset,0)), outer[2]);
 
     let footer = if app.approval.is_some() {
         "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
+    } else if app.help {
+        "↑/↓ or j/k scroll · PgUp/PgDn page · Home/End · Esc close".into()
     } else if app.new_session.is_some() {
         "New session · Enter continues · Esc cancels · no execution until resume".into()
     } else if app.searching {
@@ -1229,11 +1351,11 @@ fn draw(frame: &mut Frame, app: &App) {
         "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
     } else {
         format!(
-            "{}   │   f search · n new · 1/2 views · ←/→ pane · ↑/↓ navigate · i message",
+            "{}   │   ? help · f search · n new · i message · ←/→ pane · ↑/↓ navigate",
             app.notice
         )
     };
-    frame.render_widget(Paragraph::new(format!("{}\n{footer}",app.usage_line)), outer[3]);
+    frame.render_widget(Paragraph::new(format!("{}\n{footer}",if compact && app.approval.is_some(){"Approval: explicit keys only"}else if compact{"? help · f find · n new · i message"}else{&app.usage_line})), outer[3]);
 }
 
 pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
@@ -1253,8 +1375,10 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
     ratatui::run(|terminal| -> Result<()> {
         let mut last_refresh = Instant::now();
         loop {
+            let size=terminal.size()?;
+            app.viewport=(size.width,size.height);
             app.tick();
-            if app.requested_session.is_some() || last_refresh.elapsed() >= Duration::from_millis(600) {
+            if app.requested_session.is_some() || app.composer_session.as_deref()!=app.session().map(|s|s.id.as_str()) || last_refresh.elapsed() >= Duration::from_millis(600) {
                 app.refresh(&store)?;
                 last_refresh = Instant::now();
             }
@@ -1279,6 +1403,10 @@ mod p0_tests;
 #[cfg(test)]
 #[path = "tui_picker_tests.rs"]
 mod picker_tests;
+
+#[cfg(test)]
+#[path = "tui_navigation_tests.rs"]
+mod navigation_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1349,10 +1477,10 @@ mod tests {
         app.on_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(app.detail_scroll, 2);
         app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE), root.path(), &store).unwrap();
-        assert_eq!(app.detail_scroll, 2, "PageDown is no longer a scrolling binding");
+        assert_eq!(app.detail_scroll, 10, "PageDown adds a page without changing selection");
         assert_eq!(app.artifact_index, selected);
         app.on_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), root.path(), &store).unwrap();
-        assert_eq!(app.detail_scroll, 1);
+        assert_eq!(app.detail_scroll, 9);
         app.on_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(app.focus, Focus::Artifacts);
         app.on_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), root.path(), &store).unwrap();
@@ -1414,7 +1542,7 @@ mod tests {
         app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(app.detail_scroll, 1);
         app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE), root.path(), &store).unwrap();
-        assert_eq!(app.detail_scroll, 1);
+        assert_eq!(app.detail_scroll, 9);
         app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), root.path(), &store).unwrap();
         assert_eq!(answer_rx.try_recv().unwrap(), "g");
         assert!(app.approval.is_none());

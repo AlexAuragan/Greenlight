@@ -85,7 +85,8 @@ fn new_session_form_creates_ready_session_without_execution_or_draft_loss() {
     assert!(app.runner.is_none());
     assert_eq!(app.session().unwrap().goal, "Repair café");
     assert_eq!(app.session().unwrap().status, "ready");
-    assert_eq!(app.composer, "Saved instructions");
+    assert!(app.composer.is_empty());
+    assert_eq!(app.drafts.get(&None).map(String::as_str), Some("Saved instructions"));
     assert_eq!(store.list().unwrap().len(), 1);
     assert!(store.attempts(app.session().unwrap()).unwrap().is_empty());
     key(&mut app, root.path(), &store, KeyCode::Char('n'));

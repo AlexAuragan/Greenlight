@@ -81,3 +81,10 @@ The TUI workspace projects persisted attempts, saved definitions, pinned input m
 ## 2026-11-14 — Picker creation is separate from execution
 
 The TUI session picker searches persisted goal/workflow/status/step/ID fields and sorts blocked sessions ahead of recorded recency. Recency uses the session's latest event across branches, not model-authored summaries. Selection follows session IDs across refreshes. The workflow picker validates files again on submission and creates a ready session; the existing resume path starts execution separately with normal permissions. Incoming approvals clear search and restore their owner before rendering, so filtering cannot hide or mislabel a pending request.
+
+
+## 2026-11-14 — Explicit following, session drafts and compact navigation
+
+Reading evidence pauses activity following, even when the inspected event was the latest. End/G in the activity list explicitly resumes it. Polling preserves the selected event and read offset; scroll limits use Ratatui's actual wrapped line count rather than byte counts. Arrows and j/k remain the primary AZERTY-friendly controls; PageUp/PageDown now provide an optional eight-line scroll alongside Home/End. This extends the earlier intentionally minimal key set.
+
+Composer drafts are keyed by session ID and kept in memory only. Filtering, reordering, restart cancellation and approval-owner selection cannot move a draft onto another session. New sessions start empty, and quitting discards drafts. Compact terminals prioritize the active pane. An undersized approval view disables decision keys while keeping Escape denial available. TestBackend acceptance tests cover resizing, background events, Unicode drafts and approval ownership. The locked Ratatui version's rendered-line-info feature supplies layout-consistent scroll bounds.
