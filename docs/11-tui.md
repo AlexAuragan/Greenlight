@@ -7,6 +7,16 @@ cargo run -- --root /path/to/project tui
 cargo run -- --root /path/to/project tui SESSION_ID
 ```
 
+## Session workspace
+
+The header shows the goal, workflow/status, current attempt, latest step outcomes and the next action. The stepper is an overview: loops can revisit steps and unvisited branches stay pending. It does not imply a linear execution plan. Long workflows window around the current step.
+
+Press `c` or enter `/context` for a scrollable snapshot of the objective, required outputs, verification verdict, exact pinned input event IDs and approval references. An existing attempt uses its saved definition and manifest; a ready session shows the configuration for its next attempt. Missing legacy metadata stays explicit. Model prose never supplies a verification verdict.
+
+Blocked sessions show a reason/evidence card after any diagnostic is dismissed. `e` opens its exact event, `h` returns to activity, `b` reopens the card, `2` opens artifacts, `i` composes resume instructions, and `r` opens the guarded restart flow. These controls never automatically retry. A live external owner is observation-only; interrupted ownership needs `/recover`, and unfinished native writes need CLI `recover-writes`. Context and evidence remain scrollable with arrows or `j/k`; Escape closes context.
+
+Activity uses concise rows; Enter/Right opens the selected event's evidence in the available pane, and Left returns to the list. Sidebar entries lead with the session goal. Search, blocked-first sorting and an in-TUI start flow remain future work.
+
 ## Main interaction
 
 Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or press **Enter** from the detail pane. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. The composer is disabled while the current worker runs, but events can still be inspected.

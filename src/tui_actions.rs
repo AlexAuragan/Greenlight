@@ -13,6 +13,7 @@ use std::{
 };
 
 pub struct Runner {
+    pub session_id: Option<String>,
     pub prompts: Receiver<ApprovalPrompt>,
     pub finished: Receiver<Result<(), String>>,
     pub answers: Sender<String>,
@@ -22,6 +23,7 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
     let (prompt_tx, prompts) = mpsc::channel();
     let (answers, answer_rx) = mpsc::channel();
     let (finished_tx, finished) = mpsc::channel();
+    let owner_session=session_id.clone();
 
     std::thread::spawn(move || {
         let result = (|| -> Result<()> {
@@ -34,7 +36,7 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
 
-    Runner { prompts, finished, answers }
+    Runner { prompts, finished, answers, session_id:Some(owner_session) }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

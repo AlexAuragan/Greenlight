@@ -71,3 +71,8 @@ Track usage for every model request, including input, cached input and output to
 ## Working rule for future features
 
 Ship and validate **one feature at a time**, preserve old and new behavior distinctions, and update the README TODO, the relevant authoritative contract, this log and any dated research note in the same PR when a design decision changes. Use small, evidence-driven increments instead of inventing large prerequisite subsystems.
+
+
+## 2026-11-14 — Session workspace uses saved execution facts
+
+The TUI workspace projects persisted attempts, saved definitions, pinned input manifests, aggregate verification events and OS ownership. It does not infer success from model text or replace recorded input versions with latest artifacts. The stepper shows the latest outcome per step and attempt counts; loops and unvisited branches are not flattened into assumed progress. Missing historical metadata remains explicit. Blocker cards link to exact evidence and reuse existing guarded resume, recovery and restore controls.

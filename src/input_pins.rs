@@ -4,17 +4,17 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-struct InputVersion {
-    name: String,
-    event_id: i64,
+pub(crate) struct InputVersion {
+    pub(crate) name: String,
+    pub(crate) event_id: i64,
 }
 
 #[derive(Serialize, Deserialize)]
-struct InputManifest {
-    attempt: String,
-    artifacts: Vec<InputVersion>,
+pub(crate) struct InputManifest {
+    pub(crate) attempt: String,
+    pub(crate) artifacts: Vec<InputVersion>,
     #[serde(default)]
-    approval_events: Vec<i64>,
+    pub(crate) approval_events: Vec<i64>,
 }
 
 #[derive(Serialize, Deserialize)]

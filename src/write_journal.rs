@@ -41,15 +41,18 @@ impl Store {
     }
 
     pub fn ensure_no_pending_writes(&self) -> Result<()> {
-        let count: i64 = self.db.query_row(
-            "SELECT count(*) FROM write_intents WHERE status='pending'",
-            [],
-            |row| row.get(0),
-        )?;
+        let count=self.pending_write_count()?;
         if count != 0 {
             bail!("{count} unresolved native write(s); inspect history and run greenlight recover-writes before continuing");
         }
         Ok(())
+    }
+    pub fn pending_write_count(&self)->Result<u64> {
+        self.db.query_row(
+            "SELECT count(*) FROM write_intents WHERE status='pending'",
+            [],
+            |row| row.get(0),
+        ).map_err(Into::into)
     }
 
     fn prepare_write(
