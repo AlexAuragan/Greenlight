@@ -277,7 +277,15 @@ impl Engine {
         use crate::provider_failure::{Failure,Kind};
         for attempt in 1..=3 {
             if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
-            let metadata=self.cfg.provider.model_metadata.get(model).cloned().unwrap_or_default();
+            let discover = true;
+            #[cfg(test)]
+            let discover = discover && self.provider.script.is_none();
+            let metadata = if discover {
+                crate::pricing::resolve(&self.root, &self.cfg.provider, model, false).await
+            } else {
+                self.cfg.provider.model_metadata.get(model).cloned().unwrap_or_default()
+            };
+            if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
             let provider=reqwest::Url::parse(&self.cfg.provider.base_url).map(|url|url.origin().ascii_serialization()).unwrap_or_else(|_|"unknown provider".into());
             let mut call=crate::usage::Call::new(s,step,purpose,model,&provider,metadata,messages);
             self.store.begin_model_call(s,&mut call)?;

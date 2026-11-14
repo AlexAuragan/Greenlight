@@ -18,6 +18,7 @@ use uuid::Uuid;
 pub struct ModelMetadata {
     pub tokenizer: Option<String>,
     pub pricing: Option<Pricing>,
+    pub pricing_note: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -28,7 +29,45 @@ pub struct Pricing {
     pub output_per_million: Option<f64>,
     pub currency: String,
     pub source: String,
-    pub effective_date: String,
+    pub effective_date: Option<String>,
+    pub retrieved_at: Option<String>,
+    pub cache_creation: Option<CacheCreationPricing>,
+    #[serde(default)]
+    pub tiers: Vec<PricingTier>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CacheCreationPricing {
+    pub default_per_million: Option<f64>,
+    pub five_minute_per_million: Option<f64>,
+    pub one_hour_per_million: Option<f64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PricingTier {
+    /// Above this inclusive-base boundary, replace ALL base rates for the request.
+    pub above_input_tokens: u64,
+    pub input_per_million: Option<f64>,
+    pub cached_input_per_million: Option<f64>,
+    pub output_per_million: Option<f64>,
+    pub cache_creation: Option<CacheCreationPricing>,
+}
+
+impl Pricing {
+    pub fn freshness(&self, at: chrono::DateTime<chrono::Utc>) -> String {
+        let date = self.retrieved_at.as_deref()
+            .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok()).map(|v| v.with_timezone(&chrono::Utc))
+            .or_else(|| self.effective_date.as_deref().and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok()).and_then(|v| v.and_hms_opt(0,0,0)).map(|v| v.and_utc()));
+        match date {
+            None => "unknown pricing age".into(),
+            Some(date) if date > at + chrono::Duration::minutes(5) => "future-dated pricing; cost unavailable".into(),
+            Some(date) if at.signed_duration_since(date) > chrono::Duration::days(30) => "stale pricing (>30 days); estimate needs review".into(),
+            Some(_) if self.retrieved_at.is_some() => "recent provider catalog snapshot; not an invoice".into(),
+            Some(_) => "configured rates; freshness based on effective date, not live verification".into(),
+        }
+    }
 }
 
 impl ModelMetadata {
@@ -41,14 +80,21 @@ impl ModelMetadata {
             bail!("tokenizer must be cl100k_base or o200k_base; counts remain estimates");
         }
         if let Some(p) = &self.pricing {
-            for rate in [
-                p.input_per_million,
-                p.cached_input_per_million,
-                p.output_per_million,
-            ]
-            .into_iter()
-            .flatten()
-            {
+            let mut rates = vec![p.input_per_million, p.cached_input_per_million, p.output_per_million];
+            let mut creation = vec![p.cache_creation.as_ref()];
+            let mut previous = None;
+            for tier in &p.tiers {
+                if previous.is_some_and(|v| tier.above_input_tokens <= v) {
+                    bail!("pricing tiers must have strictly increasing above_input_tokens");
+                }
+                previous = Some(tier.above_input_tokens);
+                rates.extend([tier.input_per_million, tier.cached_input_per_million, tier.output_per_million]);
+                creation.push(tier.cache_creation.as_ref());
+            }
+            for c in creation.into_iter().flatten() {
+                rates.extend([c.default_per_million, c.five_minute_per_million, c.one_hour_per_million]);
+            }
+            for rate in rates.into_iter().flatten() {
                 if !rate.is_finite() || rate < 0.0 {
                     bail!("model prices must be finite and nonnegative");
                 }
@@ -59,8 +105,17 @@ impl ModelMetadata {
             {
                 bail!("pricing requires a three-letter uppercase currency and a source");
             }
-            chrono::NaiveDate::parse_from_str(&p.effective_date, "%Y-%m-%d")
-                .context("pricing effective_date must be YYYY-MM-DD")?;
+            if let Some(date) = &p.effective_date {
+                chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                    .context("pricing effective_date must be YYYY-MM-DD")?;
+            }
+            if let Some(date) = &p.retrieved_at {
+                chrono::DateTime::parse_from_rfc3339(date)
+                    .context("pricing retrieved_at must be RFC3339")?;
+            }
+            if p.effective_date.is_none() && p.retrieved_at.is_none() {
+                bail!("pricing requires effective_date or retrieved_at provenance");
+            }
         }
         Ok(())
     }
@@ -90,6 +145,8 @@ impl TokenCount {
 pub struct Counts {
     pub input: TokenCount,
     pub cached_input: TokenCount,
+    #[serde(default = "TokenCount::unknown")]
+    pub cache_creation: TokenCount,
     pub output: TokenCount,
     pub reasoning: Option<u64>,
     pub raw: Option<Value>,
@@ -125,7 +182,7 @@ fn estimate(model: &str, metadata: &ModelMetadata, text: &str) -> TokenCount {
 
 impl Counts {
     pub fn estimated(model: &str, metadata: &ModelMetadata, messages: &[Value]) -> Self {
-        Self {input:estimate(model,metadata,&serde_json::to_string(messages).unwrap_or_default()),cached_input:TokenCount::unknown(),output:TokenCount::unknown(),reasoning:None,raw:None,notes:vec!["Fallback counts tokenize serialized messages; model chat templates and billing may differ. Cache usage cannot be inferred.".into()]}
+        Self {input:estimate(model,metadata,&serde_json::to_string(messages).unwrap_or_default()),cached_input:TokenCount::unknown(),cache_creation:TokenCount::unknown(),output:TokenCount::unknown(),reasoning:None,raw:None,notes:vec!["Fallback counts tokenize serialized messages; model chat templates and billing may differ. Cache usage cannot be inferred.".into()]}
     }
     pub fn finish(&mut self, model: &str, metadata: &ModelMetadata, response: &Completion) {
         if let Ok(content) = &response.content {
@@ -133,6 +190,9 @@ impl Counts {
         }
         self.raw = response.raw_usage.clone();
         let Some(raw) = &self.raw else { return };
+        if let Some(created) = raw.get("cache_creation_input_tokens").and_then(Value::as_u64) {
+            self.cache_creation = TokenCount::reported(created);
+        }
         let input = raw
             .get("prompt_tokens")
             .and_then(Value::as_u64)
@@ -197,15 +257,6 @@ impl Counts {
         self.reasoning = raw
             .pointer("/completion_tokens_details/reasoning_tokens")
             .and_then(Value::as_u64);
-        if raw["cache_creation_input_tokens"]
-            .as_u64()
-            .is_some_and(|v| v > 0)
-        {
-            self.notes.push(
-                "Cache-creation pricing is unsupported; no flat-rate cost estimate is supplied."
-                    .into(),
-            );
-        }
     }
 }
 
@@ -239,7 +290,9 @@ impl Call {
         metadata: ModelMetadata,
         messages: &[Value],
     ) -> Self {
-        let counts = Counts::estimated(model, &metadata, messages);
+        let mut counts = Counts::estimated(model, &metadata, messages);
+        if let Some(p) = &metadata.pricing { counts.notes.push(p.freshness(chrono::Utc::now())); }
+        if let Some(note) = &metadata.pricing_note { counts.notes.push(note.clone()); }
         Self {
             id: Uuid::new_v4().to_string(),
             started_at_utc: chrono::Utc::now().to_rfc3339(),
@@ -290,35 +343,51 @@ impl Call {
         {
             return None;
         }
-        if self
-            .counts
-            .raw
-            .as_ref()
-            .and_then(|v| v["cache_creation_input_tokens"].as_u64())
-            .is_some_and(|v| v > 0)
-        {
-            return None;
-        }
         let input = self.counts.input.value?;
         let output = self.counts.output.value?;
-        let input_rate = p.input_per_million?;
-        let output_rate = p.output_per_million?;
+        let at = chrono::DateTime::parse_from_rfc3339(&self.started_at_utc).ok()?.with_timezone(&chrono::Utc);
+        if p.freshness(at).starts_with("future") { return None; }
+        // Context tiers apply to the whole request, never marginal token bands.
+        // An estimated input count cannot safely select a paid context tier.
+        if !p.tiers.is_empty() && self.counts.input.source != "provider" { return None; }
+        let tier = p.tiers.iter().rev().find(|t| input > t.above_input_tokens);
+        let (input_rate, cached_rate, output_rate, creation_rates) = match tier {
+            Some(t) => (t.input_per_million?, t.cached_input_per_million, t.output_per_million?, t.cache_creation.as_ref()),
+            None => (p.input_per_million?, p.cached_input_per_million, p.output_per_million?, p.cache_creation.as_ref()),
+        };
+        let (created, creation_cost) = cache_creation_cost(self.counts.raw.as_ref(), creation_rates)?;
         let cost = if let Some(cached) = self.counts.cached_input.value {
-            (input.checked_sub(cached)? as f64) * input_rate
+            (input.checked_sub(cached)?.checked_sub(created)? as f64) * input_rate
                 + (cached as f64)
                     * if cached == 0 {
                         0.0
                     } else {
-                        p.cached_input_per_million?
+                        cached_rate?
                     }
-        } else if p.cached_input_per_million == Some(input_rate) {
-            (input as f64) * input_rate
+        } else if cached_rate == Some(input_rate) {
+            (input.checked_sub(created)? as f64) * input_rate
         } else {
             return None;
         };
-        let cost = (cost + (output as f64) * output_rate) / 1_000_000.0;
+        let cost = (cost + creation_cost + (output as f64) * output_rate) / 1_000_000.0;
         cost.is_finite().then_some(cost)
     }
+}
+
+fn cache_creation_cost(raw: Option<&Value>, rates: Option<&CacheCreationPricing>) -> Option<(u64, f64)> {
+    let Some(raw) = raw else { return Some((0, 0.0)); };
+    let field = |v: &Value, key: &str| v.get(key).map_or(Some(0), Value::as_u64);
+    let created = field(raw, "cache_creation_input_tokens")?;
+    let detail = raw.get("cache_creation");
+    if let Some(detail) = detail.filter(|v| !v.is_null()) {
+        if !detail.is_object() {return None;}
+        let short = field(detail, "ephemeral_5m_input_tokens")?;
+        let long = field(detail, "ephemeral_1h_input_tokens")?;
+        if short.checked_add(long)? != created { return None; }
+        let cost = |n, rate: Option<f64>| if n == 0 { Some(0.0) } else { Some(n as f64 * rate?) };
+        return Some((created, cost(short, rates.and_then(|r|r.five_minute_per_million))? + cost(long, rates.and_then(|r|r.one_hour_per_million))?));
+    }
+    if created == 0 { Some((0, 0.0)) } else { Some((created, created as f64 * rates?.default_per_million?)) }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -354,8 +423,12 @@ pub struct Totals {
     pub input: TokenTotals,
     pub cached_input: TokenTotals,
     pub output: TokenTotals,
+    #[serde(default)]
+    pub cache_creation: TokenTotals,
     pub estimated_cost_by_currency: BTreeMap<String, f64>,
     pub incomplete_cost_requests: u64,
+    #[serde(default)]
+    pub stale_pricing_requests: u64,
 }
 impl Totals {
     fn add(&mut self, call: &Call) {
@@ -363,6 +436,8 @@ impl Totals {
         self.input.add(&call.counts.input);
         self.cached_input.add(&call.counts.cached_input);
         self.output.add(&call.counts.output);
+        self.cache_creation.add(&call.counts.cache_creation);
+        if call.counts.notes.iter().any(|n| n.starts_with("stale pricing")) {self.stale_pricing_requests+=1;}
         if let (Some(cost), Some(price)) = (call.estimated_cost, &call.metadata.pricing) {
             *self
                 .estimated_cost_by_currency
@@ -427,6 +502,7 @@ impl Report {
             )
         };
         let mut text=format!("Usage scope: {}\nSession: {}\nBranch: {}\nRequests: {}\nInput: {}\nCached input (subset of input): {}\nOutput: {}\n",self.scope,self.session,self.branch,self.totals.requests,self.totals.input.label(),self.totals.cached_input.label(),self.totals.output.label());
+        text.push_str(&format!("Cache creation (subset of input): {}\nRequests with stale pricing snapshots: {}\n", self.totals.cache_creation.label(), self.totals.stale_pricing_requests));
         for (currency, cost) in &self.totals.estimated_cost_by_currency {
             text.push_str(&format!("Estimated cost subtotal: {currency} {cost:.8}\n"));
         }
@@ -449,6 +525,13 @@ impl Report {
         for (attempt, total) in &self.by_attempt {
             text.push_str(&format!("Attempt {attempt}: {} requests; input [{}], cache [{}], output [{}]\n  Cost subtotal: {}\n",total.requests,total.input.label(),total.cached_input.label(),total.output.label(),costs(total)));
         }
+        let mut snapshots = BTreeSet::new();
+        for call in &self.calls {
+            if let Some(p)=&call.metadata.pricing {
+                snapshots.insert(format!("{}: source {}; effective {}; retrieved {}; {}",call.model,p.source,p.effective_date.as_deref().unwrap_or("unknown"),p.retrieved_at.as_deref().unwrap_or("not retrieved"),call.counts.notes.iter().filter(|n|n.contains("pricing") || n.contains("catalog") || n.contains("configured")).cloned().collect::<Vec<_>>().join("; ")));
+            } else if let Some(note)=&call.metadata.pricing_note {snapshots.insert(format!("{}: {note}",call.model));}
+        }
+        if !snapshots.is_empty() {text.push_str("Pricing snapshots at dispatch (historical estimates are not repriced):\n");for line in snapshots {text.push_str(&format!("  {line}\n"));}}
         text
     }
 }
@@ -551,6 +634,7 @@ mod tests {
 
     fn metadata() -> ModelMetadata {
         ModelMetadata {
+            pricing_note: None,
             tokenizer: Some("cl100k_base".into()),
             pricing: Some(Pricing {
                 input_per_million: Some(2.0),
@@ -558,7 +642,10 @@ mod tests {
                 output_per_million: Some(10.0),
                 currency: "USD".into(),
                 source: "test fixture, not actual provider prices".into(),
-                effective_date: "2026-11-14".into(),
+                effective_date: Some("2026-11-14".into()),
+                retrieved_at: None,
+                cache_creation: None,
+                tiers: Vec::new(),
             }),
         }
     }
@@ -752,7 +839,7 @@ mod tests {
             assert!(m.validate().is_err());
         }
         let mut m = metadata();
-        m.pricing.as_mut().unwrap().effective_date = "yesterday".into();
+        m.pricing.as_mut().unwrap().effective_date = Some("yesterday".into());
         assert!(m.validate().is_err());
         let mut m = metadata();
         m.tokenizer = Some("invented".into());
@@ -760,6 +847,53 @@ mod tests {
         let mut m = metadata();
         m.pricing.as_mut().unwrap().source = String::new();
         assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn context_tiers_replace_whole_request_rates_and_cache_creation_is_not_double_billed() {
+        let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
+        let s=store.create("demo","goal","work").unwrap();
+        let mut r=call(&s);
+        r.metadata.pricing.as_mut().unwrap().tiers.push(PricingTier {
+            above_input_tokens:100,input_per_million:Some(4.0),cached_input_per_million:Some(1.0),output_per_million:Some(20.0),cache_creation:None,
+        });
+        r.finish(&response(json!({"prompt_tokens":100,"cached_tokens":0,"completion_tokens":10})));
+        assert!((r.estimated_cost.unwrap()-0.0003).abs()<1e-12);
+        r.finish(&response(json!({"prompt_tokens":101,"cached_tokens":0,"completion_tokens":10})));
+        assert!((r.estimated_cost.unwrap()-0.000604).abs()<1e-12);
+        let mut fallback=call(&s);fallback.metadata=r.metadata.clone();
+        fallback.finish(&response(json!({"cached_tokens":0,"completion_tokens":10})));
+        assert!(fallback.estimated_cost.is_none());
+        let mut r=call(&s);
+        r.metadata.pricing.as_mut().unwrap().cache_creation=Some(CacheCreationPricing {
+            default_per_million:Some(3.0),five_minute_per_million:Some(3.0),one_hour_per_million:Some(4.0),
+        });
+        r.finish(&response(json!({"input_tokens":60,"cache_read_input_tokens":40,"cache_creation_input_tokens":10,"output_tokens":20})));
+        assert_eq!(r.counts.input.value,Some(110));
+        assert_eq!(r.counts.cache_creation.value,Some(10));
+        assert!((r.estimated_cost.unwrap()-0.00037).abs()<1e-12);
+        r.finish(&response(json!({"input_tokens":60,"cache_read_input_tokens":40,"cache_creation_input_tokens":10,"cache_creation":{"ephemeral_5m_input_tokens":6,"ephemeral_1h_input_tokens":4},"output_tokens":20})));
+        assert!((r.estimated_cost.unwrap()-0.000374).abs()<1e-12);
+        r.finish(&response(json!({"input_tokens":60,"cache_read_input_tokens":40,"cache_creation_input_tokens":10,"cache_creation":{"ephemeral_5m_input_tokens":6,"ephemeral_1h_input_tokens":5},"output_tokens":20})));
+        assert!(r.estimated_cost.is_none());
+        let mut p=r.metadata.clone();p.pricing.as_mut().unwrap().tiers=vec![
+            PricingTier {above_input_tokens:100,input_per_million:None,cached_input_per_million:None,output_per_million:None,cache_creation:None},
+            PricingTier {above_input_tokens:100,input_per_million:None,cached_input_per_million:None,output_per_million:None,cache_creation:None},
+        ];
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn freshness_is_automatic_and_old_ledgers_remain_readable() {
+        let now=chrono::DateTime::parse_from_rfc3339("2026-11-14T12:00:00Z").unwrap().with_timezone(&chrono::Utc);
+        let mut p=metadata().pricing.unwrap();
+        assert!(p.freshness(now).contains("configured"));
+        p.effective_date=Some("2026-09-01".into());assert!(p.freshness(now).starts_with("stale"));
+        p.retrieved_at=Some("2026-11-14T10:00:00Z".into());assert!(p.freshness(now).contains("recent"));
+        p.retrieved_at=Some("2026-12-01T00:00:00Z".into());assert!(p.freshness(now).starts_with("future"));
+        let old=r#"{"tokenizer":null,"pricing":{"input_per_million":2.0,"cached_input_per_million":0.5,"output_per_million":10.0,"currency":"USD","source":"fixture","effective_date":"2026-11-14"}}"#;
+        let m:ModelMetadata=serde_json::from_str(old).unwrap();m.validate().unwrap();
+        assert!(m.pricing.unwrap().tiers.is_empty());
     }
 
     #[test]

@@ -21,6 +21,7 @@ mod session_execution;
 mod input_pins;
 mod locks;
 mod usage;
+mod pricing;
 mod workspace_view;
 mod session_picker;
 #[cfg(test)]
@@ -76,8 +77,10 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Show configured tokenizer/pricing metadata; does not query a provider
-    ModelInfo { model: Option<String> },
+    /// Show model metadata, discovering supported public provider rates when needed
+    ModelInfo { model: Option<String>, #[arg(long)] refresh_pricing: bool },
+    /// Refresh supported public pricing catalog (no inference or credential transmission)
+    RefreshPricing,
     /// List durable step attempts visible on the session's active branch
     Attempts { session: String },
     /// Compare current project files with the latest recorded step-boundary hashes
@@ -149,12 +152,19 @@ async fn main() -> Result<()> {
             let report=store.usage_report(&store.session(&session)?,scope)?;
             if json {println!("{}",serde_json::to_string_pretty(&report)?);} else {print!("{}",report.display());}
         }
-        Commands::ModelInfo {model} => {
+        Commands::ModelInfo {model,refresh_pricing} => {
             let cfg=config::load_config(&root)?;
             let model=model.as_deref().unwrap_or(&cfg.provider.model);
-            let metadata=cfg.provider.model_metadata.get(model).cloned().unwrap_or_default();
+            let metadata=pricing::resolve(&root,&cfg.provider,model,refresh_pricing).await;
             println!("Model: {model}\n{}",serde_json::to_string_pretty(&metadata)?);
-            println!("Null rates are unknown, never free. Configured pricing is not live-verified. Tokenizer counts are estimates.");
+            if let Some(p)=&metadata.pricing {println!("{}",p.freshness(chrono::Utc::now()));}
+            println!("Null rates are unknown, never free. Prices are snapshots, not invoices. Tokenizer counts are estimates.");
+        }
+        Commands::RefreshPricing => {
+            let cfg=config::load_config(&root)?;
+            let catalog=pricing::catalog(&root,&cfg.provider,true).await?;
+            if let Some(note)=catalog.note {bail!("{note} Cached model rates: {}",catalog.models.len());}
+            println!("{} model rates cached. Public provider catalog retrieved; configured overrides still win.",catalog.models.len());
         }
         Commands::Attempts { session } => {
             let store = store::Store::open(&root)?;
@@ -392,7 +402,7 @@ async fn main() -> Result<()> {
             let engine = engine::Engine::open(&root)?;
             for m in engine.provider.models().await? {
                 println!("{m}");
-                if pricing {println!("{}",serde_json::to_string(&engine.cfg.provider.model_metadata.get(&m).cloned().unwrap_or_default())?);}
+                if pricing {println!("{}",serde_json::to_string(&pricing::resolve(&root,&engine.cfg.provider,&m,false).await)?);}
             }
         }
     }

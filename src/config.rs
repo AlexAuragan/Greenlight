@@ -14,7 +14,10 @@ pub struct ProviderConfig {
     pub max_tokens: u32,
     #[serde(default)]
     pub model_metadata: std::collections::BTreeMap<String, crate::usage::ModelMetadata>,
+    #[serde(default = "pricing_discovery")]
+    pub pricing_discovery: bool,
 }
+fn pricing_discovery() -> bool { true }
 fn base_url() -> String { "https://api.deepinfra.com/v1/openai".into() }
 fn api_key_env() -> String { "DEEPINFRA_API_KEY".into() }
 fn max_tokens() -> u32 { 4096 }
