@@ -130,7 +130,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [x] Capture each attempt's input manifest with exact artifact creation events and applicable human approval events, linked to its saved step definition. Agent context uses the selected snapshots; a future UI must not reconstruct them from latest-by-name state.
 - [ ] Correlate the **already implemented** SHA-256 step manifests with native-write journal events; classify explained/unexplained drift and measure scanning overhead on real projects. Hashes alone cannot restore file contents.
 - [ ] Design a conversational coordinator that can answer a question or pass an instruction straight to the coding agent; preserve visible routing and normal engine permissions. Define live steering as cancellation/reissue or next-model-call guidance, not modification of an in-flight LLM request.
-- [ ] Split the large TUI controller incrementally into tested focus routing, activity, Markdown reader, approval and recovery components; render artifacts without blocking input.
+- [x] Split the TUI into focus/routing, activity, layout, reader, approval and recovery components. Large artifact/version previews parse, wrap and paint on a bounded background worker; the UI paints only a ready viewport and discards stale results. Storage refresh and explicit diff construction retain their existing synchronous paths.
 - [ ] Preserve draft instructions and per-tab selection/scroll position; support copy/open-in-editor and useful filtering.
 
 ### P2 — supervised intelligence and stronger recovery

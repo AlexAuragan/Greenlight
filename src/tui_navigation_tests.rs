@@ -11,14 +11,26 @@ fn key(app: &mut App, store: &Store, root: &Path, code: KeyCode) {
 fn screen(app: &mut App, width: u16, height: u16) -> String {
     app.viewport = (width, height);
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|f| draw(f, app)).unwrap();
-    terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        terminal.draw(|f| draw(f, app)).unwrap();
+        let output = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        if !output
+            .split_whitespace()
+            .collect::<String>()
+            .contains("Preparingdocumentpreview")
+        {
+            return output;
+        }
+        assert!(Instant::now() < deadline, "preview worker did not finish");
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 #[test]
 fn drafts_follow_session_ids_through_filtering_and_reordering() {

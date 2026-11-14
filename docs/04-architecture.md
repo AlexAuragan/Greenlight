@@ -4,6 +4,8 @@
 flowchart TD
   CLI --> Engine
   TUI --> Engine
+  TUI --> DocumentPreviewWorker
+  DocumentPreviewWorker --> MarkdownRenderer
   Engine --> WorkflowLoader
   Engine --> Store
   Engine --> Provider
@@ -35,9 +37,23 @@ flowchart TD
 - `usage.rs` — request usage ledger, token-count provenance, tiktoken fallback, immutable pricing snapshots and scoped cost summaries.
 - `provider.rs` — HTTP chat-completions and model discovery through the DeepInfra OpenAI-compatible API.
 - `tools.rs` — permissioned native file access and sandboxed shell/web dispatch.
-- `tui.rs`, `tui_actions.rs`, `markdown.rs` — Ratatui session views, approval/restart interactions, and a small safe-text Markdown presentation layer.
+- `tui.rs` — foreground application state, store refresh, worker lifecycle and the terminal loop.
+- `tui/focus.rs`, `tui/routing.rs` — focus/selection/draft state and modal keyboard precedence.
+- `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — recorded activity/evidence, workspace layout and discoverable keys.
+- `tui/approval.rs`, `tui/recovery.rs` — explicit approval choices and guarded restart/restore interactions.
+- `tui/reader.rs`, `markdown.rs` — bounded background preparation of large document viewports and terminal-safe Markdown/literal presentation.
+- `tui_actions.rs` — Engine workers and typed restart candidates; document rendering never invokes this execution path.
+- `session_picker.rs`, `workspace_view.rs`, `artifact_history.rs` — session discovery/creation, recorded attempt projections and branch-visible artifact history/provenance.
 - `paths.rs` — canonical `.greenlight/state` location and guarded migration of legacy `.stepwright/state`.
 - `main.rs` — Clap CLI and TUI entry points. Both paths use the same engine, store and permission rules.
+
+## Document preview worker
+
+Documents over 8 KiB or 64 lines use a lazily started per-TUI preview thread. The foreground supplies a bounded UTF-8 prefix, presentation mode, immutable document identity, headers and viewport dimensions/scroll. The worker caches parsed text and wrapped line counts, then produces only the viewport's terminal buffer. The foreground copies visible cells, not a full parsed document, on redraw. Short previews keep the bounded synchronous path.
+
+Request and response queues each have capacity one. Results are accepted only for the current document revision, mode, dimensions and requested scroll; obsolete work may finish but cannot replace the selected document or an approval. A discarded completed viewport can be requested again after resizing back. Closing the application drops the channels; the worker receives only text/presentation data, does not retain engine/store handles or approval state, and performs no credential reads or file I/O. It is a same-process CPU worker, not a sandbox. A failed worker reports an unavailable preview and leaves navigation usable.
+
+This separates document CPU work, not every blocking operation: store refresh/blob reads, explicit artifact-diff construction and approval-request rendering still use their existing foreground paths. Artifact/diff limits and permission checks are unchanged; broad asynchronous storage/execution is not introduced by this refactor.
 
 ## Trust boundaries
 

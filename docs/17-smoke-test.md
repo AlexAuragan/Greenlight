@@ -137,3 +137,11 @@ See [validation status](06-validation.md), [restore limitations](09-workspace-re
 3. During an eligible retry wait, press x in TUI navigation. It should cancel promptly, retain the first call record and send no second request. Resuming creates a fresh worker. x must remain text in the composer/search and must not answer an approval.
 4. Return HTML/non-JSON 503 or simulate a timeout. The message should explain service/network uncertainty without exposing the body/URL or automatically repeating inference.
 5. Fail an agent-verification request with an authentication error in a workflow with verification_failed retry/detector rules. It should block immediately with no additional provider calls.
+
+
+## Background document previews
+
+1. Open an artifact over 8 KiB. A preparation message may appear briefly; type an unsent draft or navigate while the preview is pending. Input should remain usable and the stored artifact must stay unchanged.
+2. Switch versions/modes and resize rapidly. A ready viewport must correspond to the selected creation ID and mode; older content must not flash into the new panel. Resize back to a previous width: the panel must finish preparing rather than wait forever.
+3. Scroll to End, resize, then scroll upward. The prepared viewport should match normal wrapping and clamp to content as before. Repeat in literal mode and in artifact-version content/provenance/diff panels.
+4. Trigger an approval while a large preview is pending. The request must take priority, retain its explicit decision keys and never be replaced by a preview result.

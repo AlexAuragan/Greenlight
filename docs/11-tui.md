@@ -63,6 +63,12 @@ Preview processing stops at the first of 256 KiB of source/sanitized text, 4,096
 
 Artifacts are inputs to later workflow steps and an important human-review surface. This tab deliberately uses the same branch-aware `Store::artifacts` lookup as the CLI and does not alter artifact content. The default list shows **latest versions**; press `v` for historical versions. To register a manually edited version, use `greenlight put-artifact SESSION_ID NAME --file PATH` from another terminal; direct artifact editing remains a follow-on feature.
 
+## Preview responsiveness
+
+Artifact/version content over 8 KiB or 64 lines is prepared on a background preview worker. While it parses, wraps and prepares the visible viewport, the panel shows **Preparing document preview…** and keyboard input remains active. Moving to another version, toggling Markdown/literal mode or resizing cannot paint a result from the old selection. The worker reuses prepared text and wrapped line counts; an unchanged viewport is reused on redraw. Its input/result queues each hold at most one pending item. Preview limits and terminal escaping are unchanged, and the worker has no engine/store or approval authority.
+
+Short previews use the bounded synchronous path. Storage refresh/blob reads, explicit diff generation and approval-request rendering retain their existing paths; this change does not promise asynchronous execution of every TUI operation. If the preview worker fails, the panel reports that it is unavailable and CLI export/navigation remain available.
+
 ## Artifact versions and provenance
 
 In the Artifacts tab, select an artifact and press `v`. The version browser shows saved creation-event IDs, producing steps and UTC timestamps, newest first. It only includes versions visible in the active branch's ancestry at each fork cutoff. Parent changes made after the fork and sibling/session versions remain excluded.

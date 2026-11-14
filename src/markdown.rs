@@ -5,7 +5,7 @@ use ratatui::{
 };
 
 // Bound display work independently of the workflow's configurable artifact limit.
-const MAX_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_BYTES: usize = 256 * 1024;
 const MAX_LINES: usize = 4096;
 const MAX_LINE_BYTES: usize = 8192;
 const MAX_COLUMNS: usize = 32;
