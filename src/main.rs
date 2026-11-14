@@ -18,6 +18,7 @@ mod input_pins;
 mod locks;
 mod usage;
 mod workspace_view;
+mod session_picker;
 #[cfg(test)]
 mod deviation_tests;
 

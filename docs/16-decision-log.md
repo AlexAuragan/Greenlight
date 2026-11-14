@@ -76,3 +76,8 @@ Ship and validate **one feature at a time**, preserve old and new behavior disti
 ## 2026-11-14 — Session workspace uses saved execution facts
 
 The TUI workspace projects persisted attempts, saved definitions, pinned input manifests, aggregate verification events and OS ownership. It does not infer success from model text or replace recorded input versions with latest artifacts. The stepper shows the latest outcome per step and attempt counts; loops and unvisited branches are not flattened into assumed progress. Missing historical metadata remains explicit. Blocker cards link to exact evidence and reuse existing guarded resume, recovery and restore controls.
+
+
+## 2026-11-14 — Picker creation is separate from execution
+
+The TUI session picker searches persisted goal/workflow/status/step/ID fields and sorts blocked sessions ahead of recorded recency. Recency uses the session's latest event across branches, not model-authored summaries. Selection follows session IDs across refreshes. The workflow picker validates files again on submission and creates a ready session; the existing resume path starts execution separately with normal permissions. Incoming approvals clear search and restore their owner before rendering, so filtering cannot hide or mislabel a pending request.

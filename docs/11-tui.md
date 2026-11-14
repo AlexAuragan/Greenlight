@@ -15,7 +15,15 @@ Press `c` or enter `/context` for a scrollable snapshot of the objective, requir
 
 Blocked sessions show a reason/evidence card after any diagnostic is dismissed. `e` opens its exact event, `h` returns to activity, `b` reopens the card, `2` opens artifacts, `i` composes resume instructions, and `r` opens the guarded restart flow. These controls never automatically retry. A live external owner is observation-only; interrupted ownership needs `/recover`, and unfinished native writes need CLI `recover-writes`. Context and evidence remain scrollable with arrows or `j/k`; Escape closes context.
 
-Activity uses concise rows; Enter/Right opens the selected event's evidence in the available pane, and Left returns to the list. Sidebar entries lead with the session goal. Search, blocked-first sorting and an in-TUI start flow remain future work.
+Activity uses concise rows; Enter/Right opens the selected event's evidence in the available pane, and Left returns to the list. Sidebar entries lead with the session goal. The session picker supports search and workflow creation as described below.
+
+## Finding and creating sessions
+
+Sessions show their goal, workflow/status, current step and latest recorded activity in UTC. Blocked sessions sort first; each group sorts by latest event across that session's branches. Sorting preserves the selected session by ID as background activity arrives.
+
+From navigation press `f` to search goals, workflows, current steps, statuses or full session IDs. Matching is case-insensitive and accepts Unicode. Use arrows to select, Enter to keep the filter, or Escape to clear it. To clear an applied filter, press `f`, then Escape. The sidebar shows matching/total counts. A worker's approval switches back to its owning session and clears a filter that might hide it.
+
+Press `n` to choose a workflow from the project's `workflows/` directories. Arrows or `j/k` select; Enter opens the goal form. Invalid workflows are labelled and show their validation error. Enter a nonempty goal and press Enter to create a **ready** session; Escape cancels without creating one. Creation reloads and validates the workflow, preserves the existing composer draft, and runs no model requests. Press `i`, type `/resume` or instructions, then Enter to execute through the normal engine and approval policy. Creation is disabled while this TUI has an active worker. Workflow authoring and provider configuration remain CLI/file operations.
 
 ## Main interaction
 

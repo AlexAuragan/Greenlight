@@ -81,6 +81,11 @@ struct App {
     workspace_session: Option<String>,
     context_detail: Option<String>,
     blocker_card: bool,
+    session_query: String,
+    searching: bool,
+    session_total: usize,
+    session_activity: crate::session_picker::Activity,
+    new_session: Option<crate::session_picker::NewSession>,
 }
 
 impl App {
@@ -128,6 +133,11 @@ impl App {
             workspace_session: None,
             context_detail: None,
             blocker_card: false,
+            session_query: String::new(),
+            searching: false,
+            session_total: 0,
+            session_activity: Default::default(),
+            new_session: None,
         }
     }
     fn raise_diagnostic(&mut self, message: String) {
@@ -212,6 +222,9 @@ impl App {
         let following_tail = self.events.len().checked_sub(1) == Some(self.event_index);
 
         self.sessions = store.list()?;
+        self.session_total=self.sessions.len();
+        self.session_activity=store.session_activity()?;
+        crate::session_picker::filter_and_sort(&mut self.sessions,&self.session_query,&self.session_activity);
         let desired_session = self.requested_session.take().or(old_session.clone());
         if let Some(id) = desired_session {
             self.session_index = self
@@ -282,6 +295,8 @@ impl App {
         } else {
             self.events.clear();
             self.artifacts.clear();
+            self.diagnostic=None;self.usage_detail=None;self.usage_error=None;
+            self.usage_line="Usage: no session selected".into();
             self.workspace=None;self.workspace_error=None;self.workspace_session=None;self.blocker_card=false;self.context_detail=None;
         }
         if changed_session {
@@ -432,6 +447,9 @@ impl App {
         if self.approval.is_none() {
             match runner.prompts.try_recv() {
                 Ok(question) => {
+                    self.searching=false;
+                    self.session_query.clear();
+                    self.new_session=None;
                     if let Some(id)=runner.session_id.as_ref() {
                         if let Some(index)=self.sessions.iter().position(|s|&s.id==id) {
                             self.session_index=index;
@@ -476,7 +494,7 @@ impl App {
             return;
         }
         if instruction == "/help" {
-            self.notice = "Type a message to resume; /context shows attempt/input evidence; /usage shows token/cost accounting; /recover recovers a dead owner; /restart selects an earlier step; /events toggles protocol detail; Ctrl+J adds a newline.".into();
+            self.notice = "f searches sessions; n creates a ready session; type a message to resume; /context shows attempt/input evidence; /usage shows token/cost accounting; /recover recovers a dead owner; /restart selects an earlier step; /events toggles protocol detail; Ctrl+J adds a newline.".into();
             self.composer.clear();
             return;
         }
@@ -662,6 +680,59 @@ impl App {
             return Ok(false);
         }
 
+        if self.new_session.is_some() {
+            if key.kind!=KeyEventKind::Press {return Ok(false);}
+            match key.code {
+                KeyCode::Esc=>{self.new_session=None;self.notice="New session cancelled.".into();},
+                KeyCode::Enter=>{
+                    let form=self.new_session.as_mut().unwrap();
+                    if form.goal.is_none() {
+                        if let Some(choice)=form.workflows.get(form.cursor) {
+                            if let Some(error)=&choice.error {form.error=Some(error.clone());}
+                            else {form.goal=Some(String::new());form.error=None;}
+                        }
+                    } else {
+                        match form.create(root,store) {
+                            Ok(session)=>{
+                                self.new_session=None;self.session_query.clear();
+                                self.requested_session=Some(session.id);
+                                self.diagnostic=None;self.context_detail=None;self.usage_detail=None;
+                                self.refresh(store)?;
+                                self.focus=Focus::Events;
+                                self.notice="Session created, ready to run. Press i, type /resume or instructions, then Enter.".into();
+                            }
+                            Err(error)=>form.error=Some(format!("Cannot create session: {error:#}")),
+                        }
+                    }
+                },
+                KeyCode::Down|KeyCode::Char('j') if self.new_session.as_ref().unwrap().goal.is_none()=>{
+                    let form=self.new_session.as_mut().unwrap();form.cursor=move_index(form.cursor,1,form.workflows.len());form.error=None;
+                },
+                KeyCode::Up|KeyCode::Char('k') if self.new_session.as_ref().unwrap().goal.is_none()=>{
+                    let form=self.new_session.as_mut().unwrap();form.cursor=move_index(form.cursor,-1,form.workflows.len());form.error=None;
+                },
+                KeyCode::Backspace=>{if let Some(goal)=self.new_session.as_mut().unwrap().goal.as_mut(){goal.pop();}},
+                KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL|KeyModifiers::ALT)=>{
+                    if let Some(goal)=self.new_session.as_mut().unwrap().goal.as_mut(){if goal.len()<8192{goal.push(c);}}
+                },
+                _=>{},
+            }
+            return Ok(false);
+        }
+        if self.searching {
+            match key.code {
+                KeyCode::Esc=>{self.searching=false;self.session_query.clear();},
+                KeyCode::Enter=>{self.searching=false;},
+                KeyCode::Backspace=>{self.session_query.pop();},
+                KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL|KeyModifiers::ALT) && self.session_query.len()<256=>{self.session_query.push(c);},
+                KeyCode::Down=>self.navigate(1),
+                KeyCode::Up=>self.navigate(-1),
+                _=>{},
+            }
+            self.refresh(store)?;
+            return Ok(false);
+        }
+
         if self.diagnostic.is_some() || self.usage_detail.is_some() || self.context_detail.is_some() {
             match key.code {
                 KeyCode::Esc => { self.diagnostic=None; self.usage_detail=None; self.context_detail=None; self.detail_scroll=0; },
@@ -727,6 +798,14 @@ impl App {
         }
 
         match key.code {
+            KeyCode::Char('f')=>{self.searching=true;self.focus=Focus::Sessions;},
+            KeyCode::Char('n')=>{
+                if self.runner.is_some(){self.notice="Wait for the active worker before creating another session.".into();}
+                else {match crate::session_picker::NewSession::discover(root){
+                    Ok(form)=>self.new_session=Some(form),
+                    Err(error)=>self.raise_diagnostic(format!("Cannot list workflows: {error:#}")),
+                }}
+            },
             KeyCode::Char('c')=>{self.context_detail=Some(self.workspace.as_ref().map(|w|format!("{}\n\nLatest recorded step states (loops may revisit):\n{}",w.context(),w.step_summary())).unwrap_or_else(||self.workspace_error.clone().unwrap_or_else(||"No session selected".into())));self.detail_scroll=0;},
             KeyCode::Char('e') if self.workspace.as_ref().is_some_and(|w|w.blocker.is_some())=>self.inspect_blocker(),
             KeyCode::Char('h')=>{self.blocker_card=false;self.view=View::Conversation;self.focus=Focus::Events;},
@@ -912,7 +991,7 @@ fn draw(frame: &mut Frame, app: &App) {
         Line::from(inline_display(&progress)),
         Line::from(inline_display(&format!(" Next: {next}"))).style(Style::default().fg(Color::Yellow)),
         Line::from(vec![Span::styled(" [1] Activity ",if app.view==View::Conversation{active_tab}else{inactive_tab}),
-            Span::styled(" [2] Artifacts ",if app.view==View::Artifacts{active_tab}else{inactive_tab}),Span::raw(" c context · h history")]),
+            Span::styled(" [2] Artifacts ",if app.view==View::Artifacts{active_tab}else{inactive_tab}),Span::raw(" f find · n new · c context")]),
     ]).block(border(" Session workspace ",false)),outer[0]);
 
     let columns = Layout::horizontal([
@@ -921,10 +1000,10 @@ fn draw(frame: &mut Frame, app: &App) {
     ]).split(outer[1]);
 
     let sessions = app.sessions.iter().map(|session| {
-        ListItem::new(format!("{}\n{} [{}]\n{}\n{}",inline_display(&session.goal),session.workflow,session.status,session.current_step,session.id.chars().take(8).collect::<String>()))
+        ListItem::new(format!("{}\n{} [{}]\n{}\n{}",inline_display(&session.goal),inline_display(&session.workflow),inline_display(&session.status),inline_display(&session.current_step),app.session_activity.get(&session.id).map(|(_,date)|format!("Last {}Z",date.get(5..16).unwrap_or(date))).unwrap_or_else(||"Last: not recorded".into())))
     });
     let sessions_list = List::new(sessions)
-        .block(border(" Sessions ", app.focus == Focus::Sessions))
+        .block(border(" Sessions · f/n ", app.focus == Focus::Sessions).title_bottom(format!(" {}/{} · {} ",app.sessions.len(),app.session_total,inline_display(&app.session_query))))
         .highlight_symbol("▶ ")
         .highlight_style(
             Style::default().fg(Color::Black).bg(Color::Cyan)
@@ -969,6 +1048,22 @@ fn draw(frame: &mut Frame, app: &App) {
                 .block(border(" Press a key to decide — no Enter needed ", true)),
             approval_areas[1],
         );
+    } else if let Some(form)=&app.new_session {
+        if let Some(goal)=&form.goal {
+            let choice=&form.workflows[form.cursor];
+            let content=format!("Workflow: {} — {}\n\nGoal:\n{}▌\n\nEnter creates a ready session. No model requests run yet.\nThen use i and /resume or instructions to run.\nEsc cancels.\n\n{}",choice.id,choice.title,goal,form.error.as_deref().unwrap_or(""));
+            frame.render_widget(Paragraph::new(safe_display(&content)).wrap(Wrap{trim:false}).block(border(" New session · goal ",true)),columns[1]);
+        } else {
+            let choices=form.workflows.iter().map(|w|ListItem::new(inline_display(&format!("{} — {}{}",w.id,w.title,if w.error.is_some(){" [invalid]"}else{""}))));
+            let mut state=ListState::default();if !form.workflows.is_empty(){state.select(Some(form.cursor));}
+            let panels=Layout::vertical([Constraint::Min(3),Constraint::Length(4)]).split(columns[1]);
+            frame.render_stateful_widget(List::new(choices).highlight_symbol("▶ ").highlight_style(Style::default().fg(Color::Cyan)).block(border(" New session · choose workflow ",true)),panels[0],&mut state);
+            let help=if form.workflows.is_empty(){"No workflows found. Add workflows/<name>/workflow.yaml and step files."}else{form.error.as_deref().unwrap_or("↑/↓ choose · Enter set goal · Esc cancel")};
+            frame.render_widget(Paragraph::new(safe_display(help)).wrap(Wrap{trim:false}),panels[1]);
+        }
+    } else if app.searching {
+        let content=format!("Search: {}▌\n\n{} of {} sessions\nMatches goal, workflow, step, status or full ID.\nBlocked sessions first; then latest recorded activity.\n\n↑/↓ select · Enter keep filter · Esc clear\nAfter searching: n new session · Right open selected session",app.session_query,app.sessions.len(),app.session_total);
+        frame.render_widget(Paragraph::new(safe_display(&content)).wrap(Wrap{trim:false}).block(border(" Find session ",true)),columns[1]);
     } else if let Some(message) = &app.diagnostic {
         frame.render_widget(Paragraph::new(crate::markdown::render(message))
             .wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
@@ -1120,6 +1215,10 @@ fn draw(frame: &mut Frame, app: &App) {
 
     let footer = if app.approval.is_some() {
         "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
+    } else if app.new_session.is_some() {
+        "New session · Enter continues · Esc cancels · no execution until resume".into()
+    } else if app.searching {
+        "Search · type to filter · Enter keeps filter · Esc clears · ↑/↓ select".into()
     } else if app.diagnostic.is_some() {
         "Attention required · ↑/↓ scroll full diagnostic · Esc close · inspect evidence before retrying".into()
     } else if app.context_detail.is_some() || app.usage_detail.is_some() {
@@ -1130,7 +1229,7 @@ fn draw(frame: &mut Frame, app: &App) {
         "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
     } else {
         format!(
-            "{}   │   1/2 views · ←/→ pane · ↑/↓ select/scroll · Enter open · i message · m raw",
+            "{}   │   f search · n new · 1/2 views · ←/→ pane · ↑/↓ navigate · i message",
             app.notice
         )
     };
@@ -1155,7 +1254,7 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
         let mut last_refresh = Instant::now();
         loop {
             app.tick();
-            if last_refresh.elapsed() >= Duration::from_millis(600) {
+            if app.requested_session.is_some() || last_refresh.elapsed() >= Duration::from_millis(600) {
                 app.refresh(&store)?;
                 last_refresh = Instant::now();
             }
@@ -1176,6 +1275,10 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
 #[cfg(test)]
 #[path = "tui_p0_tests.rs"]
 mod p0_tests;
+
+#[cfg(test)]
+#[path = "tui_picker_tests.rs"]
+mod picker_tests;
 
 #[cfg(test)]
 mod tests {
