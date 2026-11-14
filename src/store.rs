@@ -66,6 +66,10 @@ impl Store {
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              step TEXT NOT NULL, definition_event INTEGER NOT NULL, start_event INTEGER NOT NULL,
              end_event INTEGER, status TEXT NOT NULL);
+           CREATE TABLE IF NOT EXISTS model_calls (
+             id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
+             created_event INTEGER NOT NULL, payload TEXT NOT NULL);
+           CREATE INDEX IF NOT EXISTS calls_session ON model_calls(session,created_event);
            CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);

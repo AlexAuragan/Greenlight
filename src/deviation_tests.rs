@@ -46,6 +46,7 @@ impl Harness {
                 .map(|r| r.map(str::to_owned).map_err(str::to_owned))
                 .collect(),
             requests: Vec::new(),
+            ..Default::default()
         }));
         engine.provider.script = Some(script.clone());
         Self {

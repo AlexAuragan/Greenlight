@@ -16,6 +16,7 @@ mod write_journal;
 mod session_execution;
 mod input_pins;
 mod locks;
+mod usage;
 #[cfg(test)]
 mod deviation_tests;
 
@@ -61,6 +62,16 @@ enum Commands {
     Tui { session: Option<String> },
     /// List saved sessions
     Sessions,
+    /// Inspect recorded token counts and estimated costs (never assumes missing usage is zero)
+    Usage {
+        session: String,
+        #[arg(long,value_enum,default_value="session")]
+        scope: usage::Scope,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show configured tokenizer/pricing metadata; does not query a provider
+    ModelInfo { model: Option<String> },
     /// List durable step attempts visible on the session's active branch
     Attempts { session: String },
     /// Compare current project files with the latest recorded step-boundary hashes
@@ -114,7 +125,7 @@ enum Commands {
     /// Show a unified diff for one native agent write
     Diff { session: String, #[arg(long)] edit: i64 },
     /// List models through configured provider
-    Models,
+    Models { #[arg(long)] pricing: bool },
 }
 
 #[tokio::main]
@@ -127,6 +138,18 @@ async fn main() -> Result<()> {
     config::load_dotenv(&cwd.join(".env"))?;
     config::load_dotenv(&root.join(".env"))?;
     match cli.command {
+        Commands::Usage {session,scope,json} => {
+            let store=store::Store::open(&root)?;
+            let report=store.usage_report(&store.session(&session)?,scope)?;
+            if json {println!("{}",serde_json::to_string_pretty(&report)?);} else {print!("{}",report.display());}
+        }
+        Commands::ModelInfo {model} => {
+            let cfg=config::load_config(&root)?;
+            let model=model.as_deref().unwrap_or(&cfg.provider.model);
+            let metadata=cfg.provider.model_metadata.get(model).cloned().unwrap_or_default();
+            println!("Model: {model}\n{}",serde_json::to_string_pretty(&metadata)?);
+            println!("Null rates are unknown, never free. Configured pricing is not live-verified. Tokenizer counts are estimates.");
+        }
         Commands::Attempts { session } => {
             let store = store::Store::open(&root)?;
             let selected = store.session(&session)?;
@@ -363,10 +386,11 @@ async fn main() -> Result<()> {
                 .context("edit not found in active branch history")?;
             print!("{}", changes::unified(&change.path, change.before.as_deref(), &change.after));
         }
-        Commands::Models => {
+        Commands::Models {pricing} => {
             let engine = engine::Engine::open(&root)?;
             for m in engine.provider.models().await? {
                 println!("{m}");
+                if pricing {println!("{}",serde_json::to_string(&engine.cfg.provider.model_metadata.get(&m).cloned().unwrap_or_default())?);}
             }
         }
     }

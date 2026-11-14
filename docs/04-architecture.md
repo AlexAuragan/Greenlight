@@ -32,6 +32,7 @@ flowchart TD
 - `restore.rs` — guarded historical reconstruction of journaled native edits and individual-file restore.
 - `sandbox.rs` — mandatory Linux Bubblewrap isolation for shell commands, with read-only project mount and isolated writable cache.
 - `approvals.rs` — saved project/global grants, separate from temporary process-level decisions.
+- `usage.rs` — request usage ledger, token-count provenance, tiktoken fallback, immutable pricing snapshots and scoped cost summaries.
 - `provider.rs` — HTTP chat-completions and model discovery through the DeepInfra OpenAI-compatible API.
 - `tools.rs` — permissioned native file access and sandboxed shell/web dispatch.
 - `tui.rs`, `tui_actions.rs`, `markdown.rs` — Ratatui session views, approval/restart interactions, and a small safe-text Markdown presentation layer.

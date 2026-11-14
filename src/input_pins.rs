@@ -462,6 +462,7 @@ mod tests {
                 ]
                 .into(),
                 requests: Vec::new(),
+            ..Default::default()
             },
         )));
         tokio::runtime::Runtime::new()

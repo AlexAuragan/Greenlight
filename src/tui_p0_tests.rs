@@ -46,6 +46,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
     engine.provider.script = Some(Arc::new(Mutex::new(Script {
         responses: responses.iter().map(|text| Ok((*text).into())).collect(),
         requests: Vec::new(),
+        ..Default::default()
     })));
     let (prompts_tx, prompts) = mpsc::channel();
     let (answers, answer_rx) = mpsc::channel();
@@ -266,6 +267,24 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
         .iter()
         .any(|(_, _, k, d)| k == "permission.decision" && d.contains("denied by user")));
     assert!(history.iter().any(|(_, _, k, _)| k == "runner.recovered"));
+    let usage = store
+        .usage_report(
+            &store.session(&session.id).unwrap(),
+            crate::usage::Scope::Session,
+        )
+        .unwrap();
+    assert_eq!(usage.totals.requests, 9);
+    assert_eq!(usage.totals.input.reported, 0);
+    assert!(usage.totals.input.estimated > 0);
+    app.composer = "/usage".into();
+    app.submit(root.path(), &store);
+    assert!(screen(&app).contains("Usage — session spending"));
+    assert!(app.usage_detail.as_ref().unwrap().contains("unknown"));
+    key(&mut app, &store, root.path(), KeyCode::Down);
+    app.refresh(&store).unwrap();
+    assert_eq!(app.detail_scroll, 1);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    assert!(app.usage_detail.is_none());
 }
 
 #[test]

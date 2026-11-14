@@ -59,6 +59,8 @@ greenlight artifact SESSION_ID plan.md > plan.md
 greenlight put-artifact SESSION_ID plan.md --file plan.md
 greenlight fork SESSION_ID --event 42 --step plan
 greenlight models
+greenlight usage SESSION_ID
+greenlight model-info
 ```
 
 For a globally installed binary, run `greenlight ...` instead of `cargo run -- ...`.
@@ -109,8 +111,9 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 
 ### P1 — TUI redesign for daily use
 
-- [ ] Track input, cached-input and output tokens for **every model request**, including coding, verification, deviation detection, retries and future manager/summary calls. Persist per-request usage and aggregate by attempt/session/model, distinguishing actual spending from inherited fork history. Prefer provider usage; fall back to a model-compatible tokenizer or explicitly approximate tiktoken counts. Cache hits and unreported billing remain unknown rather than fabricated. See [token usage and pricing plan](docs/18-token-usage-and-pricing.md).
-- [ ] Associate each configured provider/model with input, cached-input and output pricing, currency, billing unit and effective/source date; discover rates when supported or accept explicit configuration. Show unknown/stale prices and estimated costs clearly, retain historical rate snapshots, and expose totals in CLI/TUI without double-counting cached input.
+- [x] Persist input/cached-input/output usage for every current coding, verification and detector request, including failures and retries. Prefer provider counts; use labelled tiktoken estimates otherwise, retaining unknown cache/billing values. Report per-request/attempt/model totals in CLI/TUI and distinguish session, branch and inherited history. See [usage and pricing](docs/18-token-usage-and-pricing.md).
+- [x] Support explicit per-model pricing with currency, source/effective date and per-request snapshots. `model-info`, `models --pricing`, `usage` and TUI `/usage` expose configured or unknown rates/counts and estimated costs without counting cached input twice.
+- [ ] Discover authoritative provider pricing where supported, handle tiered/cache-creation billing and flag pricing freshness automatically. Current rates are explicit configuration, never silently fetched, refreshed or invented; cost budgets remain separate P2 work.
 - [ ] Replace the raw log-centric layout with a session workspace: **status + stepper + context + primary action**, backed by typed events.
 - [ ] Add a session home/picker with readable names, blocked-first visibility, last activity, search and an in-TUI start flow.
 - [ ] Implement contextual blocked-state cards: show reason/evidence, inspect related artifacts, retry, resume or restart safely.

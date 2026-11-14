@@ -260,7 +260,7 @@ impl Engine {
             &format!("{{{{ include \"{prompt}\" }}}}"), &self.root, &wf.folder,
         )?;
         let query = format!("Evaluate whether this deviation is supported by available evidence.\nRule: {}\nInstructions: {}\nAgent report: {}\nReturn YAML only:\ndetected: true|false\nreason: explanation", rule.id, instructions, summary);
-        let raw = self.provider.complete(model, &[json!({"role":"user","content":query})])
+        let raw = self.model_call(s, &step.id, "deviation-detector", model, &[json!({"role":"user","content":query})])
             .await.context("deviation detector failed")?;
         self.store.event(s, Some(&step.id), "deviation.detector", &raw)?;
         let yaml = raw.trim().trim_start_matches("```yaml").trim_start_matches("```yml")
@@ -270,6 +270,20 @@ impl Engine {
             if verdict.detected { "deviation.accepted" } else { "deviation.rejected" },
             &format!("{}: {}", rule.id, verdict.reason))?;
         Ok(Some(verdict))
+    }
+    async fn model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value])->Result<String> {
+        let metadata=self.cfg.provider.model_metadata.get(model).cloned().unwrap_or_default();
+        // Persist only the service origin, never URL user-info or query secrets.
+        let provider=reqwest::Url::parse(&self.cfg.provider.base_url).map(|url|url.origin().ascii_serialization()).unwrap_or_else(|_|"unknown provider".into());
+        let mut call=crate::usage::Call::new(s,step,purpose,model,&provider,metadata,messages);
+        self.store.begin_model_call(s,&mut call)?;
+        let result=self.provider.complete(model,messages).await;
+        match &result {
+            Ok(response)=>call.finish(response),
+            Err(_)=>call.status="failed-or-unknown-billing".into(),
+        }
+        self.store.finish_model_call(s,&call).context("could not persist model usage; initial request record retained")?;
+        result?.content.map_err(anyhow::Error::msg)
     }
     async fn block(&self, s: &mut Session, reason: &str, step: &str) -> Result<()> {
         s.status = "blocked".into();
@@ -460,7 +474,7 @@ impl Engine {
             .max_turns
             .unwrap_or(self.cfg.session.max_turns_per_attempt);
         for turn in 0..limit {
-            let raw = self.provider.complete(model, &messages).await?;
+            let raw = self.model_call(s, &step.id, "coding", model, &messages).await?;
             self.store.event(s, Some(&step.id), "model.output", &raw)?;
             // An in-flight response cannot authorize work against an input
             // version that changed while the model was running.
@@ -755,8 +769,7 @@ impl Engine {
                 }).to_string())?;
                 let query=format!("{}\n\nGoal: {}\nStep: {}\nEvidence:\n{}\nRespond only YAML:\npassed: true|false\nreason: concise explanation", full, s.goal, step.id, evidence);
                 let raw = self
-                    .provider
-                    .complete(model, &[json!({"role":"user","content":query})])
+                    .model_call(s, &step.id, "verification", model, &[json!({"role":"user","content":query})])
                     .await?;
                 self.store
                     .event(s, Some(&step.id), "verification.agent", &raw)?;

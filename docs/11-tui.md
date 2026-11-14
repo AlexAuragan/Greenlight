@@ -25,6 +25,10 @@ Worker failures/disconnects, blocked-step reasons, malformed known structured ev
 
 Restore failures include files changed versus files journaled. A failed restart does not fork, and a restore-then-fork failure is explicitly distinguished. Inspect workspace/history before retrying; a partial restore is not automatically rolled back. Artifact read failures preserve history access.
 
+## Token usage
+
+The footer reports input/cached-input/output token totals for recorded requests across the selected session’s branches. `~` marks estimates and `?` marks incomplete counts. Enter `/usage` in the composer for live-refreshed counts and estimated cost subtotals by model/attempt; arrows scroll and Escape closes the view. Unknown rates or cache hits do not become zero charges. Use CLI `usage SESSION_ID --json` for per-request provenance. Historical calls before the ledger was introduced are not reconstructed.
+
 ## Artifacts tab
 
 Press **2** in navigation mode to open the **Artifacts** tab; press **1** to return to the conversation. The left pane lists the most recent version of each artifact on the selected session's active branch, along with its producing step and byte size. The right pane renders headings, emphasis, inline/fenced code, lists, blockquotes and simple pipe tables. Press **m** in navigation mode to toggle between rendered Markdown (the default) and exact raw text; the original stored artifact is never rewritten. Other CommonMark features, hyperlinks and complex table layouts are not yet supported. **j/k**, arrows and **g/G** select a saved artifact; **Up/Down** or **j/k** scroll the artifact when the detail pane is focused. The selected artifact remains selected when newer versions are registered.

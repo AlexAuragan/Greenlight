@@ -62,7 +62,7 @@ Greenlight must not create automatic Git commits by default; the user controls c
 
 ## Planned decision — Token usage and pricing (2026-11-14)
 
-Track usage for every model request, including input, cached input and output tokens. Prefer provider-reported usage; tokenizer/tiktoken fallbacks must be labelled estimates and cannot infer cache hits. Configured models should surface provider-specific prices and their provenance, with historical rate snapshots and explicit unknown values. Keep incurred spending separate from fork-inherited history. This is a P1 TODO, not an implemented capability; see [the accounting plan](18-token-usage-and-pricing.md).
+Track usage for every model request, including input, cached input and output tokens. Prefer provider-reported usage; tokenizer/tiktoken fallbacks must be labelled estimates and cannot infer cache hits. Configured models should surface provider-specific prices and their provenance, with historical rate snapshots and explicit unknown values. Keep incurred spending separate from fork-inherited history. Core per-request accounting, configured flat-rate snapshots and CLI/TUI reporting are implemented in P1; automatic pricing discovery, tiers, freshness checks and budgets remain TODOs. See [usage and pricing](18-token-usage-and-pricing.md).
 
 ## Correctness issue discovered during documentation audit (2026-11-13; resolved)
 

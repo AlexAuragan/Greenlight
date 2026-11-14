@@ -73,6 +73,9 @@ struct App {
     diagnostic: Option<String>,
     diagnostic_key: Option<(String,String)>,
     artifact_diagnostic_key: Option<(String,String)>,
+    usage_line: String,
+    usage_detail: Option<String>,
+    usage_error: Option<String>,
 }
 
 impl App {
@@ -112,6 +115,9 @@ impl App {
             diagnostic: None,
             diagnostic_key: None,
             artifact_diagnostic_key: None,
+            usage_line: "Usage: no recorded model requests".into(),
+            usage_detail: None,
+            usage_error: None,
         }
     }
     fn raise_diagnostic(&mut self, message: String) {
@@ -210,7 +216,15 @@ impl App {
                 })
                 .filter(|event| show_all || !is_chatter(&event.kind))
                 .collect();
-            if changed_session { self.diagnostic = None; }
+            if changed_session { self.diagnostic = None; self.usage_detail=None; }
+            match store.usage_report(&session,crate::usage::Scope::Session) {
+                Ok(report)=>{self.usage_line=report.totals.compact();self.usage_error=None;if self.usage_detail.is_some(){self.usage_detail=Some(report.display());}}
+                Err(error)=>{
+                    self.usage_line="Usage unavailable — inspect accounting records".into();
+                    let message=format!("Usage accounting could not be read: {error:#}");
+                    if self.usage_error.as_ref()!=Some(&message) {self.usage_error=Some(message.clone());self.raise_diagnostic(message);}
+                }
+            }
             let last_restore_outcome=self.events.iter().rev().find(|e|matches!(e.kind.as_str(),"workspace.restore-failed"|"workspace.restore-completed")).map(|e|e.id);
             if let Some(event) = self.events.iter().rev().find(|e|
                 e.kind=="event.invalid" || (e.kind=="workspace.restore-failed" && Some(e.id)==last_restore_outcome) ||
@@ -246,7 +260,7 @@ impl App {
         }
         if changed_session || following_tail {
             self.event_index = self.events.len().saturating_sub(1);
-            if (changed_session || self.view == View::Conversation) && self.diagnostic.is_none() && self.approval.is_none() {
+            if (changed_session || self.view == View::Conversation) && self.diagnostic.is_none() && self.approval.is_none() && self.usage_detail.is_none() {
                 self.detail_scroll = 0;
             }
             self.diff = None;
@@ -419,7 +433,17 @@ impl App {
             return;
         }
         if instruction == "/help" {
-            self.notice = "Type a message to resume; /recover recovers a dead owner; /restart selects an earlier step; /events toggles protocol detail; Ctrl+J adds a newline.".into();
+            self.notice = "Type a message to resume; /usage shows token/cost accounting; /recover recovers a dead owner; /restart selects an earlier step; /events toggles protocol detail; Ctrl+J adds a newline.".into();
+            self.composer.clear();
+            return;
+        }
+        if instruction=="/usage" {
+            if let Some(session)=self.session() {
+                match store.usage_report(session,crate::usage::Scope::Session) {
+                    Ok(report)=>{self.usage_detail=Some(report.display());self.detail_scroll=0;}
+                    Err(error)=>self.raise_diagnostic(format!("Usage unavailable: {error:#}")),
+                }
+            }
             self.composer.clear();
             return;
         }
@@ -591,9 +615,9 @@ impl App {
             return Ok(false);
         }
 
-        if self.diagnostic.is_some() {
+        if self.diagnostic.is_some() || self.usage_detail.is_some() {
             match key.code {
-                KeyCode::Esc => { self.diagnostic=None; self.detail_scroll=0; },
+                KeyCode::Esc => { self.diagnostic=None; self.usage_detail=None; self.detail_scroll=0; },
                 KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
                 KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
                 KeyCode::Char('q') if self.runner.is_none() => return Ok(true),
@@ -714,6 +738,7 @@ fn is_chatter(kind: &str) -> bool {
         kind,
         "step.definition" | "context.assembled" | "model.output" | "tool.request"
             | "permission.decision"
+            | "model.call-started" | "model.usage"
             | "workspace.manifest.before" | "workspace.manifest.after"
     )
 }
@@ -912,6 +937,9 @@ fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(Paragraph::new(crate::markdown::render(message))
             .wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
             .block(Block::default().borders(Borders::ALL).title(" ATTENTION — Esc closes; arrows scroll ").border_style(Style::default().fg(Color::Red))),columns[1]);
+    } else if let Some(message)=&app.usage_detail {
+        frame.render_widget(Paragraph::new(crate::markdown::render(message)).wrap(Wrap {trim:false}).scroll((app.detail_scroll,0))
+            .block(border(" Usage — session spending · Esc closes ",true)),columns[1]);
     } else if app.restart_plan.is_some() {
         frame.render_widget(
             Paragraph::new(app.restart_preview.clone())
@@ -1081,7 +1109,7 @@ fn draw(frame: &mut Frame, app: &App) {
             app.notice
         )
     };
-    frame.render_widget(Paragraph::new(footer), outer[3]);
+    frame.render_widget(Paragraph::new(format!("{}\n{footer}",app.usage_line)), outer[3]);
 }
 
 pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
