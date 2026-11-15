@@ -10,6 +10,20 @@ use std::{
     time::Duration,
 };
 
+/// Any unsuccessful central model call is an execution failure, not a verifier's
+/// negative verdict. This also covers ledger/audit errors after paid dispatch.
+#[derive(Debug)]
+pub struct ModelCallFailed;
+impl fmt::Display for ModelCallFailed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Model request or usage recording failed")
+    }
+}
+impl std::error::Error for ModelCallFailed {}
+pub fn is_fatal_model_error(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<ModelCallFailed>().is_some() || error.downcast_ref::<Failure>().is_some()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {

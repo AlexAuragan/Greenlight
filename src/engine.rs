@@ -281,6 +281,9 @@ impl Engine {
         self.model_call_with_message(s,step,purpose,model,messages,None).await
     }
     pub(crate) async fn model_call_with_message(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value],interaction:Option<(&str,&str)>)->Result<String> {
+        self.dispatch_model_call(s,step,purpose,model,messages,interaction).await.context(crate::provider_failure::ModelCallFailed)
+    }
+    async fn dispatch_model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value],interaction:Option<(&str,&str)>)->Result<String> {
         use crate::provider_failure::{Failure,Kind};
         for attempt in 1..=3 {
             if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
@@ -456,7 +459,7 @@ impl Engine {
                 }
                 self.store.approve_inputs(s, &step.id, input_manifest, &inputs, || self.select_inputs(s, wf, step))?;
                 if let Err(e) = self.verify(s, wf, step, model).await {
-                    if e.downcast_ref::<crate::provider_failure::Failure>().is_some() {return Err(e);}
+                    if crate::provider_failure::is_fatal_model_error(&e) {return Err(e);}
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
                         format!("{e:#}"),
@@ -479,7 +482,7 @@ impl Engine {
                     return Ok(Outcome::Deviation("command_failed".into(), result));
                 }
                 if let Err(e) = self.verify(s, wf, step, model).await {
-                    if e.downcast_ref::<crate::provider_failure::Failure>().is_some() {return Err(e);}
+                    if crate::provider_failure::is_fatal_model_error(&e) {return Err(e);}
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
                         format!("{e:#}"),
@@ -668,7 +671,7 @@ impl Engine {
                         }
                     }
                     if let Err(e) = self.verify(s, wf, step, model).await {
-                        if e.downcast_ref::<crate::provider_failure::Failure>().is_some() {return Err(e);}
+                        if crate::provider_failure::is_fatal_model_error(&e) {return Err(e);}
                         return Ok(Outcome::Deviation(
                             "verification_failed".into(),
                             format!("{e:#}"),
@@ -720,9 +723,10 @@ impl Engine {
                     }
                     let mut passed = false;
                     for c in checks {
-                        if self.verify_leaf(s, wf, step, model, c).await.is_ok() {
-                            passed = true;
-                            break;
+                        match self.verify_leaf(s, wf, step, model, c).await {
+                            Ok(())=>{passed=true;break;}
+                            Err(error) if crate::provider_failure::is_fatal_model_error(&error)=>return Err(error),
+                            Err(_)=>{} // Ordinary rejected checks retain the configured any-of behavior.
                         }
                     }
                     if !passed {

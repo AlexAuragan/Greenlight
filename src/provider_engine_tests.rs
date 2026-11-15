@@ -118,8 +118,8 @@ async fn retries_stop_at_three_requests_or_excessive_server_wait() {
         .model_call(&s, "work", "coding", "fixture", &[])
         .await
         .unwrap_err()
-        .to_string()
-        .contains("budget"));
+        .chain()
+        .any(|cause| cause.to_string().contains("budget")));
     assert_eq!(
         engine
             .store
@@ -284,7 +284,7 @@ async fn usage_persistence_failure_never_schedules_a_second_request() {
         .model_call(&s, "work", "coding", "fixture", &[])
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("could not persist model usage"));
+    assert!(format!("{error:#}").contains("could not persist model usage"));
     assert_eq!(
         engine
             .provider
@@ -306,4 +306,119 @@ async fn usage_persistence_failure_never_schedules_a_second_request() {
         .unwrap()
         .iter()
         .any(|(_, _, kind, _)| kind == "provider.retry"));
+}
+
+fn verification_workflow(root: &Path, kind: &str) {
+    let folder = root.join("workflows/demo");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("workflow.yaml"),
+        "id: demo\ntitle: Demo\nstart: work\nsteps: [work]\n",
+    )
+    .unwrap();
+    fs::write(folder.join("work.md"),format!("---\nid: work\nverification:\n  type: {kind}\n  checks:\n    - type: agent\n      prompt: review.md\n    - type: agent\n      prompt: review.md\ndeviations:\n  - id: verification_failed\n    action: retry\n    max_retries: 3\n    prompt: review.md\n---\nWork\n")).unwrap();
+    fs::write(folder.join("review.md"), "Review fixture").unwrap();
+}
+fn text_completion(content: &str) -> Completion {
+    Completion::parse(
+        200,
+        &serde_json::json!({"choices":[{"message":{"content":content}}]}).to_string(),
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn any_verification_provider_failure_stops_before_fallback_or_detector() {
+    let rejected = Completion::parse(401, r#"{"error":{"code":"invalid_api_key"}}"#).unwrap();
+    let (root, mut engine, s) = fixture(vec![
+        text_completion("action: finish"),
+        rejected,
+        text_completion("passed: true\nreason: should not be called"),
+    ]);
+    verification_workflow(root.path(), "any");
+    engine.run(&s.id, None, None).await.unwrap();
+    assert_eq!(engine.store.session(&s.id).unwrap().status, "blocked");
+    assert_eq!(
+        engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+            .len(),
+        2
+    );
+    let history = engine.store.history(&s).unwrap();
+    assert!(!history.iter().any(|e| matches!(
+        e.2.as_str(),
+        "step.deviation" | "verification.passed" | "deviation.detector"
+    )));
+}
+
+#[tokio::test]
+async fn verification_usage_failure_is_fatal_for_any_and_all_policies() {
+    for kind in ["any", "all"] {
+        let (root, mut engine, s) = fixture(vec![
+            text_completion("action: finish"),
+            text_completion("passed: true\nreason: accepted"),
+            text_completion("passed: true\nreason: must not repeat"),
+        ]);
+        verification_workflow(root.path(), kind);
+        engine.store.db.execute_batch("CREATE TRIGGER reject_verification_usage BEFORE UPDATE ON model_calls WHEN json_extract(OLD.payload,'$.purpose')='verification' BEGIN SELECT RAISE(ABORT,'fixture accounting failure'); END;").unwrap();
+        engine.run(&s.id, None, None).await.unwrap();
+        assert_eq!(engine.store.session(&s.id).unwrap().status, "blocked");
+        assert_eq!(
+            engine
+                .provider
+                .script
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .requests
+                .len(),
+            2,
+            "{kind}"
+        );
+        let history = engine.store.history(&s).unwrap();
+        assert!(!history.iter().any(|e| matches!(
+            e.2.as_str(),
+            "step.deviation" | "verification.passed" | "deviation.detector"
+        )));
+        let usage = engine.store.usage_report(&s, Scope::Session).unwrap();
+        assert_eq!(usage.totals.requests, 2);
+        assert_eq!(usage.calls[1].status, "started-or-interrupted");
+    }
+}
+
+#[tokio::test]
+async fn any_verification_still_accepts_later_check_after_a_genuine_rejection() {
+    let (root, mut engine, s) = fixture(vec![
+        text_completion("action: finish"),
+        text_completion("passed: false\nreason: rejected"),
+        text_completion("passed: true\nreason: alternate check passed"),
+    ]);
+    verification_workflow(root.path(), "any");
+    engine.run(&s.id, None, None).await.unwrap();
+    assert_eq!(engine.store.session(&s.id).unwrap().status, "completed");
+    assert_eq!(
+        engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+            .len(),
+        3
+    );
+    assert!(engine
+        .store
+        .history(&s)
+        .unwrap()
+        .iter()
+        .any(|e| e.2 == "verification.passed"));
 }
