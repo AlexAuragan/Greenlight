@@ -388,7 +388,7 @@ pub(super) fn draw(
                 );
                 let summary = Line::styled(
                     inline_display(&format!("  {} · {}", event.step, card.summary)),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(if matches!(event.kind.as_str(), "user.message" | "manager.message" | "session.started") {Color::Green} else {Color::DarkGray}),
                 );
                 ListItem::new(if compact {
                     vec![title]

@@ -32,7 +32,14 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         .workspace
         .as_ref()
         .filter(|_| app.workspace_session.as_deref() == app.session().map(|s| s.id.as_str()));
-    let status = if workspace
+    let starting = app
+        .runner
+        .as_ref()
+        .is_some_and(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
+        && raw_status == "ready";
+    let status = if starting {
+        "STARTING".into()
+    } else if workspace
         .is_some_and(|w| w.primary == crate::workspace_view::PrimaryAction::RecoverOwner)
     {
         "INTERRUPTED".into()
@@ -62,8 +69,11 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     };
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from(inline_display(&format!(" {goal}")))
-                .style(Style::default().add_modifier(Modifier::BOLD)),
+            Line::from(inline_display(&format!(" {goal}"))).style(
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Line::from(inline_display(&format!(
                 " {workflow} · {status} · {step} · {attempt}"
             ))),
@@ -223,11 +233,15 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             panes[1],
         );
     } else if app.activity_filtering {
-        let message=format!("Filter activity: {}▌\n\n{} matching records.\nMatches event kind, step, card title or summary.\nEnter keeps this filter; Esc clears it.\nFull payload search is available in exported history.",app.activity_query,app.events.len());
-        frame.render_widget(
-            Paragraph::new(safe_display(&message))
-                .wrap(Wrap { trim: false })
-                .block(border(" Filter activity · F ", true)),
+        input_panel(
+            frame,
+            &app.filter_editor,
+            &app.activity_query,
+            "Filter activity",
+            &format!(
+                "{} matching records · Enter apply · Esc clear",
+                app.events.len()
+            ),
             columns[1],
         );
     } else if app.help {
@@ -242,11 +256,17 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else if let Some(form) = &app.new_session {
         if let Some(goal) = &form.goal {
             let choice = &form.workflows[form.cursor];
-            let content=format!("Workflow: {} — {}\n\nGoal:\n{}▌\n\nEnter creates a ready session. No model requests run yet.\nThen use i and /resume or instructions to run.\nEsc cancels.\n\n{}",choice.id,choice.title,goal,form.error.as_deref().unwrap_or(""));
-            frame.render_widget(
-                Paragraph::new(safe_display(&content))
-                    .wrap(Wrap { trim: false })
-                    .block(border(" New session · goal ", true)),
+            input_panel(
+                frame,
+                &app.goal_editor,
+                goal,
+                " New session · goal ",
+                &format!(
+                    "{} — {} · Enter starts · Ctrl+J newline · Esc cancel\n{}",
+                    choice.id,
+                    choice.title,
+                    form.error.as_deref().unwrap_or("")
+                ),
                 columns[1],
             );
         } else {
@@ -285,11 +305,16 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             );
         }
     } else if app.searching {
-        let content=format!("Search: {}▌\n\n{} of {} sessions\nMatches goal, workflow, step, status or full ID.\nBlocked sessions first; then latest recorded activity.\n\n↑/↓ select · Enter keep filter · Esc clear\nAfter searching: n new session · Right open selected session",app.session_query,app.sessions.len(),app.session_total);
-        frame.render_widget(
-            Paragraph::new(safe_display(&content))
-                .wrap(Wrap { trim: false })
-                .block(border(" Find session ", true)),
+        input_panel(
+            frame,
+            &app.session_editor,
+            &app.session_query,
+            " Find session ",
+            &format!(
+                "{} of {} sessions · ↑/↓ select · Enter keep · Esc clear",
+                app.sessions.len(),
+                app.session_total
+            ),
             columns[1],
         );
     } else if let Some(message) = &app.diagnostic {
@@ -402,19 +427,53 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             draw_scrolled(frame,app,Paragraph::new("No artifacts on this branch yet.\n\nArtifact actions and put-artifact register documents for later steps and human review.").wrap(Wrap{trim:false}).block(border(title,app.focus==Focus::Detail)),panes[1]);
         }
     } else {
-        activity::draw(frame, app, workspace, columns[1]);
+        let live = app
+            .runner
+            .as_ref()
+            .filter(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
+            .and_then(|r| r.live.as_ref());
+        if let Some(live) = live {
+            let panels = Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)])
+                .split(columns[1]);
+            activity::draw(frame, app, workspace, panels[0]);
+            let live = live.lock().unwrap();
+            let status = if live.state.is_empty() {
+                "Starting workflow…"
+            } else {
+                &live.state
+            };
+            let body = if live.text.is_empty() {
+                format!("{status}\nOutput will appear as the provider sends it. Tool and human approvals remain interactive.")
+            } else {
+                safe_display(&live.text)
+            };
+            let paragraph = Paragraph::new(body)
+                .wrap(Wrap { trim: false })
+                .style(Style::default().fg(Color::Yellow))
+                .block(
+                    border(" Live model output · unvalidated preview ", false).title_bottom(
+                        inline_display(&format!(
+                            "{} · {}{}",
+                            live.model,
+                            status,
+                            if live.truncated {
+                                " · showing latest output"
+                            } else {
+                                ""
+                            }
+                        )),
+                    ),
+                );
+            let offset = paragraph
+                .line_count(panels[1].width.saturating_sub(2))
+                .saturating_sub(panels[1].height.saturating_sub(2) as usize)
+                .min(u16::MAX as usize) as u16;
+            frame.render_widget(paragraph.scroll((offset, 0)), panels[1]);
+        } else {
+            activity::draw(frame, app, workspace, columns[1]);
+        }
     }
 
-    let input = if app.composer.is_empty() {
-        "Type instructions to resume this session…".to_owned()
-    } else {
-        app.composer.clone()
-    };
-    let input = if app.focus == Focus::Compose {
-        format!("{input}▌")
-    } else {
-        input
-    };
     let input_title = if app.manager_job.is_some() {
         " Manager answering · /cancel-manager stops future retries "
     } else if app.manager_enabled {
@@ -424,20 +483,16 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else {
         " Message agent · i to focus · Enter sends "
     };
-    let composer_style = if app.composer.is_empty() {
-        Style::default().fg(Color::Rgb(85, 85, 85))
-    } else {
-        Style::default()
-    };
-    let composer = Paragraph::new(input)
-        .style(composer_style)
-        .wrap(Wrap { trim: false })
-        .block(border(input_title, app.focus == Focus::Compose));
-    let lines = composer.line_count(outer[2].width.saturating_sub(2));
-    let offset = lines
-        .saturating_sub(outer[2].height as usize)
-        .min(u16::MAX as usize) as u16;
-    frame.render_widget(composer.scroll((offset, 0)), outer[2]);
+    let composer_block = border(input_title, app.focus == Focus::Compose && !overlay);
+    let input_area = composer_block.inner(outer[2]);
+    frame.render_widget(composer_block, outer[2]);
+    app.composer_editor.draw(
+        frame,
+        &app.composer,
+        "Type instructions to resume this session…",
+        input_area,
+        app.focus == Focus::Compose && !overlay,
+    );
 
     let footer = if app.approval.is_some() {
         "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
@@ -448,7 +503,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else if app.help {
         "↑/↓ or j/k scroll · PgUp/PgDn page · Home/End · Esc close".into()
     } else if app.new_session.is_some() {
-        "New session · Enter continues · Esc cancels · no execution until resume".into()
+        "New session · Enter chooses workflow / starts goal · Ctrl+J newline · arrows edit · Esc cancel".into()
     } else if app.searching {
         "Search · type to filter · Enter keeps filter · Esc clears · ↑/↓ select".into()
     } else if app.diagnostic.is_some() {
@@ -478,4 +533,29 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         )),
         outer[3],
     );
+}
+
+fn input_panel(
+    frame: &mut Frame,
+    editor: &editor::Editor,
+    text: &str,
+    title: &'static str,
+    hint: &str,
+    area: ratatui::layout::Rect,
+) {
+    let block = border(title, true);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let panels = Layout::vertical([
+        Constraint::Length(3.min(inner.height.saturating_sub(1))),
+        Constraint::Min(1),
+    ])
+    .split(inner);
+    frame.render_widget(
+        Paragraph::new(safe_display(hint))
+            .style(Style::default().fg(Color::DarkGray))
+            .wrap(Wrap { trim: false }),
+        panels[0],
+    );
+    editor.draw(frame, text, "Type here…", panels[1], true);
 }

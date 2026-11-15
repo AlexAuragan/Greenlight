@@ -64,6 +64,7 @@ impl App {
             );
             self.composer = self.drafts.remove(&selected).unwrap_or_default();
             self.composer_session = selected;
+            self.composer_editor.reset();
         }
     }
     pub(super) fn open_help(&mut self) {

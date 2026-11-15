@@ -35,13 +35,18 @@ impl App {
                 self.notice="Stop requested: retry waits cancel promptly; an in-flight request may finish, and no further provider request will start.".into();
                 return Ok(false);
             }
-            if self.manager_job.is_some() {self.cancel_manager();return Ok(false);}
+            if self.manager_job.is_some() {
+                self.cancel_manager();
+                return Ok(false);
+            }
         }
         if self.too_small() {
             if key.code == KeyCode::Esc && self.approval.is_some() {
                 self.deliver_approval('n')?;
             }
-            return Ok(key.code == KeyCode::Char('q') && self.runner.is_none() && self.manager_job.is_none());
+            return Ok(key.code == KeyCode::Char('q')
+                && self.runner.is_none()
+                && self.manager_job.is_none());
         }
         if let Some(mode) = self.approval.as_ref().map(|request| request.mode) {
             if key.kind != KeyEventKind::Press {
@@ -82,18 +87,9 @@ impl App {
                     self.commit_activity_filter();
                     self.activity_filtering = false;
                 }
-                KeyCode::Backspace => {
-                    self.activity_query.pop();
-                }
-                KeyCode::Char(c)
-                    if !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                        && self.activity_query.len() < 256 =>
-                {
-                    self.activity_query.push(c)
-                }
-                _ => {}
+                _ => self
+                    .filter_editor
+                    .key(&mut self.activity_query, key, false, 256),
             }
             self.filter_activity();
             return Ok(false);
@@ -214,7 +210,11 @@ impl App {
             || self.restart_plan.is_some()
             || self.focus == Focus::Detail
             || (self.blocker_card && self.focus == Focus::Events);
-        if scrolling {
+        if scrolling
+            && self.new_session.is_none()
+            && !self.searching
+            && self.focus != Focus::Compose
+        {
             match key.code {
                 KeyCode::PageDown => {
                     self.scroll_detail(8);
@@ -236,7 +236,18 @@ impl App {
             }
         }
         if self.new_session.is_some() {
-            if key.kind != KeyEventKind::Press {
+            if key.kind != KeyEventKind::Press
+                && !matches!(
+                    key.code,
+                    KeyCode::Char(_)
+                        | KeyCode::Backspace
+                        | KeyCode::Delete
+                        | KeyCode::Left
+                        | KeyCode::Right
+                        | KeyCode::Up
+                        | KeyCode::Down
+                )
+            {
                 return Ok(false);
             }
             match key.code {
@@ -244,7 +255,11 @@ impl App {
                     self.new_session = None;
                     self.notice = "New session cancelled.".into();
                 }
-                KeyCode::Enter => {
+                KeyCode::Enter
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) =>
+                {
                     let form = self.new_session.as_mut().unwrap();
                     if form.goal.is_none() {
                         if let Some(choice) = form.workflows.get(form.cursor) {
@@ -252,6 +267,7 @@ impl App {
                                 form.error = Some(error.clone());
                             } else {
                                 form.goal = Some(String::new());
+                                self.goal_editor.reset();
                                 form.error = None;
                             }
                         }
@@ -260,13 +276,21 @@ impl App {
                             Ok(session) => {
                                 self.new_session = None;
                                 self.session_query.clear();
-                                self.requested_session = Some(session.id);
+                                self.requested_session = Some(session.id.clone());
                                 self.diagnostic = None;
                                 self.context_detail = None;
                                 self.usage_detail = None;
                                 self.refresh(store)?;
                                 self.focus = Focus::Events;
-                                self.notice="Session created, ready to run. Press i, type /resume or instructions, then Enter.".into();
+                                self.runner = Some(tui_actions::resume(
+                                    root.to_path_buf(),
+                                    session.id,
+                                    String::new(),
+                                ));
+                                self.view = View::Conversation;
+                                self.follow_activity = true;
+                                self.activity_query.clear();
+                                self.notice = "Starting workflow. Model output and approval requests will appear here.".into();
                             }
                             Err(error) => {
                                 form.error = Some(format!("Cannot create session: {error:#}"))
@@ -288,23 +312,11 @@ impl App {
                     form.cursor = move_index(form.cursor, -1, form.workflows.len());
                     form.error = None;
                 }
-                KeyCode::Backspace => {
+                _ => {
                     if let Some(goal) = self.new_session.as_mut().unwrap().goal.as_mut() {
-                        goal.pop();
+                        self.goal_editor.key(goal, key, true, 8192);
                     }
                 }
-                KeyCode::Char(c)
-                    if !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-                {
-                    if let Some(goal) = self.new_session.as_mut().unwrap().goal.as_mut() {
-                        if goal.len() < 8192 {
-                            goal.push(c);
-                        }
-                    }
-                }
-                _ => {}
             }
             return Ok(false);
         }
@@ -317,20 +329,11 @@ impl App {
                 KeyCode::Enter => {
                     self.searching = false;
                 }
-                KeyCode::Backspace => {
-                    self.session_query.pop();
-                }
-                KeyCode::Char(c)
-                    if !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                        && self.session_query.len() < 256 =>
-                {
-                    self.session_query.push(c);
-                }
                 KeyCode::Down => self.navigate(1),
                 KeyCode::Up => self.navigate(-1),
-                _ => {}
+                _ => self
+                    .session_editor
+                    .key(&mut self.session_query, key, false, 256),
             }
             self.refresh(store)?;
             return Ok(false);
@@ -347,7 +350,9 @@ impl App {
                 }
                 KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
                 KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
-                KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => return Ok(true),
+                KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => {
+                    return Ok(true)
+                }
                 _ => {}
             }
             return Ok(false);
@@ -392,20 +397,16 @@ impl App {
             match key.code {
                 KeyCode::Tab => self.focus = Focus::Sessions,
                 KeyCode::Esc => self.focus = self.focus_before_compose,
-                KeyCode::Enter => self.submit(root, store),
-                KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.composer.push('\n');
-                }
-                KeyCode::Backspace => {
-                    self.composer.pop();
-                }
-                KeyCode::Char(c)
-                    if !key.modifiers.contains(KeyModifiers::CONTROL)
-                        && self.composer.len() < 8_192 =>
+                KeyCode::Enter
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) =>
                 {
-                    self.composer.push(c);
+                    self.submit(root, store)
                 }
-                _ => {}
+                _ => self
+                    .composer_editor
+                    .key(&mut self.composer, key, true, 8192),
             }
             return Ok(false);
         }
@@ -414,9 +415,11 @@ impl App {
             KeyCode::Char('?') => self.open_help(),
             KeyCode::Char('F') if self.view == View::Conversation => {
                 self.activity_filtering = true;
+                self.filter_editor.reset();
             }
             KeyCode::Char('f') => {
                 self.searching = true;
+                self.session_editor.reset();
                 self.focus = Focus::Sessions;
             }
             KeyCode::Char('n') => {
@@ -468,10 +471,15 @@ impl App {
                 self.focus = Focus::Events;
             }
             KeyCode::Char('r') => self.open_restart(root, store),
-            KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => return Ok(true),
-            KeyCode::Char('q') => {
-                self.notice = if self.manager_job.is_some() {"Manager request active; wait for its result. /cancel-manager stops future retries."} else {"Agent running; wait for its result before exiting."}.into()
+            KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => {
+                return Ok(true)
             }
+            KeyCode::Char('q') => self.notice = if self.manager_job.is_some() {
+                "Manager request active; wait for its result. /cancel-manager stops future retries."
+            } else {
+                "Agent running; wait for its result before exiting."
+            }
+            .into(),
             KeyCode::Tab | KeyCode::Right => {
                 if self.focus == Focus::Detail && key.code == KeyCode::Tab {
                     self.focus_composer();

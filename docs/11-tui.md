@@ -25,7 +25,12 @@ Sessions show their goal, workflow/status, current step and latest recorded acti
 
 From navigation press `f` to search goals, workflows, current steps, statuses or full session IDs. Matching is case-insensitive and accepts Unicode. Use arrows to select, Enter to keep the filter, or Escape to clear it. To clear an applied filter, press `f`, then Escape. The sidebar shows matching/total counts. A worker's approval switches back to its owning session and clears a filter that might hide it.
 
-Press `n` to choose a workflow from the project's `workflows/` directories. Arrows or `j/k` select; Enter opens the goal form. Invalid workflows are labelled and show their validation error. Enter a nonempty goal and press Enter to create a **ready** session; Escape cancels without creating one. Creation reloads and validates the workflow, retains the previous session’s draft separately, opens an empty draft for the new session, and runs no model requests. Press `i`, type `/resume` or instructions, then Enter to execute through the normal engine and approval policy. Creation is disabled while this TUI has an active worker. Workflow authoring and provider configuration remain CLI/file operations.
+Press `n` to choose a workflow from the project's `.greenlight/workflows/` (or legacy root `workflows/`). Arrows or `j/k` select; Enter opens the goal editor. Invalid workflows show their validation error. Enter a nonempty goal and press **Enter to create and immediately start the session** through the existing engine and approval policy. Escape cancels before creation. The form revalidates workflow files on submission and retains other sessions' drafts. Creation is disabled while this TUI has an active worker; no separate `/resume` is needed for a new goal.
+
+Goal and composer editors support Left/Right, Up/Down across wrapped rows, Home/End, Delete and Backspace, including Unicode graphemes. Ctrl+J or Shift+Enter inserts a newline (terminal support for modified Enter varies). Editable text and the submitted goal are green; labels/hints retain their UI colors. Active goal, composer, session search and activity-filter fields use a real terminal blinking caret and scroll to keep it visible.
+
+The header shows STARTING immediately, then the persisted execution status. TUI-owned model calls request OpenAI-compatible SSE streaming with final usage. A **Live model output** pane shows the latest 64 KiB of unvalidated response text as it arrives, separately from recorded actions/results. Only a complete response enters normal action validation; truncated/malformed streams fail without executing their partial action or automatically retrying uncertain billable requests. Final provider input/cached-input/output usage remains in the central ledger; absent reports retain the usual estimates/unknowns. Providers that return ordinary JSON instead of SSE still complete normally, but cannot show partial text. Error diagnostics and approval prompts take precedence over the preview. Streaming is ephemeral, not an extra event per token; completed responses use the existing history records.
+
 
 ## Main interaction
 
@@ -134,7 +139,7 @@ The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, retu
 
 ## Drafts, following and terminal size
 
-Unsent composer text belongs to the selected session ID. Switching sessions, changing filters, opening help, cancelling restart and returning to an approval's owning session retain each session's draft separately. A new session starts with an empty draft. Drafts remain **in memory only**; exiting the TUI discards them. Long messages scroll to keep their end visible.
+Unsent composer text belongs to the selected session ID. Switching sessions, changing filters, opening help, cancelling restart and returning to an approval's owning session retain each session's draft separately. A new session starts with an empty draft. Drafts remain **in memory only**; exiting the TUI discards them. Long messages scroll to keep the editing caret visible.
 
 Activity initially follows incoming events. Opening evidence or navigating activity pauses following, including when reading the latest event. Background polling preserves that event and its scroll position. In the activity list, End or `G` selects the latest visible event and resumes following; Home or `g` selects the first and pauses. The activity title indicates following/paused. Artifact and diagnostic scrolling remains independent of new activity.
 
@@ -144,7 +149,7 @@ The wrapped-line calculation uses Ratatui's `unstable-rendered-line-info` featur
 
 ## Limitations
 
-Initial TUI control is intentionally serial: only one runner per TUI, no streaming token-by-token model output, no direct interruption of an in-progress model call, and no interactive control of another process that happens to be running a session. Read-only observation of external sessions remains possible. The underlying CLI remains available. A per-session OS lock prevents concurrent CLI/TUI execution of the same session; competing resumes are rejected without changing the owner's state.
+Initial TUI control is intentionally serial: only one runner per TUI, streaming previews for this TUI’s worker, no direct interruption of an in-progress model call, and no interactive control of another process that happens to be running a session. Read-only observation of external sessions remains possible. The underlying CLI remains available. A per-session OS lock prevents concurrent CLI/TUI execution of the same session; competing resumes are rejected without changing the owner's state.
 
 If a worker disconnects, its pending approval dialog is discarded and the TUI reports the loss. Use `/recover` (or CLI `recover-session SESSION_ID`) after inspecting history. Recovery refuses a live owner, preserves saved grants, and never replays an unanswered approval or automatically resumes work. If a native write was interrupted, run `recover-writes` afterward before resuming. Completed sessions remain completed even if the worker died during final ownership cleanup.
 

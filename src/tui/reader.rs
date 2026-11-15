@@ -499,7 +499,7 @@ mod approval_priority_tests {
         let (_pt, prompts) = mpsc::channel();
         let (answers, received) = mpsc::channel();
         let (_ft, finished) = mpsc::channel();
-        app.runner = Some(Runner {
+        app.runner = Some(Runner { live:None,
             cancel_retry: None,
             session_id: None,
             prompts,

@@ -7,7 +7,7 @@ fn disconnected_worker_expires_approval_and_does_not_replay_it() {
     let (answers, old_answers) = std::sync::mpsc::channel();
     let (finished_tx, finished) = std::sync::mpsc::channel();
     let mut app = App::new(None);
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         prompts,
         answers,
@@ -28,7 +28,7 @@ fn disconnected_worker_expires_approval_and_does_not_replay_it() {
     let (_prompt_tx, prompts) = std::sync::mpsc::channel();
     let (answers, fresh_answers) = std::sync::mpsc::channel();
     let (_finished_tx, finished) = std::sync::mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         prompts,
         answers,
@@ -246,7 +246,7 @@ fn approval_shortcuts_submit_immediately_but_enter_does_not() {
     let (answer_tx, answer_rx) = std::sync::mpsc::channel();
     let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
     let mut app = App::new(None);
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         session_id: None,
         prompts: prompts_rx,
@@ -298,7 +298,7 @@ fn human_approval_rejects_global_scope_and_escape_denies() {
     let (answer_tx, answer_rx) = std::sync::mpsc::channel();
     let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
     let mut app = App::new(None);
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         session_id: None,
         prompts: prompts_rx,

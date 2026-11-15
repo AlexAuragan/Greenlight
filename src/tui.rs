@@ -17,6 +17,7 @@ use ratatui::{
     Frame,
 };
 mod activity;
+mod editor;
 mod approval;
 mod focus;
 mod recovery;
@@ -86,6 +87,10 @@ struct App {
     diff: Option<(i64, String)>,
     requested_session: Option<String>,
     composer: String,
+    composer_editor: editor::Editor,
+    goal_editor: editor::Editor,
+    session_editor: editor::Editor,
+    filter_editor: editor::Editor,
     notice: String,
     runner: Option<Runner>,
     approval: Option<ApprovalPrompt>,
@@ -156,6 +161,10 @@ impl App {
             diff: None,
             requested_session: initial_session.map(str::to_owned),
             composer: String::new(),
+            composer_editor: Default::default(),
+            goal_editor: Default::default(),
+            session_editor: Default::default(),
+            filter_editor: Default::default(),
             notice: "←/→ panes · ↑/↓ navigate/scroll · i compose · Enter open".into(),
             runner: None,
             approval: None,
@@ -551,7 +560,8 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
     if let Err(error) = store.ensure_no_pending_writes() {
         app.notice = format!("Recovery required: {error:#}");
     }
-    ratatui::run(|terminal| -> Result<()> {
+    let result = ratatui::run(|terminal| -> Result<()> {
+        crossterm::execute!(io::stdout(), crossterm::cursor::SetCursorStyle::BlinkingBar)?;
         let mut last_refresh = Instant::now();
         loop {
             let size=terminal.size()?;
@@ -577,7 +587,9 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
                 }
             }
         }
-    })
+    });
+    crossterm::execute!(io::stdout(), crossterm::cursor::SetCursorStyle::DefaultUserShape)?;
+    result
 }
 
 #[cfg(test)]

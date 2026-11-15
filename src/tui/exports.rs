@@ -245,7 +245,8 @@ impl TerminalResume {
         let screen = crossterm::execute!(
             io::stdout(),
             crossterm::terminal::EnterAlternateScreen,
-            crossterm::cursor::Hide
+            crossterm::cursor::Hide,
+            crossterm::cursor::SetCursorStyle::BlinkingBar
         );
         let raw = crossterm::terminal::enable_raw_mode();
         self.active = false;

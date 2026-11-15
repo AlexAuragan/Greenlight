@@ -1,3 +1,5 @@
+#[path = "provider_stream.rs"]
+pub mod stream;
 use crate::config::ProviderConfig;
 use crate::provider_failure::{Failure, Kind};
 use anyhow::Result;
@@ -10,13 +12,14 @@ pub struct Provider {
     client: Client,
     pub cfg: ProviderConfig,
     pub retry_cancel: Arc<AtomicBool>,
+    pub live: Option<stream::Preview>,
     #[cfg(test)]
     pub script: Option<std::sync::Arc<std::sync::Mutex<Script>>>,
 }
 #[cfg(test)]
 #[derive(Default)]
 pub struct Script {
-    pub responder: Option<fn(&[Value])->std::result::Result<String,String>>,
+    pub responder: Option<fn(&[Value]) -> std::result::Result<String, String>>,
     pub responses: std::collections::VecDeque<Result<String, String>>,
     pub requests: Vec<Vec<Value>>,
     pub usages: std::collections::VecDeque<Option<Value>>,
@@ -108,6 +111,7 @@ impl Provider {
                 .expect("HTTP client configuration is valid"),
             cfg,
             retry_cancel: Arc::new(AtomicBool::new(false)),
+            live: None,
             #[cfg(test)]
             script: None,
         }
@@ -119,6 +123,21 @@ impl Provider {
             .ok_or_else(|| Failure::local(Kind::Credentials).into())
     }
     pub async fn complete(&self, model: &str, messages: &[Value]) -> Result<Completion> {
+        if let Some(live) = &self.live {
+            live.lock().unwrap().start(model);
+        }
+        let result = self.complete_inner(model, messages).await;
+        if let Some(live) = &self.live {
+            live.lock().unwrap().state = if result.as_ref().is_ok_and(|c| c.failure.is_none()) {
+                "Response complete · validating action"
+            } else {
+                "Request failed · inspect diagnostic/history"
+            }
+            .into();
+        }
+        result
+    }
+    async fn complete_inner(&self, model: &str, messages: &[Value]) -> Result<Completion> {
         #[cfg(test)]
         if let Some(script) = &self.script {
             let mut script = script.lock().unwrap();
@@ -128,9 +147,13 @@ impl Provider {
             }
             let usage = script.usages.pop_front().flatten();
             let content = match script.responder {
-                Some(responder)=>responder(messages),
-                None=>script.responses.pop_front().unwrap_or_else(||Err("unexpected provider call".into())),
-            }.map_err(anyhow::Error::msg)?;
+                Some(responder) => responder(messages),
+                None => script
+                    .responses
+                    .pop_front()
+                    .unwrap_or_else(|| Err("unexpected provider call".into())),
+            }
+            .map_err(anyhow::Error::msg)?;
             return Ok(Completion {
                 failure: None,
                 content: Ok(content),
@@ -139,7 +162,10 @@ impl Provider {
                 response_model: None,
             });
         }
-        let data = json!({"model":model,"messages":messages,"max_tokens":self.cfg.max_tokens,"stream":false});
+        let mut data = json!({"model":model,"messages":messages,"max_tokens":self.cfg.max_tokens,"stream":self.live.is_some()});
+        if self.live.is_some() {
+            data["stream_options"] = json!({"include_usage":true});
+        }
         let r = self
             .client
             .post(format!(
@@ -157,6 +183,20 @@ impl Provider {
                 .get(reqwest::header::RETRY_AFTER)
                 .and_then(|v| v.to_str().ok()),
         );
+        if status.is_success()
+            && r.headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| {
+                    v.split(';')
+                        .next()
+                        .is_some_and(|t| t.trim().eq_ignore_ascii_case("text/event-stream"))
+                })
+        {
+            if let Some(live) = &self.live {
+                return Ok(stream::read(r, live).await);
+            }
+        }
         let body = read_body(r, true).await?;
         let mut completion = Completion::parse(status.as_u16(), &body)?;
         if let Some(failure) = &mut completion.failure {
@@ -326,6 +366,41 @@ mod http_tests {
             Kind::Credentials
         );
         assert!(!error.to_string().contains("fixture-key"));
+        server.join().unwrap();
+        std::env::remove_var(key);
+    }
+    #[tokio::test]
+    async fn http_stream_updates_preview_before_completion_and_keeps_usage() {
+        let body = concat!(
+            "data: {\"id\":\"stream-1\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"action: done\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":5}}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let (mut provider, key, server) = mock(200, body, "Content-Type: text/event-stream\r\n");
+        let preview = stream::Preview::default();
+        provider.live = Some(preview.clone());
+        let completion = provider.complete("fixture", &[]).await.unwrap();
+        assert_eq!(preview.lock().unwrap().text, "action: done");
+        assert_eq!(completion.content.unwrap(), "action: done");
+        assert_eq!(completion.raw_usage.unwrap()["completion_tokens"], 3);
+        server.join().unwrap();
+        std::env::remove_var(key);
+    }
+    #[tokio::test]
+    async fn truncated_http_stream_is_billing_uncertain_and_preserves_reported_usage() {
+        let (mut provider, key, server) = mock(
+            200,
+            "data: {\"choices\":[],\"usage\":{\"completion_tokens\":3}}\n\n",
+            "Content-Type: text/event-stream\r\n",
+        );
+        provider.live = Some(stream::Preview::default());
+        let completion = provider.complete("fixture", &[]).await.unwrap();
+        let failure = completion.failure.unwrap();
+        assert!(!failure.retryable);
+        assert!(failure.billing_uncertain);
+        assert!(completion.content.is_err());
+        assert_eq!(completion.raw_usage.unwrap()["completion_tokens"], 3);
         server.join().unwrap();
         std::env::remove_var(key);
     }

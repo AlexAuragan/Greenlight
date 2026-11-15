@@ -89,7 +89,7 @@ fn manager_job_runs_beside_owner_preserves_text_and_cannot_answer_approvals() {
     let (_prompts_tx, prompts) = mpsc::channel();
     let (answers, answers_rx) = mpsc::channel();
     let (_finished_tx, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         prompts,
         finished,
         answers,

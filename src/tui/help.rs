@@ -8,7 +8,7 @@ v or /events: raw audit history; Enter/Left/Esc returns from expanded evidence
 1/2: activity/artifacts · m: toggle artifact Markdown/raw
 v in artifacts: saved versions · p provenance · d previous-version diff
 Version browser: Enter toggles read/list, Left list, o content, Esc close
-f: search sessions · n: create a ready session
+f: search sessions · n: choose workflow, enter goal, start session
 F: filter activity metadata/summaries · Enter applies, Esc clears
 C: copy full selected text to this machine’s clipboard
 E: review a temporary snapshot in VISUAL/EDITOR (idle worker only)
@@ -17,6 +17,7 @@ e: inspect blocker · h: activity · b: blocker card
 r or /restart: choose earlier step; preview before confirming
 
 Activity following
+Live model output is an unvalidated preview, not evidence of executed work.
 Agent intent cards are model-authored; outcomes and verification stay separate.
 Opening evidence or navigating activity pauses following.
 End/G in activity: select latest event and follow new events.
@@ -27,7 +28,9 @@ Reading
 Esc: close help, diagnostic or context
 
 Messages and drafts
-i: compose · Enter: send · Ctrl+J: newline · Backspace: delete
+i: compose · Enter: send/start · Ctrl+J or Shift+Enter: newline
+Input: ←/→ move · ↑/↓ move between wrapped rows · Home/End · Delete/Backspace
+Green text is your input; focused fields show a blinking caret.
 Esc/Tab: leave composer while keeping draft
 Drafts belong to their session and remain in memory until exit.
 Activity/artifact tabs retain selection, scroll and journal diff per session/branch.

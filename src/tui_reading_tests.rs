@@ -184,7 +184,7 @@ fn export_snapshot_is_full_source_and_editor_refuses_an_active_worker() {
     let (_pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         session_id: Some(s.id),
         prompts,

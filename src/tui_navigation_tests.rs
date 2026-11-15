@@ -207,7 +207,7 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
     let (_pt, prompts) = mpsc::channel();
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         session_id: None,
         prompts,
@@ -258,7 +258,7 @@ fn approval_owner_switch_preserves_both_session_drafts() {
     let (pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         session_id: Some(owner.id.clone()),
         prompts,
@@ -429,7 +429,7 @@ fn artifact_history_closes_after_branch_switch_and_approvals_take_priority() {
     let (pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: None,
         session_id: Some(s.id),
         prompts,
@@ -458,7 +458,7 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
     let (_pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { live:None,
         cancel_retry: Some(cancel.clone()),
         session_id: None,
         prompts,

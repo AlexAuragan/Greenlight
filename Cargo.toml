@@ -26,3 +26,5 @@ tiktoken-rs = "0.12.1"
 
 tempfile = "3"
 shlex = "2.0.1"
+unicode-segmentation = "1"
+unicode-width = "0.2"
