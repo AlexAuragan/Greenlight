@@ -2,12 +2,12 @@
 pub(super) const HELP: &str = "Navigation
 ←/→ or Tab: move between sessions, activity/artifacts, evidence and composer
 ↑/↓ or j/k: select items or scroll evidence
-Enter: expand selected activity card; from evidence, focus composer
+Enter: open selected activity/artifact; from evidence, return to its list
 o: open an artifact card’s exact version · d: journal diff for a file card
-v or /events: raw audit history; Left returns from expanded evidence
+v or /events: raw audit history; Enter/Left/Esc returns from expanded evidence
 1/2: activity/artifacts · m: toggle artifact Markdown/raw
 v in artifacts: saved versions · p provenance · d previous-version diff
-Version browser: Enter read, Left list, o content, Esc close
+Version browser: Enter toggles read/list, Left list, o content, Esc close
 f: search sessions · n: create a ready session
 F: filter activity metadata/summaries · Enter applies, Esc clears
 C: copy full selected text to this machine’s clipboard

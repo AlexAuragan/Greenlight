@@ -32,6 +32,33 @@ fn screen(app: &mut App, width: u16, height: u16) -> String {
         std::thread::sleep(Duration::from_millis(1));
     }
 }
+
+#[test]
+fn enter_returns_from_readers_without_composing_sending_or_losing_selection() {
+    let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
+    let s=store.create("demo","Goal","work").unwrap();store.add_artifact(&s,"work","report.md","# Report\nbody\n").unwrap();
+    let count=store.history(&s).unwrap().len();
+    for size in [(100,28),(40,14)] {
+        let mut app=App::new(Some(&s.id));app.refresh(&store).unwrap();app.viewport=size;app.composer="unsent draft".into();
+        for (view,list) in [(View::Conversation,Focus::Events),(View::Artifacts,Focus::Artifacts)] {
+            app.switch_view(view);app.focus=list;
+            let event=app.event().map(|e|e.id);let artifact=app.artifact().map(|a|a.event_id);
+            key(&mut app,&store,root.path(),KeyCode::Enter);assert_eq!(app.focus,Focus::Detail);
+            if view==View::Conversation {assert!(screen(&mut app,size.0,size.1).contains("Enter returns"));}
+            app.on_key(KeyEvent::new_with_kind(KeyCode::Enter,KeyModifiers::NONE,KeyEventKind::Repeat),root.path(),&store).unwrap();assert_eq!(app.focus,Focus::Detail);
+            key(&mut app,&store,root.path(),KeyCode::Enter);assert_eq!(app.focus,list);
+            assert_eq!(app.event().map(|e|e.id),event);assert_eq!(app.artifact().map(|a|a.event_id),artifact);assert_eq!(app.composer,"unsent draft");assert!(app.runner.is_none());assert!(app.manager_job.is_none());
+            key(&mut app,&store,root.path(),KeyCode::Enter);key(&mut app,&store,root.path(),KeyCode::Char('i'));assert_eq!(app.focus,Focus::Compose);
+            key(&mut app,&store,root.path(),KeyCode::Esc);assert_eq!(app.focus,Focus::Detail);
+            key(&mut app,&store,root.path(),KeyCode::Left);assert_eq!(app.focus,list);
+        }
+        app.view=View::Artifacts;app.focus=Focus::Artifacts;key(&mut app,&store,root.path(),KeyCode::Char('v'));
+        assert!(!app.artifact_browser.as_ref().unwrap().reading);
+        key(&mut app,&store,root.path(),KeyCode::Enter);assert!(app.artifact_browser.as_ref().unwrap().reading);
+        key(&mut app,&store,root.path(),KeyCode::Enter);assert!(!app.artifact_browser.as_ref().unwrap().reading);
+        assert_eq!(app.composer,"unsent draft");assert_eq!(count,store.history(&s).unwrap().len());
+    }
+}
 #[test]
 fn drafts_follow_session_ids_through_filtering_and_reordering() {
     let root = tempfile::tempdir().unwrap();

@@ -326,11 +326,11 @@ pub(super) fn draw(
         if show_detail {
             let detail = app.detail();
             let title = if app.diff.is_some() {
-                " Recorded diff · Left returns "
+                " Recorded diff · Enter returns "
             } else if app.show_all {
-                " Raw evidence · Left returns "
+                " Raw evidence · Enter returns "
             } else {
-                " Activity card · Left returns "
+                " Activity card · Enter returns "
             };
             reader::draw_document(
                 frame,

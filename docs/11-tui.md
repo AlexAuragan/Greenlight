@@ -17,7 +17,7 @@ Press `c` or enter `/context` for a scrollable snapshot of the objective, requir
 
 Blocked sessions show a reason/evidence card after any diagnostic is dismissed. `e` opens its exact event, `h` returns to activity, `b` reopens the card, `2` opens artifacts, `i` composes resume instructions, and `r` opens the guarded restart flow. These controls never automatically retry. A live external owner is observation-only; interrupted ownership needs `/recover`, and unfinished native writes need CLI `recover-writes`. Context and evidence remain scrollable with arrows or `j/k`; Escape closes context.
 
-Activity uses concise rows; Enter/Right opens the selected event's evidence in the available pane, and Left returns to the list. Sidebar entries lead with the session goal. The session picker supports search and workflow creation as described below.
+Activity uses concise rows; Enter/Right opens the selected event's evidence in the available pane, and Enter/Left/Escape returns to the list. Sidebar entries lead with the session goal. The session picker supports search and workflow creation as described below.
 
 ## Finding and creating sessions
 
@@ -29,7 +29,7 @@ Press `n` to choose a workflow from the project's `workflows/` directories. Arro
 
 ## Main interaction
 
-Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or press **Enter** from the detail pane. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. The composer is disabled while the current worker runs, but events can still be inspected.
+Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or use Tab from the detail pane. Enter in the detail pane returns to its list. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. Direct resume waits for the current worker to stop; read-only manager questions remain available through `/ask`.
 
 Example instruction: `Fix the existing add() bug and rerun verification.`
 
@@ -41,7 +41,7 @@ When the Engine requests permission to execute a shell command, write a file, us
 
 ## Semantic activity cards
 
-The default activity list uses compact cards: a title/status, event ID, step and short summary. Execution cards describe recorded facts; optional **Agent intent** cards explicitly label model-authored annotations. Small panes show a single title line; Enter/Right expands the selected card, and Left returns. Opening evidence pauses activity following, including when inspecting the latest item. End/G in the list resumes it.
+The default activity list uses compact cards: a title/status, event ID, step and short summary. Execution cards describe recorded facts; optional **Agent intent** cards explicitly label model-authored annotations. Small panes show a single title line; Enter/Right expands the selected card, and Enter/Left/Escape returns. Opening evidence pauses activity following, including when inspecting the latest item. End/G in the list resumes it.
 
 - New tool/command-step outputs link to their exact request and expand both arguments and result/error. Shell cards can show the recorded exit code. Other tools say **returned**, not “success”; file contents or model prose cannot supply an exit code or verification verdict. Old outputs without saved correlation say **unlinked**. Auxiliary `tool.finished` records and routine permission decisions stay hidden in the default list.
 - Coding responses may include an optional bounded `activity_title`, such as **Exploring call sites**. A separate **Agent intent** card appears before the requested action, even if approval is pending or the action later fails. Its informational style does not assert success. Enter expands the exact model response and saved annotation; `F` searches the title. Titles never grant permissions or count as verification evidence. Without a supplied title, the existing recorded-fact cards remain unchanged. See [validation and history semantics](13-agent-action-protocol.md#4-optional-activity-title-implemented).
@@ -101,7 +101,7 @@ Short previews use the bounded synchronous path. Storage refresh/blob reads, exp
 
 In the Artifacts tab, select an artifact and press `v`. The version browser shows saved creation-event IDs, producing steps and UTC timestamps, newest first. It only includes versions visible in the active branch's ancestry at each fork cutoff. Parent changes made after the fork and sibling/session versions remain excluded.
 
-Use arrows or `j/k` to select a version. Enter/Right opens its content at the available width; Left returns to the version list. `o` opens content, `m` toggles literal/Markdown content, `p` opens provenance, and `d` compares the selected version with its immediate older visible version. In reading mode arrows/j/k, PgUp/PgDn and Home/End scroll. Escape closes the browser and returns to latest artifacts. Controls are read-only and preserve composer drafts. The inspected creation ID stays pinned when newer versions arrive; changing session/branch closes the browser. Incoming approvals take priority and close it.
+Use arrows or `j/k` to select a version. Enter/Right opens its content at the available width; Enter again or Left returns to the version list. `o` opens content, `m` toggles literal/Markdown content, `p` opens provenance, and `d` compares the selected version with its immediate older visible version. In reading mode arrows/j/k, PgUp/PgDn and Home/End scroll. Escape closes the browser and returns to latest artifacts. Controls are read-only and preserve composer drafts. The inspected creation ID stays pinned when newer versions arrive; changing session/branch closes the browser. Incoming approvals take priority and close it.
 
 Provenance shows the exact creation event, source branch (including inheritance), associated recorded attempt/definition when the creation falls in that step's attempt interval, selected-input consumers and human approval events referring to that exact artifact event. An interval association does not identify whether a human or model authored the content. Unknown/legacy metadata is explicit. Historical approvals describe recorded review, not a fresh authorization or approval of later replacements. Malformed manifests/approval payloads are reported rather than reconstructed from latest names.
 
@@ -117,10 +117,10 @@ The restore planner refuses mismatched file snapshots, manual drift, symlinks, a
 
 ## Keys
 
-The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, return with Left/Escape, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown optionally scroll eight lines**, and Home/End jump to the beginning/end of reading panels. Navigation opens without focusing the composer, even for blocked sessions.
+The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, return from detail with Enter/Left/Escape, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown optionally scroll eight lines**, and Home/End jump to the beginning/end of reading panels. Navigation opens without focusing the composer, even for blocked sessions.
 
 - **Left/Right** (or **Escape/Enter**) navigate from Sessions → event/artifact list → detail pane; focused detail content scrolls independently of the selected item.
-- **i** focuses the composer directly; **Enter** from the detail pane also focuses it, and **Enter** in the composer sends. **Escape** from the composer returns to the previous pane.
+- **i** focuses the composer directly; **Tab** from the detail pane also focuses it, and **Enter** in the composer sends. Enter in detail returns to the list. **Escape** from the composer returns to the previous pane.
 - **Ctrl+J** inserts a newline into the composer; **Escape** returns to the previously focused pane.
 - **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode; **m** toggles rendered Markdown/raw text in Artifacts.
 - **Tab** moves focus between Sessions, the current tab's list, detail and composer.

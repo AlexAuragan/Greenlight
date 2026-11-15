@@ -162,3 +162,8 @@ Tagged JSON validation checks IDs, supplied citations, agent-step destinations, 
 ## 2026-11-15 — Pre-merge review: composite verification preserves fatal call errors
 
 Review reproduced an authentication failure inside `verification: any` that continued to an alternate reviewer and completed the step; a failed verification-usage update also produced additional calls via fallback/deviation handling. Central model-call errors now carry a typed fatal marker while preserving their original error causes. Any-of composites and agent/human/command verification boundaries propagate that marker immediately. Ordinary rejected verdicts still use the configured any-of alternatives. Regression tests distinguish fatal provider/ledger errors from a genuine `passed: false`, assert no fallback/detector/workflow retry and retain the interrupted usage record. This is a merge-readiness fix, not a change to provider retry budgets or workflow verification policy.
+
+
+## 2026-11-15 — Enter toggles detail reading for keyboard accessibility
+
+Enter opens activity/artifact detail and returns from the focused detail pane to its list. The artifact-version reader follows the same Enter read/list toggle. Visible hints and help now advertise Enter rather than requiring the Left arrow; Left/Escape remain available. Composer focus stays explicit through i or Tab, and Enter submits only when the composer is already focused. Repeat Enter events are ignored to prevent held-key navigation/submission. Navigation tests cover ordinary/compact panes, version readers, draft/selection preservation and unchanged history.

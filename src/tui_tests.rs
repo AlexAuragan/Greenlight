@@ -40,7 +40,7 @@ fn disconnected_worker_expires_approval_and_does_not_replay_it() {
 }
 
 #[test]
-fn enter_opens_composer_and_text_is_editable() {
+fn enter_toggles_evidence_and_i_opens_editable_composer() {
     let root = tempfile::tempdir().unwrap();
     let store = Store::open(root.path()).unwrap();
     let session = store.create("example", "goal", "plan").unwrap();
@@ -64,6 +64,12 @@ fn enter_opens_composer_and_text_is_editable() {
         &store,
     )
     .unwrap();
+    assert_eq!(app.focus, Focus::Events);
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    ).unwrap();
     assert_eq!(app.focus, Focus::Compose);
     app.on_key(
         KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
@@ -90,7 +96,7 @@ fn enter_opens_composer_and_text_is_editable() {
         &store,
     )
     .unwrap();
-    assert_eq!(app.focus, Focus::Detail);
+    assert_eq!(app.focus, Focus::Events);
 }
 
 #[test]

@@ -188,7 +188,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         );
         let current = browser.versions.get(browser.index);
         let title = format!(
-            " #{} · {:?} · {} ",
+            " #{} · {:?} · {} · Enter read/list ",
             current.map(|v| v.event_id).unwrap_or(0),
             browser.mode,
             inline_display(&browser.name)
@@ -356,9 +356,9 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         frame.render_stateful_widget(artifacts, panes[0], &mut state);
 
         let title = if app.render_markdown {
-            " Artifact · Markdown · ↑/↓ scroll · m raw "
+            " Artifact · Markdown · Enter returns · m raw "
         } else {
-            " Artifact · Raw text · ↑/↓ scroll · m Markdown "
+            " Artifact · Raw text · Enter returns · m Markdown "
         };
         if let Some(artifact) = app.artifact() {
             let headers = vec![
@@ -422,7 +422,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else if app.runner.is_some() {
         " Agent running · x stops future provider requests "
     } else {
-        " Message agent · i or Enter to focus · Enter sends "
+        " Message agent · i to focus · Enter sends "
     };
     let composer_style = if app.composer.is_empty() {
         Style::default().fg(Color::Rgb(85, 85, 85))
@@ -444,7 +444,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else if app.activity_filtering {
         "Type to filter activity · Enter keep · Esc clear".into()
     } else if app.artifact_browser.is_some() {
-        "↑/↓ select/scroll · Enter read · Left list · p provenance · d diff · o content · m raw · Esc close".into()
+        "↑/↓ select/scroll · Enter read/list · p provenance · d diff · o content · m raw · Esc close".into()
     } else if app.help {
         "↑/↓ or j/k scroll · PgUp/PgDn page · Home/End · Esc close".into()
     } else if app.new_session.is_some() {

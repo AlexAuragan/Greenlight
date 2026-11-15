@@ -18,6 +18,10 @@ impl App {
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
             return Ok(false);
         }
+        // One Enter press performs one navigation/submission action.
+        if key.code == KeyCode::Enter && key.kind == KeyEventKind::Repeat {
+            return Ok(false);
+        }
 
         self.sync_draft();
         if self.approval.is_none()
@@ -131,6 +135,10 @@ impl App {
                     return Ok(false);
                 }
                 KeyCode::Left => {
+                    browser.reading = false;
+                    self.detail_scroll = 0;
+                }
+                KeyCode::Enter if browser.reading => {
                     browser.reading = false;
                     self.detail_scroll = 0;
                 }
@@ -485,7 +493,7 @@ impl App {
                 {
                     self.inspect_blocker();
                 } else if self.focus == Focus::Detail {
-                    self.focus_composer();
+                    self.focus_left();
                 } else {
                     self.focus_right();
                 }
