@@ -34,6 +34,11 @@ Activity/artifact tabs retain selection, scroll and journal diff per session/bra
 Help/context/diagnostic scroll stays separate from the underlying tab.
 New sessions have their own empty draft. Nothing is saved to disk.
 /resume: run a ready/blocked session without extra instructions
+/ask QUESTION: read-only manager · /manager: its saved exchanges
+/manager-context: preview shared sources without inference
+/cancel-manager: stop future manager retries (in-flight request may finish)
+With manager.enabled, ordinary messages ask the manager; /resume still runs the agent.
+Manager forwarding is a proposal only; live/idle delivery is not implemented yet.
 /usage: token and cost report · /recover: recover interrupted owner
 /help or ?: this panel (? is literal text inside composer/search)
 

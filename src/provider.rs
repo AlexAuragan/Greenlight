@@ -16,6 +16,7 @@ pub struct Provider {
 #[cfg(test)]
 #[derive(Default)]
 pub struct Script {
+    pub responder: Option<fn(&[Value])->std::result::Result<String,String>>,
     pub responses: std::collections::VecDeque<Result<String, String>>,
     pub requests: Vec<Vec<Value>>,
     pub usages: std::collections::VecDeque<Option<Value>>,
@@ -126,11 +127,10 @@ impl Provider {
                 return Ok(completion);
             }
             let usage = script.usages.pop_front().flatten();
-            let content = script
-                .responses
-                .pop_front()
-                .unwrap_or_else(|| Err("unexpected provider call".into()))
-                .map_err(anyhow::Error::msg)?;
+            let content = match script.responder {
+                Some(responder)=>responder(messages),
+                None=>script.responses.pop_front().unwrap_or_else(||Err("unexpected provider call".into())),
+            }.map_err(anyhow::Error::msg)?;
             return Ok(Completion {
                 failure: None,
                 content: Ok(content),

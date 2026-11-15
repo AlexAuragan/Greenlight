@@ -43,6 +43,7 @@ flowchart TD
 - `activity_cards.rs` — atomic tool outcome/correlation publication and pure branch-visible semantic card projections.
 - `activity_titles.rs` — strict optional coding-action title validation and response-linked annotation schema. Intent cards never establish execution outcomes or grant permissions.
 - `pricing.rs` — bounded public DeepInfra pricing discovery, exact-provider matching, private local caching and explicit-override precedence. `usage.rs` snapshots resolved prices, freshness, context tiers and cache-creation estimates per request.
+- `manager.rs`, `tui/manager_ui.rs` — bounded source snapshots, strict manager decision validation, private exchanges and independent read-only TUI inference. Uses central usage with purpose `manager`; no manager branch/step/tool execution path exists yet.
 - `workspace.rs`, `workspace_audit.rs` — bounded step-boundary SHA-256 scans and metrics, plus interval-scoped branch-visible write/restore hash-chain correlation. Reports distinguish journal agreement, unexplained drift and unavailable coverage; they never restore files or identify an editor.
 - `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — card/audit presentation, evidence expansion, workspace layout and discoverable keys.
 - `tui/approval.rs`, `tui/recovery.rs` — explicit approval choices and guarded restart/restore interactions.
@@ -97,4 +98,4 @@ Keep the native-write journal as the recovery basis. Record bounded SHA-256 mani
 
 Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
 
-The current [coordinator design](20-conversational-coordinator.md) specifies a separate bounded manager evidence/JSON interface, original-message references and a future durable control inbox. Neither it nor [its candidate prompt](prompts/manager-v1.md) is loaded by the runtime. Current execution ownership and idle-only composer behavior remain in force.
+The [coordinator contract](20-conversational-coordinator.md) now has a [read-only Q&A implementation](21-manager-qa.md) using its bounded evidence/JSON interface and [compiled system prompt](prompts/manager-v1.md). Original-message records are separate from executing instructions. Manager calls can observe a live owner but cannot act on a route, acquire execution ownership, grant approval or modify coding context. Targeted delivery and the durable live inbox remain future work.

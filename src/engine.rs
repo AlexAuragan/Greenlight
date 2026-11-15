@@ -277,7 +277,10 @@ impl Engine {
             &format!("{}: {}", rule.id, verdict.reason))?;
         Ok(Some(verdict))
     }
-    async fn model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value])->Result<String> {
+    pub(crate) async fn model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value])->Result<String> {
+        self.model_call_with_message(s,step,purpose,model,messages,None).await
+    }
+    pub(crate) async fn model_call_with_message(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value],interaction:Option<(&str,&str)>)->Result<String> {
         use crate::provider_failure::{Failure,Kind};
         for attempt in 1..=3 {
             if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
@@ -292,6 +295,7 @@ impl Engine {
             if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
             let provider=reqwest::Url::parse(&self.cfg.provider.base_url).map(|url|url.origin().ascii_serialization()).unwrap_or_else(|_|"unknown provider".into());
             let mut call=crate::usage::Call::new(s,step,purpose,model,&provider,metadata,messages);
+            if let Some((message,snapshot))=interaction {call.manager_message_id=Some(message.into());call.manager_snapshot_id=Some(snapshot.into());}
             self.store.begin_model_call(s,&mut call)?;
             let result=self.provider.complete(model,messages).await;
             let failure=match &result {
@@ -305,11 +309,11 @@ impl Engine {
             }
             self.store.finish_model_call(s,&call).context("could not persist model usage; initial request record retained")?;
             if let Some(failure)=failure {
-                console_eprintln!(self,"[provider] {failure}");
-                self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"request_number":attempt,"failure":failure}))?)?;
+                if purpose!="manager" {console_eprintln!(self,"[provider] {failure}");}
+                self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"purpose":purpose,"request_number":attempt,"failure":failure}))?)?;
                 if let Some(delay)=failure.delay(attempt) {
-                    console_eprintln!(self,"[provider retry] request {}/3 in {:.2}s",attempt+1,delay.as_secs_f64());
-                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":"Waiting before provider retry; x in TUI cancels future provider requests"}).to_string())?;
+                    if purpose!="manager" {console_eprintln!(self,"[provider retry] request {}/3 in {:.2}s",attempt+1,delay.as_secs_f64());}
+                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; x in TUI cancels future provider requests"}}).to_string())?;
                     if let Err(cancelled)=crate::provider_failure::wait(delay,&self.provider.retry_cancel).await {
                         self.store.event(s,Some(step),"provider.retry-cancelled",&cancelled.to_string())?;
                         return Err(cancelled.into());

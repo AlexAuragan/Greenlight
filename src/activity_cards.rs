@@ -279,6 +279,8 @@ pub fn is_protocol(kind: &str) -> bool {
             | "model.usage"
             | "workspace.manifest.before"
             | "workspace.manifest.after"
+            | "manager.snapshot"
+            | "manager.output"
     )
 }
 pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> Card {
@@ -304,6 +306,41 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
         );
     }
     match kind {
+        "manager.message" => {
+            let value = serde_json::from_str::<serde_json::Value>(raw).ok();
+            card(
+                "You → Manager",
+                value
+                    .as_ref()
+                    .and_then(|v| v["text"].as_str())
+                    .map(short)
+                    .unwrap_or_else(|| "Inspect saved message".into()),
+                Tone::Info,
+            )
+        }
+        "manager.result" => match serde_json::from_str::<crate::manager::Reply>(raw) {
+            Ok(reply) => card(
+                format!("Manager · {}", reply.status),
+                short(reply.decision.content()),
+                if reply.snapshot_changed
+                    || matches!(reply.decision, crate::manager::Decision::Forward { .. })
+                {
+                    Tone::Attention
+                } else {
+                    Tone::Info
+                },
+            ),
+            Err(_) => card(
+                "Manager response unavailable",
+                "Malformed record; inspect raw evidence",
+                Tone::Error,
+            ),
+        },
+        "manager.failed" => card(
+            "Manager request unresolved",
+            "Original message retained · no route executed",
+            Tone::Attention,
+        ),
         "workspace.correlation" => match serde_json::from_str::<crate::workspace_audit::Audit>(raw)
         {
             Ok(audit) => {
@@ -402,6 +439,9 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             Tone::Info,
         ),
         "provider.failure" => {
+            let manager = serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .is_some_and(|v| v["purpose"] == "manager");
             let parsed = serde_json::from_str::<serde_json::Value>(raw)
                 .ok()
                 .and_then(|v| {
@@ -410,7 +450,15 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                 });
             match parsed {
                 Some(f) => card(
-                    format!("Provider · {:?}", f.kind),
+                    format!(
+                        "{} · {:?}",
+                        if manager {
+                            "Manager provider"
+                        } else {
+                            "Provider"
+                        },
+                        f.kind
+                    ),
                     f.to_string(),
                     if f.retryable {
                         Tone::Attention
@@ -427,16 +475,26 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
         }
         "provider.retry" => {
             let v = serde_json::from_str::<serde_json::Value>(raw).ok();
+            let manager = v.as_ref().is_some_and(|v| v["purpose"] == "manager");
             let summary = v
                 .and_then(|v| {
                     Some(format!(
-                        "Request {} · wait {} ms · x cancels",
+                        "Request {} · wait {} ms · {} cancels",
                         v["next_request"].as_u64()?,
-                        v["wait_ms"].as_u64()?
+                        v["wait_ms"].as_u64()?,
+                        if manager { "/cancel-manager" } else { "x" }
                     ))
                 })
                 .unwrap_or_else(|| "Inspect recorded retry schedule".into());
-            card("Provider retry scheduled", summary, Tone::Attention)
+            card(
+                if manager {
+                    "Manager provider retry scheduled"
+                } else {
+                    "Provider retry scheduled"
+                },
+                summary,
+                Tone::Attention,
+            )
         }
         "provider.retry-stopped" | "provider.retry-cancelled" => {
             card("Provider retry stopped", short(raw), Tone::Attention)

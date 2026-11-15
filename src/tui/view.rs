@@ -415,7 +415,11 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else {
         input
     };
-    let input_title = if app.runner.is_some() {
+    let input_title = if app.manager_job.is_some() {
+        " Manager answering · /cancel-manager stops future retries "
+    } else if app.manager_enabled {
+        " Message manager · read-only · /resume runs agent "
+    } else if app.runner.is_some() {
         " Agent running · x stops future provider requests "
     } else {
         " Message agent · i or Enter to focus · Enter sends "

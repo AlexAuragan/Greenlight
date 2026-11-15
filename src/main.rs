@@ -25,6 +25,7 @@ mod usage;
 mod pricing;
 mod workspace_view;
 mod session_picker;
+mod manager;
 #[cfg(test)]
 mod deviation_tests;
 
@@ -68,6 +69,12 @@ enum Commands {
     },
     /// Open the live, read-only session viewer (optional session ID)
     Tui { session: Option<String> },
+    /// Ask the read-only manager; proposed forwarding never executes work in this stage
+    Ask {session:String, #[arg(long, required_unless_present="file", conflicts_with="file")] message:Option<String>, #[arg(long)] file:Option<PathBuf>, #[arg(long)] artifact:Vec<String>},
+    /// Preview the bounded project/pipeline evidence shared with the manager; no inference
+    ManagerContext {session:String, #[arg(long)] artifact:Vec<String>},
+    /// Read manager exchanges separately from coding activity
+    ManagerHistory {session:String},
     /// List saved sessions
     Sessions,
     /// Inspect recorded token counts and estimated costs (never assumes missing usage is zero)
@@ -150,6 +157,23 @@ async fn main() -> Result<()> {
     config::load_dotenv(&cwd.join(".env"))?;
     config::load_dotenv(&root.join(".env"))?;
     match cli.command {
+        Commands::Ask {session,message,file,artifact} => {
+            let text=match file {Some(path)=>manager::read_message_file(&path)?,None=>message.context("missing message")?};
+            let engine=engine::Engine::open(&root)?;
+            let reply=engine.ask_manager(&session,&text,&artifact).await?;
+            println!("{}",reply.display());
+        }
+        Commands::ManagerContext {session,artifact} => {
+            let store=store::Store::open(&root)?;
+            let snapshot=manager::capture(&root,&store,&session,"preview",&artifact)?;
+            println!("{}",serde_json::to_string_pretty(&snapshot)?);
+        }
+        Commands::ManagerHistory {session} => {
+            let store=store::Store::open(&root)?;
+            for (id,step,kind,payload) in store.history(&store.session(&session)?)?.into_iter().filter(|e|e.2.starts_with("manager.")) {
+                println!("{}",serde_json::json!({"event":id,"step":step,"kind":kind,"payload":payload}));
+            }
+        }
         Commands::Usage {session,scope,json} => {
             let store=store::Store::open(&root)?;
             let report=store.usage_report(&store.session(&session)?,scope)?;

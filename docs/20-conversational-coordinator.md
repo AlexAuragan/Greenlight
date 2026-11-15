@@ -1,6 +1,6 @@
 # Conversational coordinator — routing contract v1
 
-**Status: reviewable design, not implemented.** This specification and the [candidate system prompt](prompts/manager-v1.md) describe the manager discussed on 2026-11-15. They do not change current CLI/TUI input, execution ownership or agent YAML. Runtime implementation is a separate increment. Prompt quality does not substitute for the Rust checks below.
+**Status: routing contract with its first runtime stage implemented.** [Manager Q&A](21-manager-qa.md) now supplies grounded answers, clarification and validated **unexecuted** routing proposals. The [system prompt](prompts/manager-v1.md) is loaded by that runtime. Targeted delivery, guarded executing routes and live queues below remain requirements for later increments; they are not existing features. Coding-agent YAML and execution ownership remain enforced by the engine. Prompt quality does not substitute for Rust checks.
 
 ## Product behavior
 
@@ -112,7 +112,7 @@ Use the central per-dispatch ledger with purpose `manager`, including failures, 
 
 ## Runtime acceptance and implementation order
 
-These are **required future tests**, not claims that runtime behavior exists today:
+The first runtime stage covers schema/context/Q&A tests and read-only TUI behavior. Executing delivery tests below remain **required future tests**, not claims that the whole contract exists today:
 
 1. Store/deserialize the tagged response union and validate limits, unknown/duplicate fields, IDs, target/citation membership, Unicode and hostile source contents. The manager cannot emit agent YAML, grants, restore commands or fabricated destinations.
 2. Capture a consistent database snapshot plus qualified immutable file/artifact evidence. Test TODO-vs-pipeline distinctions, missing sources, mixed intents, stale control state and completed-verification/model-claim distinctions.

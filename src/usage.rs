@@ -270,6 +270,10 @@ pub struct Call {
     pub attempt: Option<String>,
     pub step: String,
     pub purpose: String,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub manager_message_id:Option<String>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub manager_snapshot_id:Option<String>,
     pub provider: String,
     pub model: String,
     pub response_id: Option<String>,
@@ -302,6 +306,8 @@ impl Call {
             attempt: None,
             step: step.into(),
             purpose: purpose.into(),
+            manager_message_id:None,
+            manager_snapshot_id:None,
             provider: provider.into(),
             model: model.into(),
             response_id: None,
@@ -538,7 +544,8 @@ impl Report {
 
 impl Store {
     pub fn begin_model_call(&self, s: &Session, call: &mut Call) -> Result<()> {
-        call.attempt=self.db.query_row("SELECT id FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 ORDER BY start_event DESC LIMIT 1",params![s.id,s.active_branch,call.step],|r|r.get(0)).optional()?;
+        // Manager questions observe an attempt but do not execute inside it.
+        call.attempt=if call.purpose=="manager" {None} else {self.db.query_row("SELECT id FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 ORDER BY start_event DESC LIMIT 1",params![s.id,s.active_branch,call.step],|r|r.get(0)).optional()?};
         let tx = self.db.unchecked_transaction()?;
         let event = self.event(s, Some(&call.step), "model.call-started", &call.id)?;
         call.created_event = Some(event);

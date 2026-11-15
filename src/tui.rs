@@ -26,9 +26,13 @@ mod help;
 mod reader;
 mod reading;
 mod exports;
+mod manager_ui;
 #[cfg(test)]
 #[path="tui_reading_tests.rs"]
 mod reading_tests;
+#[cfg(test)]
+#[path="tui_manager_tests.rs"]
+mod manager_tests;
 use activity::{is_chatter,conversational_label,invalid_event_payload};
 use help::HELP;
 use view::draw;
@@ -121,6 +125,8 @@ struct App {
     activity_filtering:bool,
     copy_job:Option<std::sync::mpsc::Receiver<Result<String,String>>>,
     pending_editor:Option<exports::Snapshot>,
+    manager_job:Option<manager_ui::ManagerJob>,
+    manager_enabled:bool,
 }
 
 impl App {
@@ -187,6 +193,7 @@ impl App {
             reading:reading::Reading::default(),
             activity_query:String::new(),activity_filtering:false,
             copy_job:None,pending_editor:None,
+            manager_job:None,manager_enabled:false,
         }
     }
     fn raise_diagnostic(&mut self, message: String) {
@@ -217,6 +224,9 @@ impl App {
 
 
     fn refresh(&mut self, store: &Store) -> Result<()> {
+        if let Some(root)=store.directory.parent().and_then(Path::parent) {
+            self.manager_enabled=crate::config::load_config(root).map(|c|c.manager.enabled).unwrap_or(false);
+        }
         self.remember_reading();
         let old_session = self.session().map(|s| s.id.clone());
         let old_event = self.event().map(|e| e.id);
@@ -354,6 +364,7 @@ impl App {
     fn tick(&mut self) {
         self.remember_reading();
         self.poll_copy();
+        self.poll_manager();
         let Some(runner) = &self.runner else { return };
         if self.approval.is_none() {
             match runner.prompts.try_recv() {
@@ -394,9 +405,26 @@ impl App {
     }
 
     fn submit(&mut self, root: &Path, store: &Store) {
+        let original=self.composer.clone();
         let instruction = self.composer.trim().to_string();
         if instruction.is_empty() {
             return;
+        }
+        if let Some(text)=original.strip_prefix("/ask ") {self.start_manager(root,store,text.to_owned());return;}
+        if instruction=="/ask" {self.notice="Use /ask QUESTION for read-only manager inference; /manager-context previews shared context.".into();return;}
+        if instruction=="/cancel-manager" {self.cancel_manager();self.composer.clear();return;}
+        if instruction=="/manager" {
+            self.view=View::Conversation;self.activity_query="manager.".into();self.filter_activity();self.commit_activity_filter();self.composer.clear();self.focus=Focus::Events;self.follow_activity=false;return;
+        }
+        if instruction=="/manager-context" {
+            if let Some(session)=self.session() {
+                let artifacts=Vec::new();
+                match crate::manager::capture(root,store,&session.id,"preview",&artifacts) {
+                    Ok(snapshot)=>{self.context_detail=Some(format!("Manager context preview · no inference\n{}",serde_json::to_string_pretty(&snapshot).unwrap_or_default()));self.detail_scroll=0;}
+                    Err(error)=>self.raise_diagnostic(format!("Manager context unavailable: {error:#}")),
+                }
+            }
+            self.composer.clear();return;
         }
         if instruction == "/restart" {
             self.composer.clear();
@@ -443,6 +471,7 @@ impl App {
             self.notice = format!("Unknown command: {}", instruction.lines().next().unwrap_or(""));
             return;
         }
+        if instruction!="/resume" && self.manager_enabled {self.start_manager(root,store,original);return;}
         if self.runner.is_some() {
             self.notice = "An agent is already running. Wait for it to finish.".into();
             return;

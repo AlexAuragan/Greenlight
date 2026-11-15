@@ -29,6 +29,7 @@ The harness MUST stop when a step reports an unapproved blocker, prohibited scop
 11. Prompt changes take effect on subsequent step runs; each run records a resolved definition in the event log.
 12. Hard session safety limit: 100 step runs per `start` or `resume` command.
 13. A CLI/TUI run must hold the session's OS execution lock before publishing instructions or changing execution state. An interrupted owner requires explicit recovery; unanswered approvals expire and are never replayed. Read-only observers remain permitted. Recovery does not resume work or turn a completed session back into runnable work.
+    Read-only manager messages/snapshots/results and their usage records may be appended by observers without this lock. They are non-executing records, not `user.instruction`; the [manager Q&A stage](21-manager-qa.md) cannot consume a route or mutate workflow state. This exception does not authorize execution instructions, tools, approvals, restores or transitions.
 14. Each step attempt records a `context.inputs` manifest with exact artifact versions. Human approval records the displayed manifest; changing its selection while approval is pending blocks the gate. Downstream consumers of gated artifacts must use approved versions from a successfully completed gate, or stop for explicit reapproval. Approval ancestry respects fork cutoffs.
 
 ## State diagram

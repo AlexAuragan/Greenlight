@@ -117,6 +117,16 @@ impl App {
                         "\n\nRecorded model response #{}:\n{}",
                         evidence.annotation.model_event, evidence.response
                     ));
+                } else if event.kind == "manager.result" {
+                    if let Ok(reply) = serde_json::from_str::<crate::manager::Reply>(&event.data) {
+                        detail.push_str(&format!("\n{}", reply.display()));
+                    }
+                } else if event.kind == "manager.message" {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&event.data) {
+                        if let Some(text) = value["text"].as_str() {
+                            detail.push_str(&format!("\nOriginal message (verbatim):\n{text}"));
+                        }
+                    }
                 } else if event.kind == "workspace.correlation" {
                     if let Ok(audit) =
                         serde_json::from_str::<crate::workspace_audit::Audit>(&event.data)
@@ -200,6 +210,20 @@ pub(super) fn invalid_event_payload(kind: &str, data: &str) -> Option<String> {
             }
             "workspace.correlation" => {
                 serde_json::from_str::<crate::workspace_audit::Audit>(data)?;
+            }
+            "manager.snapshot" => {
+                serde_json::from_str::<crate::manager::Snapshot>(data)?;
+            }
+            "manager.result" => {
+                serde_json::from_str::<crate::manager::Reply>(data)?;
+            }
+            "manager.message" | "manager.failed" => {
+                let value: serde_json::Value = serde_json::from_str(data)?;
+                if !value["message_id"].is_string()
+                    || (kind == "manager.message" && !value["text"].is_string())
+                {
+                    bail!("invalid manager record");
+                }
             }
             "verification.evidence" => {
                 let value: serde_json::Value = serde_json::from_str(data)?;

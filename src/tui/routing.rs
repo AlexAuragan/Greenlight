@@ -31,12 +31,13 @@ impl App {
                 self.notice="Stop requested: retry waits cancel promptly; an in-flight request may finish, and no further provider request will start.".into();
                 return Ok(false);
             }
+            if self.manager_job.is_some() {self.cancel_manager();return Ok(false);}
         }
         if self.too_small() {
             if key.code == KeyCode::Esc && self.approval.is_some() {
                 self.deliver_approval('n')?;
             }
-            return Ok(key.code == KeyCode::Char('q') && self.runner.is_none());
+            return Ok(key.code == KeyCode::Char('q') && self.runner.is_none() && self.manager_job.is_none());
         }
         if let Some(mode) = self.approval.as_ref().map(|request| request.mode) {
             if key.kind != KeyEventKind::Press {
@@ -338,7 +339,7 @@ impl App {
                 }
                 KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
                 KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
-                KeyCode::Char('q') if self.runner.is_none() => return Ok(true),
+                KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => return Ok(true),
                 _ => {}
             }
             return Ok(false);
@@ -459,9 +460,9 @@ impl App {
                 self.focus = Focus::Events;
             }
             KeyCode::Char('r') => self.open_restart(root, store),
-            KeyCode::Char('q') if self.runner.is_none() => return Ok(true),
+            KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => return Ok(true),
             KeyCode::Char('q') => {
-                self.notice = "Agent running; wait for its result before exiting.".into()
+                self.notice = if self.manager_job.is_some() {"Manager request active; wait for its result. /cancel-manager stops future retries."} else {"Agent running; wait for its result before exiting."}.into()
             }
             KeyCode::Tab | KeyCode::Right => {
                 if self.focus == Focus::Detail && key.code == KeyCode::Tab {

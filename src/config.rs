@@ -67,6 +67,14 @@ pub struct Config {
     #[serde(default)] pub session: SessionConfig,
     #[serde(default)] pub permissions: Permissions,
     #[serde(default)] pub notifications: Notifications,
+    #[serde(default)] pub manager: ManagerConfig,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManagerConfig {
+    #[serde(default)] pub enabled: bool,
+    pub model: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -181,6 +189,7 @@ pub fn load_config(root: &Path) -> Result<Config> {
         if !["ask", "allow", "deny"].contains(&value.as_str()) { bail!("permission must be ask, allow or deny: {value}"); }
     }
     if cfg.provider.model.is_empty() { bail!("provider model must be configured"); }
+    if cfg.manager.model.as_ref().is_some_and(|v|v.trim().is_empty()) {bail!("manager model must not be empty");}
     for metadata in cfg.provider.model_metadata.values() { metadata.validate()?; }
     Ok(cfg)
 }
