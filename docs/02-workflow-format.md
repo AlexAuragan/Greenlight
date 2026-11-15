@@ -14,13 +14,13 @@
 
 Legacy root configuration/workflows remain supported; local configuration and workflows take precedence independently. See [installation and projects](22-installation-and-projects.md).
 
-`workflow.yaml` declares `id`, `title`, `start`, `steps: [id...]` and `defaults` containing optional `model`, `max_turns`, `tools`, `verification`.
+`workflow.yaml` declares `id`, `title`, `start`, `steps: [id...]` and `defaults` containing optional `model`, `tools`, `verification`.
 
 Each `.md` file begins with `---` YAML frontmatter; the required `id` matches the filename. Fields:
 
 - `kind`: `agent` (default), `human`, or `command` (`command` field mandatory for command steps).
 - `model`: provider model ID, optional override of default.
-- `max_turns`: limit of provider calls for one agent run.
+- `max_turns`: legacy field accepted for compatibility but ignored. Agent steps no longer have a fixed model-response count cutoff; existing per-step/workflow values and `session.max_turns_per_attempt` do not stop execution.
 - `tools`: subset of `read`, `shell`, `write`, `web`; a step can override defaults.
 - `inputs.required`: required named artifacts.
 - `inputs.from`: list of `{source: previous | session | step_id, select: all | required}`.

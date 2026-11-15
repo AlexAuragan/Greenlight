@@ -84,7 +84,7 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
         answers,
         finished,
     });
-    app.approval=Some(ApprovalPrompt {content:"ALL native writes in ALL projects\nFuture matching requests may skip prompts.\n[y] save / [n] cancel".into(),mode:ApprovalMode::ConfirmPersistent});
+    app.approval=Some(ApprovalPrompt { command: None,content:"ALL native writes in ALL projects\nFuture matching requests may skip prompts.\n[y] save / [n] cancel".into(),mode:ApprovalMode::ConfirmPersistent});
     let rendered = screen(&app);
     assert!(rendered.contains("Confirm persistent grant"));
     assert!(rendered.contains("Save grant and allow"));
@@ -220,7 +220,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     let (pt, prompts) = mpsc::channel();
     let (answers, old_answers) = mpsc::channel();
     let (ft, finished) = mpsc::channel();
-    pt.send(ApprovalPrompt {
+    pt.send(ApprovalPrompt { command: None,
         content: "Unanswered checkpoint".into(),
         mode: ApprovalMode::Human,
     })
@@ -429,7 +429,7 @@ fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
     let (answers,_received)=mpsc::channel();
     let (_finished,finished)=mpsc::channel();
     app.runner=Some(Runner{live:None,cancel_retry:None,session_id:Some(owner.id.clone()),prompts,answers,finished});
-    sender.send(ApprovalPrompt{content:"Owner permission".into(),mode:ApprovalMode::Human}).unwrap();
+    sender.send(ApprovalPrompt{ command: None,content:"Owner permission".into(),mode:ApprovalMode::Human}).unwrap();
     app.tick();
     assert_eq!(app.session().unwrap().id,owner.id);
     assert!(app.workspace.is_none());

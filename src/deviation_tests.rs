@@ -363,3 +363,32 @@ async fn engine_generated_failures_still_evaluate_their_detector_once() {
         assert_eq!(h.count("step.deviation"), 1);
     }
 }
+
+#[tokio::test]
+async fn agent_continues_past_legacy_step_workflow_and_session_turn_limits() {
+    let mut responses=vec![Ok("not a YAML action"),Ok("action: tool\ntool: read\npath: unavailable.txt")];
+    responses.extend(std::iter::repeat_n(Ok("action: artifact\nname: notes.md\ncontent: next observation"),20));
+    responses.push(Ok(FINISH));
+    let mut h=Harness::new("  - id: blocker\n    action: pause",responses);
+    h.engine.cfg.session.max_turns_per_attempt=1;
+    let folder=h.root.path().join("workflows/demo");
+    let workflow=folder.join("workflow.yaml");
+    fs::write(&workflow,fs::read_to_string(&workflow).unwrap()+"defaults:\n  max_turns: 2\n").unwrap();
+    let step=folder.join("step.md");
+    fs::write(&step,fs::read_to_string(&step).unwrap().replacen("id: step\n","id: step\nmax_turns: 3\n",1)).unwrap();
+    h.run().await;
+    assert_eq!(h.status(),"completed");h.assert_calls(23);
+    assert_eq!(h.count("protocol.error"),1);assert_eq!(h.count("tool.error"),1);
+    assert_eq!(h.count("artifact.created"),20);assert_eq!(h.count("step.deviation"),0);
+}
+
+#[tokio::test]
+async fn unlimited_agent_still_stops_before_dispatch_when_cancelled() {
+    let mut h=Harness::new("  - id: blocker\n    action: pause",vec![Ok(FINISH)]);
+    h.engine.provider.retry_cancel.store(true,std::sync::atomic::Ordering::SeqCst);
+    h.run().await;
+    assert_eq!(h.status(),"blocked");
+    assert!(h.script.lock().unwrap().requests.is_empty());
+    assert_eq!(h.script.lock().unwrap().responses.len(),1);
+    assert_eq!(h.count("step.completed"),0);assert_eq!(h.count("step.error"),1);
+}

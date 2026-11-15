@@ -524,10 +524,9 @@ impl Engine {
             json!({"role":"system","content":PROTOCOL}),
             json!({"role":"user","content":context}),
         ];
-        let limit = step
-            .max_turns
-            .unwrap_or(self.cfg.session.max_turns_per_attempt);
-        for turn in 0..limit {
+        // Continue until the model finishes, reports a deviation, or execution fails/stops.
+        // Legacy max_turns settings are accepted for compatibility, not enforced.
+        loop {
             let raw = self.model_call(s, &step.id, "coding", model, &messages).await?;
             let model_event = self.store.event(s, Some(&step.id), "model.output", &raw)?;
             // An in-flight response cannot authorize work against an input
@@ -570,8 +569,7 @@ impl Engine {
                     // A tool that is unavailable, not permitted or that fails is
                     // reported back to the model as a fact so it can adapt — pick
                     // an enabled tool, register an artifact, or report a
-                    // deviation — instead of aborting the whole step. The turn
-                    // budget still bounds how often this can happen.
+                    // deviation — instead of aborting the whole step.
                     let execution: Result<String> = if tools.iter().any(|t| t == kind) {
                         let result = self.tools.call_journaled(&action, &self.store, s, &step.id).await;
                         self.log_permissions(s, step)?;
@@ -681,17 +679,7 @@ impl Engine {
                 }
                 _ => bail!("unexpected action"),
             }
-            if turn + 1 == limit {
-                return Ok(Outcome::Deviation(
-                    "turn_budget_exceeded".into(),
-                    format!("step hit limit of {limit} model turns"),
-                ));
-            }
         }
-        Ok(Outcome::Deviation(
-            "turn_budget_exceeded".into(),
-            "max turns reached".into(),
-        ))
     }
     async fn verify(
         &mut self,

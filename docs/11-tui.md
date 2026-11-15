@@ -156,3 +156,9 @@ If a worker disconnects, its pending approval dialog is discarded and the TUI re
 Approval choices and restoration actions retain their existing security semantics. The TUI requires an interactive terminal and uses Ratatui's terminal restoration. Raw events may contain private project information.
 
 The Ratatui/Crossterm dependency versions are locked in `Cargo.lock`. The [decision log](16-decision-log.md) captures the keyboard rationale, and the [smoke-test guide](17-smoke-test.md) covers the related manual exercise.
+
+## Approval command emphasis and former turn-limit diagnostics
+
+Shell permission and persistent-grant confirmation panes show the exact command in a separate bold cyan block, with scope/location in yellow and sandbox context in gray. The command comes from typed request metadata; model text cannot change available approval choices or grant matching. Multiline commands, arguments and operators remain visible in the scrollable request. Nonprinting control/format characters are escaped in the command preview; the engine receives the original unchanged command.
+
+A recorded `step hit limit of 16 model turns` diagnostic means an older engine stopped that attempt after 16 coding responses. Responses can request tools, register artifacts or need protocol correction; this count is not exclusively tool calls. The fixed model-turn cutoff has been removed, including for existing configurations containing legacy `max_turns`/`max_turns_per_attempt`. Existing historical diagnostics remain evidence of the old attempt. After upgrading, dismiss with Esc and use `i`, `/resume`, Enter to retry the blocked step as a new attempt. Explicit cancellation, provider failures, verification, configured deviation retry bounds and the workflow transition guard still apply.

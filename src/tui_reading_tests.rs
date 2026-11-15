@@ -194,7 +194,7 @@ fn export_snapshot_is_full_source_and_editor_refuses_an_active_worker() {
     key(&mut app, root.path(), &store, KeyCode::Char('E'));
     assert!(app.pending_editor.is_none());
     assert!(app.notice.contains("approvals stay available"));
-    app.approval = Some(ApprovalPrompt {
+    app.approval = Some(ApprovalPrompt { command: None,
         content: "Explicit decision".into(),
         mode: ApprovalMode::Human,
     });

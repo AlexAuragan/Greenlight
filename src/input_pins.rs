@@ -357,7 +357,7 @@ mod tests {
         )
         .unwrap();
         fs::write(folder.join("approve.md"),"---\nid: approve\nkind: human\ninputs:\n  required: [plan.md]\nverification:\n  type: none\ntransitions:\n  success: implement\n---\nReview plan\n").unwrap();
-        fs::write(folder.join("implement.md"),"---\nid: implement\nmax_turns: 0\ninputs:\n  required: [plan.md]\nverification:\n  type: none\n---\nImplement the plan\n").unwrap();
+        fs::write(folder.join("implement.md"),"---\nid: implement\ninputs:\n  required: [plan.md]\nverification:\n  type: none\n---\nImplement the plan\n").unwrap();
         let store = Store::open(root.path()).unwrap();
         let session = store.create("demo", "goal", "approve").unwrap();
         store
@@ -381,6 +381,7 @@ mod tests {
             crate::tui_actions::resume(root.path().into(), session.id.clone(), String::new());
         let prompt = fresh.prompts.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(prompt.content.contains("EDITED_PLAN"));
+        fresh.cancel_retry.as_ref().unwrap().store(true, std::sync::atomic::Ordering::SeqCst);
         fresh.answers.send("y".into()).unwrap();
         fresh
             .finished
@@ -436,19 +437,12 @@ mod tests {
         store.switch_branch(&mut state, &branch, "approve").unwrap();
         let gate = crate::tui_actions::resume(root.path().into(), state.id.clone(), String::new());
         gate.prompts.recv_timeout(Duration::from_secs(5)).unwrap();
+        gate.cancel_retry.as_ref().unwrap().store(true, std::sync::atomic::Ordering::SeqCst);
         gate.answers.send("y".into()).unwrap();
         gate.finished
             .recv_timeout(Duration::from_secs(5))
             .unwrap()
             .unwrap();
-        let implementation = folder.join("implement.md");
-        fs::write(
-            &implementation,
-            fs::read_to_string(&implementation)
-                .unwrap()
-                .replace("max_turns: 0", "max_turns: 3"),
-        )
-        .unwrap();
         let mut engine = crate::engine::Engine::open(root.path()).unwrap();
         engine.tools.policies.write = "allow".into();
         engine.provider.script = Some(std::sync::Arc::new(std::sync::Mutex::new(

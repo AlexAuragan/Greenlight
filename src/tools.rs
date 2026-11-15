@@ -57,6 +57,8 @@ impl ApprovalMode {
 pub struct ApprovalPrompt {
     pub content: String,
     pub mode: ApprovalMode,
+    /// Exact shell command for presentation, not authorization matching.
+    pub command: Option<String>,
 }
 
 /// All human decisions flow through the same harness permission logic.
@@ -67,6 +69,9 @@ pub enum PromptDriver {
 
 impl PromptDriver {
     fn ask(&mut self, prompt: &str, mode: ApprovalMode) -> Result<String> {
+        self.ask_with_command(prompt, mode, None)
+    }
+    fn ask_with_command(&mut self, prompt: &str, mode: ApprovalMode, command: Option<&str>) -> Result<String> {
         match self {
             Self::Terminal => {
                 println!("{prompt}");
@@ -77,7 +82,7 @@ impl PromptDriver {
                 Ok(answer.trim().to_string())
             }
             Self::Tui { requests, answers } => {
-                requests.send(ApprovalPrompt { content: prompt.to_string(), mode })
+                requests.send(ApprovalPrompt { content: prompt.to_string(), mode, command: command.map(str::to_owned) })
                     .context("TUI approval channel closed")?;
                 answers.recv().context("TUI approval response channel closed")
             }
@@ -160,7 +165,7 @@ impl Tools {
         } else {
             ApprovalMode::Tool
         };
-        let answer = self.prompt_driver.ask(&prompt, mode)?;
+        let answer = self.prompt_driver.ask_with_command(&prompt, mode, (kind == "shell").then_some(detail))?;
         match answer.trim().to_lowercase().as_str() {
             "y" => {
                 self.decisions.push(format!("{kind}: approved once — {detail}"));
@@ -180,7 +185,7 @@ impl Tools {
                 };
                 self.decisions.push(format!("{kind}: requested {scope:?} grant — confirmation pending"));
                 let confirmation = format!("Confirm persistent {kind} grant\nScope: {coverage}\nApplies to: {location}\nRequest: {detail}\nFuture matching requests may run without asking, subject to configured deny policies.\n[y] save grant and allow / [n] cancel grant and deny this request (default)");
-                let confirmed = match self.prompt_driver.ask(&confirmation, ApprovalMode::ConfirmPersistent) {
+                let confirmed = match self.prompt_driver.ask_with_command(&confirmation, ApprovalMode::ConfirmPersistent, (kind == "shell").then_some(detail)) {
                     Ok(answer) => answer,
                     Err(error) => {
                         self.decisions.push(format!("{kind}: confirmation interrupted; no grant saved"));
@@ -426,6 +431,25 @@ mod tests {
         assert!(worker.join().unwrap().is_err());
     }
 
+
+    #[test]
+    fn shell_command_metadata_survives_initial_and_persistent_confirmation() {
+        let root=tempfile::tempdir().unwrap();
+        let mut tools=Tools::new(root.path().to_path_buf(),Permissions::default()).unwrap();
+        tools.approvals=ApprovalStore::isolated(root.path()).unwrap();
+        let command="ls -la ./src | head -50\nprintf 'second line'";
+        let (question_tx,question_rx)=std::sync::mpsc::channel();
+        let (answer_tx,answer_rx)=std::sync::mpsc::channel();
+        tools.use_tui(question_tx,answer_rx);
+        let worker=std::thread::spawn(move||tools.permission("shell",command));
+        let prompt=question_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(prompt.command.as_deref(),Some(command));assert_eq!(prompt.mode,ApprovalMode::Persistent);
+        answer_tx.send("p".into()).unwrap();
+        let confirmation=question_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(confirmation.command.as_deref(),Some(command));assert_eq!(confirmation.mode,ApprovalMode::ConfirmPersistent);
+        answer_tx.send("n".into()).unwrap();assert!(worker.join().unwrap().is_err());
+        assert!(ApprovalStore::isolated(root.path()).unwrap().matched_scope("shell",command).is_none());
+    }
 
     #[test]
     fn typed_approval_modes_restrict_persistent_choices() {

@@ -160,7 +160,7 @@ fn pending_approval_clears_filter_that_hides_its_owner() {
     });
     app.searching = true;
     sender
-        .send(ApprovalPrompt {
+        .send(ApprovalPrompt { command: None,
             content: "Owner permission".into(),
             mode: ApprovalMode::Human,
         })

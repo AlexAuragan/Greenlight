@@ -214,7 +214,7 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
         answers,
         finished,
     });
-    app.approval = Some(ApprovalPrompt {
+    app.approval = Some(ApprovalPrompt { command: None,
         content: "Sensitive global scope".into(),
         mode: ApprovalMode::ConfirmPersistent,
     });
@@ -265,7 +265,7 @@ fn approval_owner_switch_preserves_both_session_drafts() {
         answers,
         finished,
     });
-    pt.send(ApprovalPrompt {
+    pt.send(ApprovalPrompt { command: None,
         content: "Review owner request".into(),
         mode: ApprovalMode::Human,
     })
@@ -436,7 +436,7 @@ fn artifact_history_closes_after_branch_switch_and_approvals_take_priority() {
         answers,
         finished,
     });
-    pt.send(ApprovalPrompt {
+    pt.send(ApprovalPrompt { command: None,
         content: "Review request".into(),
         mode: ApprovalMode::Human,
     })
@@ -470,7 +470,7 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
     assert_eq!(app.composer, "x");
     assert!(!cancel.load(Ordering::SeqCst));
     key(&mut app, &store, root.path(), KeyCode::Esc);
-    app.approval = Some(ApprovalPrompt {
+    app.approval = Some(ApprovalPrompt { command: None,
         content: "Approval stays explicit".into(),
         mode: ApprovalMode::Human,
     });

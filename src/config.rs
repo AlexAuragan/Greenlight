@@ -43,15 +43,15 @@ impl Default for Permissions {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionConfig {
-    #[serde(default = "default_turns")]
+    /// Legacy configuration field, accepted but no longer enforced.
+    #[serde(default)]
     pub max_turns_per_attempt: usize,
     #[serde(default = "default_artifact_bytes")]
     pub max_artifact_bytes: usize,
 }
-fn default_turns() -> usize { 18 }
 fn default_artifact_bytes() -> usize { 100_000 }
 impl Default for SessionConfig {
-    fn default() -> Self { Self { max_turns_per_attempt: default_turns(), max_artifact_bytes: default_artifact_bytes() } }
+    fn default() -> Self { Self { max_turns_per_attempt: 0, max_artifact_bytes: default_artifact_bytes() } }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -91,6 +91,7 @@ pub struct Workflow {
 #[serde(deny_unknown_fields)]
 pub struct StepDefaults {
     pub model: Option<String>,
+    /// Legacy configuration field, accepted but no longer enforced.
     pub max_turns: Option<usize>,
     pub tools: Option<Vec<String>>,
     pub verification: Option<Verify>,
@@ -154,6 +155,7 @@ pub struct Step {
     #[serde(default = "agent")] pub kind: String, // agent | human | command
     pub command: Option<String>,
     pub model: Option<String>,
+    /// Legacy configuration field, accepted but no longer enforced.
     pub max_turns: Option<usize>,
     pub tools: Option<Vec<String>>,
     #[serde(default)] pub inputs: Inputs,

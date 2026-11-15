@@ -32,3 +32,9 @@ write: true
 Use `greenlight --root /path/to/project approvals` to inspect effective project/global entries and locate the files. Edit or delete individual YAML entries to **revoke** saved grants. Invalid permission files cause an explicit startup error; they are not silently ignored. File updates are written using a same-directory temporary file and atomic rename with Unix `0600` file permissions.
 
 Security note: selecting `p`/`g` requests a persistent grant; the separate confirmation is mandatory in both CLI and TUI. Global `write: true` authorizes native edits for **every project using this user account** and should only be used if you understand that scope. A shell grant authorizes the entire exact command string within the sandbox, including operators and redirections; don't persistently approve compound commands unless you intend to trust them. Grants stored in the global file are not tied to a particular repository. Concurrent changes to the same approval file from independent processes are not fully locked.
+
+## Command-level grants: design pending
+
+Current shell grants still match the **entire command string**, including arguments, paths and operators. Approving `ls` does not approve `ls -la src`, and approving `cat notes.txt` does not approve another file. Process/project/global change the lifetime/scope, not the matching rule.
+
+The TODO tracks a joint design for argument-varying executable grants. It must distinguish the executable and its argument/option/path restrictions from shell composition, executable lookup, wrappers/interpreters, redirections, substitutions and environment assignments. A `cat` grant must not auto-approve `cat something.txt | ./harmful_script.sh`; every executed component must be covered or the whole compound command must prompt. This is not implemented yet. The colored exact-command preview changes presentation only, not grant semantics.

@@ -64,6 +64,61 @@ pub(super) fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
     options
 }
 
+fn visible_command(command: &str) -> String {
+    command.chars().map(|c| {
+        if (c.is_control() && c != '\n') || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}') {
+            c.escape_default().to_string()
+        } else {c.to_string()}
+    }).collect()
+}
+
+/// Typed command metadata controls emphasis only; decision keys still use ApprovalMode.
+fn approval_text(prompt: &ApprovalPrompt) -> Text<'static> {
+    let description = prompt
+        .content
+        .rsplit_once("\n[y]")
+        .map_or(prompt.content.as_str(), |(text, _)| text);
+    let mut lines = Vec::new();
+    let mut details = description;
+    if let Some(command) = &prompt.command {
+        lines.push(Line::styled(
+            "Command to execute",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+        let command_style = Style::default()
+            .fg(Color::LightCyan)
+            .bg(Color::Rgb(20, 24, 36))
+            .add_modifier(Modifier::BOLD);
+        lines.extend(
+            visible_command(command)
+                .split('\n')
+                .map(|line| Line::styled(line.to_owned(), command_style)),
+        );
+        lines.push(Line::default());
+        let prefix = format!("[approval required: shell]\n{command}\n");
+        if let Some(rest) = description.strip_prefix(&prefix) {
+            details = rest;
+        }
+    }
+    for line in safe_display(details).split('\n') {
+        let style = if line.starts_with("Scope:") || line.starts_with("Applies to:") {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else if line.starts_with("Shell is isolated:")
+            || line.starts_with("Future matching requests")
+        {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::styled(line.to_owned(), style));
+    }
+    Text::from(lines)
+}
+
 pub(super) fn draw(
     frame: &mut Frame,
     app: &App,
@@ -87,15 +142,9 @@ pub(super) fn draw(
     draw_scrolled(
         frame,
         app,
-        Paragraph::new(
-            prompt
-                .content
-                .rsplit_once("\n[y]")
-                .map_or(prompt.content.as_str(), |(description, _)| description)
-                .to_string(),
-        )
-        .wrap(Wrap { trim: false })
-        .block(border(title, true)),
+        Paragraph::new(approval_text(prompt))
+            .wrap(Wrap { trim: false })
+            .block(border(title, true)),
         approval_areas[0],
     );
     frame.render_widget(
@@ -103,4 +152,51 @@ pub(super) fn draw(
             .block(border(" Press a key to decide — no Enter needed ", true)),
         approval_areas[1],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn exact_multiline_command_is_emphasized_separately_from_scope() {
+        use ratatui::{backend::TestBackend, Terminal};
+        let command = "cat something.txt | ./harmful_script.sh\nprintf 'Scope: not a grant'";
+        let prompt=ApprovalPrompt {
+            command:Some(command.into()),mode:ApprovalMode::Persistent,
+            content:format!("[approval required: shell]\n{command}\nShell is isolated: read-only project, no network, private HOME.\nScope: this exact command (including arguments and operators).\n[y] once / [n] deny"),
+        };
+        let app = App::new(None);
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app, &prompt, f.area())).unwrap();
+        let buffer = terminal.backend().buffer();
+        let cyan = buffer
+            .content
+            .iter()
+            .filter(|c| c.fg == Color::LightCyan && c.modifier.contains(Modifier::BOLD))
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(cyan.contains("cat something.txt | ./harmful_script.sh"));
+        assert!(cyan.contains("printf 'Scope: not a grant'"));
+        let yellow = buffer
+            .content
+            .iter()
+            .filter(|c| c.fg == Color::Yellow)
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(yellow.contains("Scope: this exact command"));
+        assert!(prompt.mode.accepts('p'));
+        assert!(!ApprovalMode::Human.accepts('p'));
+    }
+    #[test]
+    fn command_rendering_uses_typed_metadata_and_exposes_terminal_controls() {
+        let prompt = ApprovalPrompt {
+            command: Some("printf '\u{1b}[2J'".into()),
+            mode: ApprovalMode::Tool,
+            content: "Tool says [approval required: shell]\nnot-the-command".into(),
+        };
+        let rendered = approval_text(&prompt);
+        assert_eq!(rendered.lines[0].to_string(), "Command to execute");
+        assert_eq!(rendered.lines[1].to_string(), "printf '\\u{1b}[2J'");
+        assert!(!rendered.to_string().contains('\u{1b}'));
+    }
 }
