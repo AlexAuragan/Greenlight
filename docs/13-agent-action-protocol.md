@@ -167,6 +167,8 @@ path: src/lib.rs
 
 ## 6. Maintenance rules for a genuine ground truth
 
+The [proposed manager JSON interface](20-conversational-coordinator.md#manager-output-contract) is separate and **not implemented**. Its `schema_version`, `snapshot_id`, `step_id`, `answer` and `forward` fields/actions are not new accepted coding-agent YAML. Do not reuse the manager prompt as the coding prompt.
+
 1. **Update this document in the same PR as any field or action semantics change**; document whether the field is required, ignored on other actions and visible in history.
 2. Keep the engine's `PROTOCOL` prompt and `AgentAction` aligned. Ideally generate the prompt from a shared protocol declaration, or add tests that compare a canonical fixture/table to the accepted parser fields.
 3. Add success/failure fixtures for each action and invalid combinations: unknown keys, missing required fields, wrong tool, wrong types, extra fence commentary and invalid paths.

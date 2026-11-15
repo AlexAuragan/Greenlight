@@ -2,6 +2,8 @@
 
 Greenlight's Ratatui interface is a session conversation and a controller for **the existing Engine**. Both CLI and TUI use the same persisted histories, approval policy, workspace edit journal and fork/restore implementation.
 
+The [conversational coordinator contract](20-conversational-coordinator.md) and [manager prompt candidate](prompts/manager-v1.md) are **design only**. Current composer messages still use the existing idle ready/blocked resume path; there is no live instruction inbox or manager Q&A yet.
+
 ```bash
 cargo run -- --root /path/to/project tui
 cargo run -- --root /path/to/project tui SESSION_ID

@@ -96,3 +96,5 @@ Keep the native-write journal as the recovery basis. Record bounded SHA-256 mani
 ### ADR-006: Model suggestions are not authority
 
 Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
+
+The current [coordinator design](20-conversational-coordinator.md) specifies a separate bounded manager evidence/JSON interface, original-message references and a future durable control inbox. Neither it nor [its candidate prompt](prompts/manager-v1.md) is loaded by the runtime. Current execution ownership and idle-only composer behavior remain in force.
