@@ -21,7 +21,7 @@ pub struct NewSession {
 }
 impl NewSession {
     pub fn discover(root: &Path) -> Result<Self> {
-        let directory = root.join("workflows");
+        let directory = crate::paths::workflows_directory(root)?;
         let mut workflows = Vec::new();
         match std::fs::read_dir(&directory) {
             Ok(entries) => {

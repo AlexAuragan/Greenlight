@@ -215,7 +215,7 @@ fn masked_paths(root: &Path) -> Result<Vec<(PathBuf, bool)>> {
             .is_some_and(|parent| {
                 parent == crate::paths::PROJECT_DIR || parent == crate::paths::LEGACY_PROJECT_DIR
             });
-        let internal_state = name == "state" && parent_is_internal;
+        let internal_state = (name == "state" && parent_is_internal) || crate::paths::is_private_path(entry.path().strip_prefix(root)?);
         if is_sensitive(&name) || internal_state {
             if entry.file_type().is_symlink() {
                 bail!("cannot safely mask symlink at {}", entry.path().display());
@@ -308,10 +308,11 @@ mod tests {
         let root = temp.path();
         fs::write(root.join(".env"), "SECRET=hidden").unwrap();
         fs::write(root.join("main.py"), "print('ok')").unwrap();
+        crate::project::init(root).unwrap();fs::write(root.join(".greenlight/.env"),"PRIVATE_KEY=hidden").unwrap();
         let sandbox = Sandbox::open(root).unwrap();
         let output = sandbox.run(
             "test ! -w /workspace && test -w /tmp && test -w /cache && \
-             test ! -s /workspace/.env && test ! -e /workspace/.greenlight/state/history.db && \
+             test ! -s /workspace/.env && test ! -s /workspace/.greenlight/config.yaml && test ! -s /workspace/.greenlight/.env && test ! -e /workspace/.greenlight/state/history.db && \
              test ! -e /home/agent/.ssh && test -z \"${DEEPINFRA_API_KEY:-}\" && printf 'ok\\n'"
         ).await.unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));

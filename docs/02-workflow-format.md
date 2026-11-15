@@ -3,14 +3,16 @@
 ## File layout
 
 ```text
-greenlight.yaml                    global/provider/security settings
+.greenlight/config.yaml           provider/security settings
 .greenlight/instructions.md        optional project instructions
-shared/*.md                        reusable prompt fragments
-workflows/fix-bug/workflow.yaml     workflow graph + step defaults
-workflows/fix-bug/investigate.md    step YAML frontmatter + prompt
+.greenlight/shared/*.md            reusable prompt fragments
+.greenlight/workflows/fix-bug/workflow.yaml     workflow graph + step defaults
+.greenlight/workflows/fix-bug/investigate.md    step YAML frontmatter + prompt
 .greenlight/state/history.db       private runtime event database
 .greenlight/state/blobs/           immutable registered artifact bodies
 ```
+
+Legacy root configuration/workflows remain supported; local configuration and workflows take precedence independently. See [installation and projects](22-installation-and-projects.md).
 
 `workflow.yaml` declares `id`, `title`, `start`, `steps: [id...]` and `defaults` containing optional `model`, `max_turns`, `tools`, `verification`.
 

@@ -38,7 +38,7 @@ pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     if parts.iter().any(|part| {
         let name = part.as_os_str().to_string_lossy();
         matches!(name.as_ref(), ".git" | ".env" | ".ssh")
-    }) || crate::paths::is_internal_state(p)
+    }) || crate::paths::is_private_path(p)
     {
         bail!("internal or sensitive path cannot be restored: {relative}");
     }

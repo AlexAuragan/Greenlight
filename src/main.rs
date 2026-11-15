@@ -26,6 +26,7 @@ mod pricing;
 mod workspace_view;
 mod session_picker;
 mod manager;
+mod project;
 #[cfg(test)]
 mod deviation_tests;
 
@@ -34,15 +35,21 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(version, about = "Human-supervised step workflow harness")]
+#[command(version=build_version(), about = "Human-supervised step workflow harness")]
 struct Cli {
-    #[arg(long, global = true, default_value = ".")]
-    root: PathBuf,
+    #[arg(long, global = true)]
+    root: Option<PathBuf>,
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+}
+fn build_version()->&'static str {
+    static VERSION:std::sync::OnceLock<String>=std::sync::OnceLock::new();
+    VERSION.get_or_init(||format!("{} ({})",env!("CARGO_PKG_VERSION"),option_env!("GREENLIGHT_BUILD_COMMIT").unwrap_or("source build"))).as_str()
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize project-local settings and bundled workflows without overwriting files
+    Init,
     /// Validate a workflow and referenced step files
     Validate { workflow: String },
     /// Verify Linux shell sandbox requirements and isolation
@@ -150,13 +157,12 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let root = cli.root.canonicalize().context("invalid --root")?;
-    // Populate missing environment variables from a `.env` file in the current
-    // directory, then in the project root. Existing variables take precedence.
     let cwd = std::env::current_dir()?;
-    config::load_dotenv(&cwd.join(".env"))?;
-    config::load_dotenv(&root.join(".env"))?;
-    match cli.command {
+    let command=cli.command.unwrap_or(Commands::Tui {session:None});
+    let root=project::resolve_root(cli.root.as_deref(),&cwd,matches!(command,Commands::Init))?;
+    project::load_environment(&root)?;
+    match command {
+        Commands::Init=>{println!("{}",project::init(&root)?);}
         Commands::Ask {session,message,file,artifact} => {
             let text=match file {Some(path)=>manager::read_message_file(&path)?,None=>message.context("missing message")?};
             let engine=engine::Engine::open(&root)?;
@@ -252,6 +258,7 @@ async fn main() -> Result<()> {
                 .await?;
         }
         Commands::Tui { session } => {
+            config::load_config(&root)?;
             tui::run(&root, session.as_deref())?;
         }
         Commands::WorkspaceStatus { session,json } => {

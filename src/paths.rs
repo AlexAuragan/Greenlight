@@ -10,6 +10,36 @@ use std::{
 pub const PROJECT_DIR: &str = ".greenlight";
 pub const LEGACY_PROJECT_DIR: &str = ".stepwright";
 
+pub fn check_control_directory(root:&Path)->Result<()> {
+    existing_directory(&root.join(PROJECT_DIR))?;Ok(())
+}
+
+/// User-owned host settings/credentials must not be accessible to agent tools.
+pub fn is_private_path(relative:&Path)->bool {
+    is_internal_state(relative)
+        || matches!(relative.to_str(),Some("greenlight.yaml"|"stepwright.yaml"|".greenlight/config.yaml"))
+        || relative.components().any(|part|part.as_os_str().to_string_lossy().starts_with(".env"))
+}
+
+pub fn config_path(root:&Path)->Result<PathBuf> {
+    existing_directory(&root.join(PROJECT_DIR))?;
+    for relative in [".greenlight/config.yaml","greenlight.yaml","stepwright.yaml"] {
+        let path=root.join(relative);
+        match fs::symlink_metadata(&path) {
+            Ok(_)=>return Ok(path),
+            Err(error) if error.kind()==io::ErrorKind::NotFound=>{},
+            Err(error)=>return Err(error.into()),
+        }
+    }
+    bail!("No Greenlight configuration in {}. Run `greenlight init` to create .greenlight/config.yaml (legacy greenlight.yaml/stepwright.yaml also supported).",root.display())
+}
+
+pub fn workflows_directory(root:&Path)->Result<PathBuf> {
+    existing_directory(&root.join(PROJECT_DIR))?;
+    let local=root.join(PROJECT_DIR).join("workflows");
+    if existing_directory(&local)? {Ok(local)} else {Ok(root.join("workflows"))}
+}
+
 pub fn is_internal_state(relative: &Path) -> bool {
     let mut parts = relative.components();
     matches!(parts.next(), Some(Component::Normal(dir))

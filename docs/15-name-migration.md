@@ -27,3 +27,5 @@ cargo run -- --root "$PWD/.local-smoke" sessions
 If your smoke fixture still has `stepwright.yaml`, it remains valid. After inspecting the sessions, you can rename that config file to `greenlight.yaml`. Inspect `.local-smoke/.greenlight/state` to confirm the migrated history is present.
 
 An installed old `stepwright` binary will not be deleted by changing the package name. Remove it separately once Greenlight is installed and verified.
+
+New projects use `.greenlight/config.yaml` and `.greenlight/workflows/`, created by `greenlight init`. Configuration precedence is local config, `greenlight.yaml`, then `stepwright.yaml`; existing legacy files are preserved. See [installation and projects](22-installation-and-projects.md).

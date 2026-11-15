@@ -210,7 +210,7 @@ impl Tools {
         if p.as_os_str().is_empty() || p.is_absolute() || p.components().any(|c|!matches!(c,std::path::Component::Normal(_))) {bail!("only paths beneath project root are allowed");}
         let sensitive=[".git", ".env", ".ssh"];
         if p.components().any(|c|sensitive.contains(&c.as_os_str().to_string_lossy().as_ref()))
-            || crate::paths::is_internal_state(p) {
+            || crate::paths::is_private_path(p) {
             bail!("agent file access to sensitive internal path is denied");
         }
         let root=self.root.canonicalize()?;
@@ -232,7 +232,7 @@ impl Tools {
         // Check the resolved target too, including canonical parents of new
         // files. An innocently named alias cannot expose secrets or state.
         if relative.components().any(|c|sensitive.contains(&c.as_os_str().to_string_lossy().as_ref()))
-            || crate::paths::is_internal_state(relative) {
+            || crate::paths::is_private_path(relative) {
             bail!("agent file access to sensitive internal path is denied");
         }
         Ok(resolved)
@@ -449,6 +449,18 @@ mod tests {
         assert!(tools.safe_path("../secret").is_err());
         assert!(tools.safe_path(".greenlight/state/history.db").is_err());
         assert!(tools.safe_path(".stepwright/state/history.db").is_err());
+    }
+
+    #[test]
+    fn project_settings_and_credentials_are_inaccessible_even_through_aliases() {
+        let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();
+        let tools=Tools::new(root.path().to_owned(),Permissions::default()).unwrap();
+        for path in [".greenlight/config.yaml",".greenlight/.env",".greenlight/.env.local","greenlight.yaml","stepwright.yaml","src/.env.production"] {assert!(tools.safe_path(path).is_err(),"{path}");}
+        #[cfg(unix)] {
+            std::os::unix::fs::symlink(root.path().join(".greenlight/config.yaml"),root.path().join("alias.yaml")).unwrap();
+            assert!(tools.safe_path("alias.yaml").is_err());
+        }
+        assert!(tools.safe_path(".greenlight/instructions.md").is_ok());
     }
     #[cfg(unix)]
     #[tokio::test]

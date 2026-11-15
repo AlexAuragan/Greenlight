@@ -173,17 +173,8 @@ pub struct LoadedWorkflow {
 }
 
 pub fn load_config(root: &Path) -> Result<Config> {
-    let config = root.join("greenlight.yaml");
-    let text = match fs::read_to_string(&config) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let legacy = root.join("stepwright.yaml");
-            fs::read_to_string(&legacy).with_context(|| {
-                format!("missing greenlight.yaml (or legacy stepwright.yaml) in {}", root.display())
-            })?
-        }
-        Err(error) => return Err(error).with_context(|| format!("reading {}", config.display())),
-    };
+    let path=crate::paths::config_path(root)?;
+    let text=fs::read_to_string(&path).with_context(||format!("reading {}",path.display()))?;
     let cfg: Config = serde_yaml::from_str(&text)?;
     for value in [&cfg.permissions.shell, &cfg.permissions.write, &cfg.permissions.read, &cfg.permissions.web] {
         if !["ask", "allow", "deny"].contains(&value.as_str()) { bail!("permission must be ask, allow or deny: {value}"); }
@@ -228,7 +219,7 @@ pub fn load_dotenv(path: &Path) -> Result<()> {
 
 pub fn load_workflow(root: &Path, id: &str) -> Result<LoadedWorkflow> {
     if id.contains('/') || id.contains('\\') || id == ".." || id.starts_with('.') { bail!("invalid workflow name"); }
-    let folder = root.join("workflows").join(id);
+    let folder = crate::paths::workflows_directory(root)?.join(id);
     let definition: Workflow = serde_yaml::from_str(&fs::read_to_string(folder.join("workflow.yaml"))?)?;
     if definition.id != id { bail!("workflow id does not match directory"); }
     let mut steps = HashMap::new();

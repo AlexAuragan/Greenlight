@@ -6,7 +6,7 @@ This is an **experimental harness**, not a production-ready agent. DeepInfra is 
 
 ## Requirements
 
-- Rust toolchain (Cargo, Rust 2021 edition)
+- Rust 1.89 or newer, Cargo, Git and a C compiler
 - Linux, Bubblewrap at `/usr/bin/bwrap`, and enabled unprivileged user namespaces
 - DeepInfra API key
 - Optionally, a Brave Search API key for web searches
@@ -14,31 +14,44 @@ This is an **experimental harness**, not a production-ready agent. DeepInfra is 
 
 ## Quick start
 
-```bash
-export DEEPINFRA_API_KEY='...'
-# Optional web search:
-export BRAVE_SEARCH_API_KEY='...'
-# Optional outgoing Discord notifications:
-export DISCORD_WEBHOOK='https://discord.com/api/webhooks/...'
+Install or upgrade from GitHub (no sudo):
 
-cargo build
-cargo test
-cargo run -- sandbox-check
-cargo run -- validate fix-bug
-cargo run -- start fix-bug --goal 'Find and fix the intermittent test failure'
+```bash
+git clone https://github.com/AlexAuragan/Greenlight.git
+cd Greenlight
+bash install.sh
 ```
 
-Instead of exporting these, you can put them in a `.env` file (in the current directory or the project root). It is loaded automatically at startup and never overrides variables that already exist in the environment.
+During review, switch to `feat/install-and-project-layout` and pass `--ref feat/install-and-project-layout` to the installer. After merge, `master` is the default. The installer remembers your selected ref and binary location; rerunning it fetches and builds upgrades. Use `--ref master` to switch back after merge. Add the printed binary directory to PATH if needed.
+
+Then, in any project:
+
+```bash
+cd /path/to/your/project
+greenlight init
+# Configure .greenlight/config.yaml and export DEEPINFRA_API_KEY,
+# or copy .greenlight/.env.example to .greenlight/.env and fill it in.
+greenlight sandbox-check
+greenlight validate fix-bug
+greenlight                     # opens the TUI
+greenlight start fix-bug --goal 'Find and fix the intermittent test failure'
+```
+
+Settings, workflows, instructions and runtime data live under that project's `.greenlight/`. Initialization embeds the three example workflows, preserves existing files and needs no source checkout. Upgrading the binary never rewrites project files. Exported environment variables take precedence over `.greenlight/.env`, then the selected project's root `.env`. An unrelated caller directory's `.env` is not loaded. See [installation and projects](docs/22-installation-and-projects.md) for paths, prerequisites and update behavior.
+
+For source development, use `cargo build`, `cargo test --locked` and `cargo run -- ...`.
 
 Run `greenlight restore SESSION_ID --event EVENT_ID --dry-run` to preview restoring tracked files to a historical event. `fork` now offers workspace restoration before creating a new execution branch; see `docs/09-workspace-restore.md` for limitations.
 
-`greenlight.yaml` specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. `greenlight approvals` shows stored grants and their paths (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
+`.greenlight/config.yaml` (or legacy `greenlight.yaml`) specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. `greenlight approvals` shows stored grants and their paths (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
 
 **Important:** Agent shell commands, workflow command steps and command verification now run **inside Bubblewrap**, with a read-only `/workspace`, private `HOME`, no inherited API keys and no network. Shell writes are limited to an isolated `/tmp` and a project-local build cache under `.greenlight/state/sandbox-cache`. Source edits must use native `write` to keep diffs and history. There is **no unsandboxed fallback** if Bubblewrap is unavailable. This is not complete protection against untrusted programs or resource exhaustion; see `docs/10-shell-sandbox.md`.
 
 ## Commands
 
 ```text
+greenlight init
+greenlight                      # open the TUI
 greenlight sandbox-check
 greenlight recover-writes       # reconcile interrupted writes; source files stay unchanged
 greenlight recover-session SESSION_ID  # recover a dead owner; does not resume work
@@ -67,7 +80,7 @@ For a globally installed binary, run `greenlight ...` instead of `cargo run -- .
 
 `workspace-status SESSION_ID` compares project files with recorded step-boundary manifests and checks the branch-visible native journal for explained/unexplained changes and coverage gaps. `--json` exports the report; `workspace-benchmark --runs 7 --json` measures read-only scans. It records **paths, sizes and SHA-256 hashes, not file contents**. The recording omits sensitive paths, symlinks, caches and files above its size limit. Hashes detect drift; they do not restore files or identify whether a human or another process made a change. See [workspace recording](docs/14-workspace-recording.md).
 
-Run with `--root /path/to/project` to select the project directory containing `greenlight.yaml`, `workflows/` and `.greenlight/instructions.md`. Workflows may use includes in `shared/`. Config and workflow reload for each *new step run*.
+Without `--root`, commands discover the nearest initialized project from the current directory, stopping at Git repository boundaries. `greenlight init` initializes the current directory exactly. Use `--root /path/to/project` to select a project explicitly. Config and workflows reload for each *new step run*.
 
 **Renamed from Stepwright:** The Cargo package and installed command are now `greenlight`. Existing `stepwright.yaml` files remain readable as a fallback, but `greenlight.yaml` takes precedence. On first use, the local `.stepwright/state` directory is moved to `.greenlight/state` (including session history, blobs, approvals and cache). If both exist, Greenlight stops instead of choosing one. See [migration notes](docs/15-name-migration.md).
 
