@@ -4,6 +4,8 @@
 flowchart TD
   CLI --> Engine
   TUI --> Engine
+  TUI --> DocumentPreviewWorker
+  DocumentPreviewWorker --> MarkdownRenderer
   Engine --> WorkflowLoader
   Engine --> Store
   Engine --> Provider
@@ -32,11 +34,32 @@ flowchart TD
 - `restore.rs` — guarded historical reconstruction of journaled native edits and individual-file restore.
 - `sandbox.rs` — mandatory Linux Bubblewrap isolation for shell commands, with read-only project mount and isolated writable cache.
 - `approvals.rs` — saved project/global grants, separate from temporary process-level decisions.
+- `usage.rs` — request usage ledger, token-count provenance, tiktoken fallback, immutable pricing snapshots and scoped cost summaries.
 - `provider.rs` — HTTP chat-completions and model discovery through the DeepInfra OpenAI-compatible API.
 - `tools.rs` — permissioned native file access and sandboxed shell/web dispatch.
-- `tui.rs`, `tui_actions.rs`, `markdown.rs` — Ratatui session views, approval/restart interactions, and a small safe-text Markdown presentation layer.
+- `tui.rs` — foreground application state, store refresh, worker lifecycle and the terminal loop.
+- `tui/focus.rs`, `tui/reading.rs`, `tui/routing.rs` — focus/draft state, session/branch reading positions, cached-row activity filtering and modal keyboard precedence.
+- `tui/exports.rs` — explicit clipboard exports and private editor-review snapshots, with terminal handoff/restoration. Helpers receive selected text, never a mutable Store/Engine handle.
+- `activity_cards.rs` — atomic tool outcome/correlation publication and pure branch-visible semantic card projections.
+- `activity_titles.rs` — strict optional coding-action title validation and response-linked annotation schema. Intent cards never establish execution outcomes or grant permissions.
+- `pricing.rs` — bounded public DeepInfra pricing discovery, exact-provider matching, private local caching and explicit-override precedence. `usage.rs` snapshots resolved prices, freshness, context tiers and cache-creation estimates per request.
+- `manager.rs`, `tui/manager_ui.rs` — bounded source snapshots, strict manager decision validation, private exchanges and independent read-only TUI inference. Uses central usage with purpose `manager`; no manager branch/step/tool execution path exists yet.
+- `workspace.rs`, `workspace_audit.rs` — bounded step-boundary SHA-256 scans and metrics, plus interval-scoped branch-visible write/restore hash-chain correlation. Reports distinguish journal agreement, unexplained drift and unavailable coverage; they never restore files or identify an editor.
+- `tui/activity.rs`, `tui/view.rs`, `tui/help.rs` — card/audit presentation, evidence expansion, workspace layout and discoverable keys.
+- `tui/approval.rs`, `tui/recovery.rs` — explicit approval choices and guarded restart/restore interactions.
+- `tui/reader.rs`, `markdown.rs` — bounded background preparation of large document viewports and terminal-safe Markdown/literal presentation.
+- `tui_actions.rs` — Engine workers and typed restart candidates; document rendering never invokes this execution path.
+- `session_picker.rs`, `workspace_view.rs`, `artifact_history.rs` — session discovery/creation, recorded attempt projections and branch-visible artifact history/provenance.
 - `paths.rs` — canonical `.greenlight/state` location and guarded migration of legacy `.stepwright/state`.
 - `main.rs` — Clap CLI and TUI entry points. Both paths use the same engine, store and permission rules.
+
+## Document preview worker
+
+Documents over 8 KiB or 64 lines use a lazily started per-TUI preview thread. The foreground supplies a bounded UTF-8 prefix, presentation mode, immutable document identity, headers and viewport dimensions/scroll. The worker caches parsed text and wrapped line counts, then produces only the viewport's terminal buffer. The foreground copies visible cells, not a full parsed document, on redraw. Short previews keep the bounded synchronous path.
+
+Request and response queues each have capacity one. Results are accepted only for the current document revision, mode, dimensions and requested scroll; obsolete work may finish but cannot replace the selected document or an approval. A discarded completed viewport can be requested again after resizing back. Closing the application drops the channels; the worker receives only text/presentation data, does not retain engine/store handles or approval state, and performs no credential reads or file I/O. It is a same-process CPU worker, not a sandbox. A failed worker reports an unavailable preview and leaves navigation usable.
+
+This separates document CPU work, not every blocking operation: store refresh/blob reads, explicit artifact-diff construction and approval-request rendering still use their existing foreground paths. Artifact/diff limits and permission checks are unchanged; broad asynchronous storage/execution is not introduced by this refactor.
 
 ## Trust boundaries
 
@@ -73,4 +96,6 @@ Keep the native-write journal as the recovery basis. Record bounded SHA-256 mani
 
 ### ADR-006: Model suggestions are not authority
 
-Future activity titles, summaries and manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
+Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
+
+The [coordinator contract](20-conversational-coordinator.md) now has a [read-only Q&A implementation](21-manager-qa.md) using its bounded evidence/JSON interface and [compiled system prompt](prompts/manager-v1.md). Original-message records are separate from executing instructions. Manager calls can observe a live owner but cannot act on a route, acquire execution ownership, grant approval or modify coding context. Targeted delivery and the durable live inbox remain future work.

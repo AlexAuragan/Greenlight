@@ -34,6 +34,8 @@ Available actions:
   summary: |
     Description and evidence that step is complete
 Use exactly one action per response. An artifact action registers a session artifact, it does NOT modify code. Each step is one stage of a multi-step workflow with its own fresh context and tools, and `finish` completes only the current step: the harness then advances to the next step, which continues the work. Finish this step as soon as its required outputs are registered, even when the overall session goal is not yet fully achieved, and only request the tools this step enables. Commands and edits require authorization. Shell commands run without network or host HOME access, with project files read-only. Use the native write tool for all source edits; shell writes cannot alter project files. Tool failure is a fact; don't hide it. If a tool fails, describe it instead of working around an environment mismatch.
+Any action may include an optional activity_title string, for example: activity_title: Exploring call sites
+Use a short plain-text description of intent, 1–80 Unicode characters after trimming surrounding whitespace; no control characters, newlines, invisible direction/format controls, or claims of verified success. Omit it when unnecessary. It is only a model-authored annotation, never permission or execution evidence. Keep exactly one action per response; there is no separate title action.
 No invented tool results. If blocked, report a deviation. Keep outputs concise.
 "#;
 
@@ -121,7 +123,7 @@ impl Engine {
             let before = match workspace::record(
                 &self.root, &self.store, &s, &step.id, "before",
             ) {
-                Ok((_, manifest)) => manifest,
+                Ok(recording) => recording,
                 Err(error) => {
                     self.block(
                         &mut s, &format!("workspace recording failed: {error:#}"), &step.id,
@@ -136,13 +138,17 @@ impl Engine {
             // disappear from the observed step's workspace history.
             let audit = workspace::record(
                 &self.root, &self.store, &s, &step.id, "after",
-            ).and_then(|(_, after)| {
-                let changes = workspace::differences(&before, &after);
+            ).and_then(|(after_event, after)| {
+                let changes = workspace::differences(&before.1, &after);
                 if !changes.is_empty() {
                     self.store.event(
                         &s, Some(&step.id), "workspace.delta",
                         &serde_json::to_string(&changes)?,
                     )?;
+                }
+                let audit=crate::workspace_audit::correlate(&self.store,&s,before.0,after_event,Some(after_event),&before.1,&after)?;
+                if !audit.paths.is_empty() || !audit.warnings.is_empty() {
+                    self.store.event(&s,Some(&step.id),"workspace.correlation",&serde_json::to_string(&audit)?)?;
                 }
                 Ok(())
             });
@@ -260,7 +266,7 @@ impl Engine {
             &format!("{{{{ include \"{prompt}\" }}}}"), &self.root, &wf.folder,
         )?;
         let query = format!("Evaluate whether this deviation is supported by available evidence.\nRule: {}\nInstructions: {}\nAgent report: {}\nReturn YAML only:\ndetected: true|false\nreason: explanation", rule.id, instructions, summary);
-        let raw = self.provider.complete(model, &[json!({"role":"user","content":query})])
+        let raw = self.model_call(s, &step.id, "deviation-detector", model, &[json!({"role":"user","content":query})])
             .await.context("deviation detector failed")?;
         self.store.event(s, Some(&step.id), "deviation.detector", &raw)?;
         let yaml = raw.trim().trim_start_matches("```yaml").trim_start_matches("```yml")
@@ -271,6 +277,63 @@ impl Engine {
             &format!("{}: {}", rule.id, verdict.reason))?;
         Ok(Some(verdict))
     }
+    pub(crate) async fn model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value])->Result<String> {
+        self.model_call_with_message(s,step,purpose,model,messages,None).await
+    }
+    pub(crate) async fn model_call_with_message(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value],interaction:Option<(&str,&str)>)->Result<String> {
+        self.dispatch_model_call(s,step,purpose,model,messages,interaction).await.context(crate::provider_failure::ModelCallFailed)
+    }
+    async fn dispatch_model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value],interaction:Option<(&str,&str)>)->Result<String> {
+        use crate::provider_failure::{Failure,Kind};
+        for attempt in 1..=3 {
+            if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
+            let discover = true;
+            #[cfg(test)]
+            let discover = discover && self.provider.script.is_none();
+            let metadata = if discover {
+                crate::pricing::resolve(&self.root, &self.cfg.provider, model, false).await
+            } else {
+                self.cfg.provider.model_metadata.get(model).cloned().unwrap_or_default()
+            };
+            if self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(Failure::local(Kind::Cancelled).into());}
+            let provider=reqwest::Url::parse(&self.cfg.provider.base_url).map(|url|url.origin().ascii_serialization()).unwrap_or_else(|_|"unknown provider".into());
+            let mut call=crate::usage::Call::new(s,step,purpose,model,&provider,metadata,messages);
+            if let Some((message,snapshot))=interaction {call.manager_message_id=Some(message.into());call.manager_snapshot_id=Some(snapshot.into());}
+            self.store.begin_model_call(s,&mut call)?;
+            let result=self.provider.complete(model,messages).await;
+            let failure=match &result {
+                Ok(response)=>{call.finish(response);response.failure.clone()},
+                Err(error)=>{call.status="failed-or-unknown-billing".into();error.downcast_ref::<Failure>().cloned()},
+            };
+            if let Some(failure)=&failure {
+                call.counts.notes.push(failure.to_string());
+                if failure.status.is_none() && matches!(failure.kind,Kind::Credentials|Kind::Request) {call.status="not-sent".into();call.counts.notes.push("No HTTP request was sent; input counts describe the prepared request, not billed usage.".into());}
+                if failure.billing_uncertain {call.estimated_cost=None;}
+            }
+            self.store.finish_model_call(s,&call).context("could not persist model usage; initial request record retained")?;
+            if let Some(failure)=failure {
+                if purpose!="manager" {console_eprintln!(self,"[provider] {failure}");}
+                self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"purpose":purpose,"request_number":attempt,"failure":failure}))?)?;
+                if let Some(delay)=failure.delay(attempt) {
+                    if purpose!="manager" {console_eprintln!(self,"[provider retry] request {}/3 in {:.2}s",attempt+1,delay.as_secs_f64());}
+                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; x in TUI cancels future provider requests"}}).to_string())?;
+                    if let Err(cancelled)=crate::provider_failure::wait(delay,&self.provider.retry_cancel).await {
+                        self.store.event(s,Some(step),"provider.retry-cancelled",&cancelled.to_string())?;
+                        return Err(cancelled.into());
+                    }
+                    continue;
+                }
+                if failure.retryable {
+                    self.store.event(s,Some(step),"provider.retry-stopped","Automatic retry budget exhausted or Retry-After exceeds the 15-second per-wait limit; resume explicitly later.")?;
+                    return Err(anyhow::Error::new(failure).context("Automatic retry budget exhausted or requested wait exceeds 15s; resume explicitly later."));
+                }
+                return Err(failure.into());
+            }
+            return result?.content.map_err(anyhow::Error::msg);
+        }
+        unreachable!("last request cannot schedule another retry")
+    }
+
     async fn block(&self, s: &mut Session, reason: &str, step: &str) -> Result<()> {
         s.status = "blocked".into();
         self.store.save(s)?;
@@ -396,6 +459,7 @@ impl Engine {
                 }
                 self.store.approve_inputs(s, &step.id, input_manifest, &inputs, || self.select_inputs(s, wf, step))?;
                 if let Err(e) = self.verify(s, wf, step, model).await {
+                    if crate::provider_failure::is_fatal_model_error(&e) {return Err(e);}
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
                         format!("{e:#}"),
@@ -405,16 +469,20 @@ impl Engine {
             }
             "command" => {
                 let cmd = step.command.as_deref().context("command missing")?;
-                let execution = self.tools.shell(cmd).await;
-                self.log_permissions(s, step)?;
-                let result = execution?;
-                self.store
-                    .event(s, Some(&step.id), "tool.result", &result)?;
+                let action=crate::tools::AgentAction{action:"tool".into(),activity_title:None,tool:Some("shell".into()),input:Some(cmd.into()),path:None,content:None,name:None,summary:None,deviation_id:None};
+                let request=self.store.event(s,Some(&step.id),"tool.request",&serde_yaml::to_string(&action)?)?;
+                let execution=self.tools.shell(cmd).await;
+                self.log_permissions(s,step)?;
+                let result=match execution {
+                    Ok(result)=>{self.store.tool_outcome(s,&step.id,request,"shell","tool.result",&result)?;result},
+                    Err(error)=>{self.store.tool_outcome(s,&step.id,request,"shell","tool.error",&format!("{error:#}"))?;return Err(error);},
+                };
                 console_println!(self, "{result}");
                 if !result.starts_with("exit_code: 0\n") {
                     return Ok(Outcome::Deviation("command_failed".into(), result));
                 }
                 if let Err(e) = self.verify(s, wf, step, model).await {
+                    if crate::provider_failure::is_fatal_model_error(&e) {return Err(e);}
                     return Ok(Outcome::Deviation(
                         "verification_failed".into(),
                         format!("{e:#}"),
@@ -460,8 +528,8 @@ impl Engine {
             .max_turns
             .unwrap_or(self.cfg.session.max_turns_per_attempt);
         for turn in 0..limit {
-            let raw = self.provider.complete(model, &messages).await?;
-            self.store.event(s, Some(&step.id), "model.output", &raw)?;
+            let raw = self.model_call(s, &step.id, "coding", model, &messages).await?;
+            let model_event = self.store.event(s, Some(&step.id), "model.output", &raw)?;
             // An in-flight response cannot authorize work against an input
             // version that changed while the model was running.
             self.enforce_input_approvals(s, wf, step, &self.select_inputs(s, wf, step)?)?;
@@ -478,10 +546,22 @@ impl Engine {
                     continue;
                 }
             };
+            if let Some(title) = &action.activity_title {
+                let annotation = crate::activity_titles::Annotation {
+                    model_event,
+                    title: title.clone(),
+                };
+                self.store.event(
+                    s,
+                    Some(&step.id),
+                    "activity.title",
+                    &serde_json::to_string(&annotation)?,
+                )?;
+            }
             match action.action.as_str() {
                 "tool" => {
                     let kind = action.tool.as_deref().context("tool action missing tool")?;
-                    self.store.event(
+                    let request_event=self.store.event(
                         s,
                         Some(&step.id),
                         "tool.request",
@@ -512,7 +592,7 @@ impl Engine {
                                 result.chars().take(350).collect::<String>()
                             );
                             self.store
-                                .event(s, Some(&step.id), "tool.result", &result)?;
+                                .tool_outcome(s,&step.id,request_event,kind,"tool.result",&result)?;
                             messages.push(
                                 json!({"role":"user","content":format!("Tool result:\n{result}")}),
                             );
@@ -520,7 +600,7 @@ impl Engine {
                         Err(e) => {
                             let error = format!("{e:#}");
                             console_println!(self, "[tool error] {error}");
-                            self.store.event(s, Some(&step.id), "tool.error", &error)?;
+                            self.store.tool_outcome(s,&step.id,request_event,kind,"tool.error",&error)?;
                             messages.push(json!({"role":"user","content":format!(
                                 "Tool error:\n{error}\n\nThe tool did not run; do not invent its output. If this step enables another tool that can achieve the same goal, use it; if this step's required outputs are already registered, reply with a finish action; otherwise report one of this step's declared deviations."
                             )}));
@@ -591,6 +671,7 @@ impl Engine {
                         }
                     }
                     if let Err(e) = self.verify(s, wf, step, model).await {
+                        if crate::provider_failure::is_fatal_model_error(&e) {return Err(e);}
                         return Ok(Outcome::Deviation(
                             "verification_failed".into(),
                             format!("{e:#}"),
@@ -642,9 +723,10 @@ impl Engine {
                     }
                     let mut passed = false;
                     for c in checks {
-                        if self.verify_leaf(s, wf, step, model, c).await.is_ok() {
-                            passed = true;
-                            break;
+                        match self.verify_leaf(s, wf, step, model, c).await {
+                            Ok(())=>{passed=true;break;}
+                            Err(error) if crate::provider_failure::is_fatal_model_error(&error)=>return Err(error),
+                            Err(_)=>{} // Ordinary rejected checks retain the configured any-of behavior.
                         }
                     }
                     if !passed {
@@ -755,8 +837,7 @@ impl Engine {
                 }).to_string())?;
                 let query=format!("{}\n\nGoal: {}\nStep: {}\nEvidence:\n{}\nRespond only YAML:\npassed: true|false\nreason: concise explanation", full, s.goal, step.id, evidence);
                 let raw = self
-                    .provider
-                    .complete(model, &[json!({"role":"user","content":query})])
+                    .model_call(s, &step.id, "verification", model, &[json!({"role":"user","content":query})])
                     .await?;
                 self.store
                     .event(s, Some(&step.id), "verification.agent", &raw)?;
@@ -849,3 +930,7 @@ mod name_tests {
         assert_eq!(project_instructions(root.path()).unwrap(), "new instructions");
     }
 }
+
+#[cfg(test)]
+#[path = "provider_engine_tests.rs"]
+mod provider_failure_tests;

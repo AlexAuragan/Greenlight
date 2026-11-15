@@ -46,6 +46,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
     engine.provider.script = Some(Arc::new(Mutex::new(Script {
         responses: responses.iter().map(|text| Ok((*text).into())).collect(),
         requests: Vec::new(),
+        ..Default::default()
     })));
     let (prompts_tx, prompts) = mpsc::channel();
     let (answers, answer_rx) = mpsc::channel();
@@ -61,7 +62,8 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
         ));
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { cancel_retry:None,
+            session_id: None,
         prompts,
         answers,
         finished,
@@ -76,7 +78,8 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
     let (_pt, prompts) = mpsc::channel();
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { cancel_retry:None,
+            session_id: None,
         prompts,
         answers,
         finished,
@@ -222,7 +225,8 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
         mode: ApprovalMode::Human,
     })
     .unwrap();
-    app.runner = Some(Runner {
+    app.runner = Some(Runner { cancel_retry:None,
+            session_id: None,
         prompts,
         answers,
         finished,
@@ -266,6 +270,24 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
         .iter()
         .any(|(_, _, k, d)| k == "permission.decision" && d.contains("denied by user")));
     assert!(history.iter().any(|(_, _, k, _)| k == "runner.recovered"));
+    let usage = store
+        .usage_report(
+            &store.session(&session.id).unwrap(),
+            crate::usage::Scope::Session,
+        )
+        .unwrap();
+    assert_eq!(usage.totals.requests, 9);
+    assert_eq!(usage.totals.input.reported, 0);
+    assert!(usage.totals.input.estimated > 0);
+    app.composer = "/usage".into();
+    app.submit(root.path(), &store);
+    assert!(screen(&app).contains("Usage — session spending"));
+    assert!(app.usage_detail.as_ref().unwrap().contains("unknown"));
+    key(&mut app, &store, root.path(), KeyCode::Down);
+    app.refresh(&store).unwrap();
+    assert_eq!(app.detail_scroll, 1);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    assert!(app.usage_detail.is_none());
 }
 
 #[test]
@@ -365,4 +387,55 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
         .iter()
         .any(|(_, _, k, _)| k == "workspace.restore-failed"));
     assert!(!history.iter().any(|(_, _, k, _)| k == "branch.forked"));
+}
+
+#[test]
+fn workspace_cards_expose_context_and_exact_blocker_at_80x24() {
+    let root=tempfile::tempdir().unwrap();
+    let store=Store::open(root.path()).unwrap();
+    let mut session=store.create("missing","Repair the parser","repair").unwrap();
+    store.begin_attempt(&session,"repair","id: repair\nprompt: Repair parsing\n","fixture").unwrap();
+    let evidence=store.event(&session,Some("repair"),"step.blocked","Parser tests failed").unwrap();
+    session.status="blocked".into();store.save(&session).unwrap();
+    let mut app=App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    key(&mut app,&store,root.path(),KeyCode::Esc);
+    let rendered=screen(&app);
+    assert!(rendered.contains("Repair the parser"));
+    assert!(rendered.contains("Parser tests failed"));
+    key(&mut app,&store,root.path(),KeyCode::Char('c'));
+    assert!(app.context_detail.as_ref().unwrap().contains("Repair parsing"));
+    app.detail_scroll=2;
+    app.refresh(&store).unwrap();
+    assert_eq!(app.detail_scroll,2);
+    key(&mut app,&store,root.path(),KeyCode::Esc);
+    key(&mut app,&store,root.path(),KeyCode::Char('e'));
+    assert_eq!(app.events[app.event_index].id,evidence);
+    assert_eq!(app.focus,Focus::Detail);
+    key(&mut app,&store,root.path(),KeyCode::Char('h'));
+    assert!(!app.blocker_card);
+    assert_eq!(app.focus,Focus::Events);
+}
+
+#[test]
+fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
+    let root=tempfile::tempdir().unwrap();
+    let store=Store::open(root.path()).unwrap();
+    let owner=store.create("demo","Owner goal","work").unwrap();
+    let other=store.create("demo","Other goal","work").unwrap();
+    let mut app=App::new(Some(&other.id));
+    app.refresh(&store).unwrap();
+    let (sender,prompts)=mpsc::channel();
+    let (answers,_received)=mpsc::channel();
+    let (_finished,finished)=mpsc::channel();
+    app.runner=Some(Runner{cancel_retry:None,session_id:Some(owner.id.clone()),prompts,answers,finished});
+    sender.send(ApprovalPrompt{content:"Owner permission".into(),mode:ApprovalMode::Human}).unwrap();
+    app.tick();
+    assert_eq!(app.session().unwrap().id,owner.id);
+    assert!(app.workspace.is_none());
+    app.refresh(&store).unwrap();
+    assert_eq!(app.workspace.as_ref().unwrap().goal,"Owner goal");
+    assert!(screen(&app).contains("Owner permission"));
+    key(&mut app,&store,root.path(),KeyCode::Char('c'));
+    assert!(app.context_detail.is_none());
 }

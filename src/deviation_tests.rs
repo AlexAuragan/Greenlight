@@ -46,6 +46,7 @@ impl Harness {
                 .map(|r| r.map(str::to_owned).map_err(str::to_owned))
                 .collect(),
             requests: Vec::new(),
+            ..Default::default()
         }));
         engine.provider.script = Some(script.clone());
         Self {
@@ -79,6 +80,110 @@ impl Harness {
 }
 
 const PAUSE: &str = "  - id: blocker\n    action: pause\n    prompt: detector.md";
+
+#[tokio::test]
+async fn activity_titles_link_each_response_without_authorizing_tools_or_extra_calls() {
+    let mut h = Harness::new(PAUSE, vec![
+        Ok("action: tool\ntool: write\npath: forbidden.txt\ncontent: forbidden\nactivity_title: Testing first fix"),
+        Ok("action: artifact\nname: notes.md\ncontent: evidence\nactivity_title: Recording findings"),
+        Ok("action: finish\nsummary: done\nactivity_title: Wrapping up"),
+    ]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [write]"),
+    )
+    .unwrap();
+    h.engine.tools.policies.write = "deny".into();
+    h.run().await;
+    h.assert_calls(3);
+    assert_eq!(h.status(), "completed");
+    assert_eq!(h.count("activity.title"), 3);
+    assert_eq!(h.count("tool.error"), 1);
+    assert_eq!(h.count("file.changed"), 0);
+    assert!(!h.root.path().join("forbidden.txt").exists());
+    let s = h.engine.store.session(&h.session).unwrap();
+    let history = h.engine.store.history(&s).unwrap();
+    let projection = crate::activity_cards::Projection::build(&history);
+    assert!(projection.malformed.is_empty());
+    assert_eq!(projection.titles.len(), 3);
+    for (id, evidence) in &projection.titles {
+        assert!(evidence.annotation.model_event < *id);
+        assert_eq!(projection.cards[id].tone, crate::activity_cards::Tone::Info);
+        assert!(projection.cards[id]
+            .summary
+            .contains("not execution evidence"));
+    }
+    let title = history.iter().find(|e| e.2 == "activity.title").unwrap();
+    let request = history.iter().find(|e| e.2 == "tool.request").unwrap();
+    assert!(title.0 < request.0);
+    assert!(history
+        .iter()
+        .any(|e| e.2 == "tool.error" && e.3.contains("forbidden by policy")));
+    assert!(request.3.contains("activity_title: Testing first fix"));
+    let script = h.script.lock().unwrap();
+    assert!(script.requests[0][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("optional activity_title"));
+}
+
+#[tokio::test]
+async fn invalid_title_retries_protocol_and_cannot_hide_failed_verification() {
+    let mut h = Harness::new(PAUSE, vec![
+        Ok("action: tool\ntool: write\npath: forbidden.txt\ncontent: forbidden\nactivity_title: \"bad\\u001b[2J\""),
+        Ok("action: finish\nactivity_title: All checks passed"),
+        Ok("passed: false\nreason: missing evidence"),
+    ]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("type: none", "type: agent\n  prompt: detector.md"),
+    )
+    .unwrap();
+    h.run().await;
+    h.assert_calls(3);
+    assert_eq!(h.count("protocol.error"), 1);
+    assert_eq!(h.count("activity.title"), 1);
+    assert_eq!(h.count("tool.request"), 0);
+    assert!(!h.root.path().join("forbidden.txt").exists());
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("verification.passed"), 0);
+    assert_eq!(h.count("verification.agent"), 1);
+    let s = h.engine.store.session(&h.session).unwrap();
+    let projection = crate::activity_cards::Projection::build(&h.engine.store.history(&s).unwrap());
+    assert!(projection.malformed.is_empty());
+    let title = *projection.titles.keys().next().unwrap();
+    assert_eq!(
+        projection.cards[&title].tone,
+        crate::activity_cards::Tone::Info
+    );
+    let script = h.script.lock().unwrap();
+    assert!(!script.requests[2]
+        .iter()
+        .any(|m| m["content"].as_str().unwrap().contains("All checks passed")));
+}
+
+#[tokio::test]
+async fn deviation_title_remains_annotation_and_is_not_detector_authority() {
+    let mut h = Harness::new(PAUSE, vec![
+        Ok("action: deviation\ndeviation_id: blocker\nsummary: evidence\nactivity_title: Examining blocker"),
+        Ok(REJECT), Ok(FINISH),
+    ]);
+    h.run().await;
+    h.assert_calls(3);
+    assert_eq!(h.count("activity.title"), 1);
+    assert_eq!(h.count("deviation.rejected"), 1);
+    assert_eq!(h.status(), "completed");
+    let script = h.script.lock().unwrap();
+    assert!(!script.requests[1]
+        .iter()
+        .any(|m| m["content"].as_str().unwrap().contains("Examining blocker")));
+}
 
 #[tokio::test]
 async fn reviewer_uses_only_current_attempt_evidence_and_records_versions() {

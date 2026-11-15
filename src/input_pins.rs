@@ -4,23 +4,23 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-struct InputVersion {
-    name: String,
-    event_id: i64,
+pub(crate) struct InputVersion {
+    pub(crate) name: String,
+    pub(crate) event_id: i64,
 }
 
 #[derive(Serialize, Deserialize)]
-struct InputManifest {
-    attempt: String,
-    artifacts: Vec<InputVersion>,
+pub(crate) struct InputManifest {
+    pub(crate) attempt: String,
+    pub(crate) artifacts: Vec<InputVersion>,
     #[serde(default)]
-    approval_events: Vec<i64>,
+    pub(crate) approval_events: Vec<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct Approval {
-    input_manifest: i64,
-    inputs: InputManifest,
+pub(crate) struct Approval {
+    pub(crate) input_manifest: i64,
+    pub(crate) inputs: InputManifest,
 }
 
 pub(crate) fn validate_recorded_event(kind: &str, raw: &str) -> Result<()> {
@@ -462,6 +462,7 @@ mod tests {
                 ]
                 .into(),
                 requests: Vec::new(),
+            ..Default::default()
             },
         )));
         tokio::runtime::Runtime::new()

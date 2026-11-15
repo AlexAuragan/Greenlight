@@ -2,14 +2,34 @@
 
 Greenlight's Ratatui interface is a session conversation and a controller for **the existing Engine**. Both CLI and TUI use the same persisted histories, approval policy, workspace edit journal and fork/restore implementation.
 
+The first [manager Q&A stage](21-manager-qa.md) implements `/ask`, context preview, saved exchanges and validated **unexecuted** forwarding proposals. With `manager.enabled: true`, ordinary messages ask the manager; `/resume` still explicitly runs a ready/blocked session. Default disabled preserves existing ordinary-message resume behavior. Executing manager routes and the [coordinator contract's](20-conversational-coordinator.md) live instruction inbox remain unimplemented.
+
 ```bash
 cargo run -- --root /path/to/project tui
 cargo run -- --root /path/to/project tui SESSION_ID
 ```
 
+## Session workspace
+
+The header shows the goal, workflow/status, current attempt, latest step outcomes and the next action. The stepper is an overview: loops can revisit steps and unvisited branches stay pending. It does not imply a linear execution plan. Long workflows window around the current step.
+
+Press `c` or enter `/context` for a scrollable snapshot of the objective, required outputs, verification verdict, exact pinned input event IDs and approval references. An existing attempt uses its saved definition and manifest; a ready session shows the configuration for its next attempt. Missing legacy metadata stays explicit. Model prose never supplies a verification verdict.
+
+Blocked sessions show a reason/evidence card after any diagnostic is dismissed. `e` opens its exact event, `h` returns to activity, `b` reopens the card, `2` opens artifacts, `i` composes resume instructions, and `r` opens the guarded restart flow. These controls never automatically retry. A live external owner is observation-only; interrupted ownership needs `/recover`, and unfinished native writes need CLI `recover-writes`. Context and evidence remain scrollable with arrows or `j/k`; Escape closes context.
+
+Activity uses concise rows; Enter/Right opens the selected event's evidence in the available pane, and Enter/Left/Escape returns to the list. Sidebar entries lead with the session goal. The session picker supports search and workflow creation as described below.
+
+## Finding and creating sessions
+
+Sessions show their goal, workflow/status, current step and latest recorded activity in UTC. Blocked sessions sort first; each group sorts by latest event across that session's branches. Sorting preserves the selected session by ID as background activity arrives.
+
+From navigation press `f` to search goals, workflows, current steps, statuses or full session IDs. Matching is case-insensitive and accepts Unicode. Use arrows to select, Enter to keep the filter, or Escape to clear it. To clear an applied filter, press `f`, then Escape. The sidebar shows matching/total counts. A worker's approval switches back to its owning session and clears a filter that might hide it.
+
+Press `n` to choose a workflow from the project's `workflows/` directories. Arrows or `j/k` select; Enter opens the goal form. Invalid workflows are labelled and show their validation error. Enter a nonempty goal and press Enter to create a **ready** session; Escape cancels without creating one. Creation reloads and validates the workflow, retains the previous session’s draft separately, opens an empty draft for the new session, and runs no model requests. Press `i`, type `/resume` or instructions, then Enter to execute through the normal engine and approval policy. Creation is disabled while this TUI has an active worker. Workflow authoring and provider configuration remain CLI/file operations.
+
 ## Main interaction
 
-Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or press **Enter** from the detail pane. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. The composer is disabled while the current worker runs, but events can still be inspected.
+Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Right** or **Enter** to focus the conversation/artifact list; from a list use **Right** or **Enter** to focus the detail pane. Press **i** from any navigation pane to focus the message composer immediately, or use Tab from the detail pane. Enter in the detail pane returns to its list. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. Direct resume waits for the current worker to stop; read-only manager questions remain available through `/ask`.
 
 Example instruction: `Fix the existing add() bug and rerun verification.`
 
@@ -19,17 +39,75 @@ The TUI executes resumed sessions in a background worker thread with a separate 
 
 When the Engine requests permission to execute a shell command, write a file, use a tool, or approve a human verification gate, it sends the **same** permission prompt to the TUI. The foreground TUI captures a decision and sends it back over channels. The TUI now shows a separate color-coded choice menu. Press **`y`** to approve once, **`a`** for the process, **`p`** for the project or **`g`** globally (where offered), or **`n`** to deny. **A decision key submits immediately; Enter does not approve or deny.** Project/global choices open a separate persistent-grant confirmation: review the full scope, then press a fresh `y` to save and allow, or `n`/Escape to cancel and deny. Repeated key events cannot authorize a decision. Escape denies. Only `y/n` are valid for human verification. The available choices are enforced from typed permission metadata rather than inferred from tool text. Proposed native file diffs and required human review artifacts are shown in the approval pane.
 
+## Semantic activity cards
+
+The default activity list uses compact cards: a title/status, event ID, step and short summary. Execution cards describe recorded facts; optional **Agent intent** cards explicitly label model-authored annotations. Small panes show a single title line; Enter/Right expands the selected card, and Enter/Left/Escape returns. Opening evidence pauses activity following, including when inspecting the latest item. End/G in the list resumes it.
+
+- New tool/command-step outputs link to their exact request and expand both arguments and result/error. Shell cards can show the recorded exit code. Other tools say **returned**, not “success”; file contents or model prose cannot supply an exit code or verification verdict. Old outputs without saved correlation say **unlinked**. Auxiliary `tool.finished` records and routine permission decisions stay hidden in the default list.
+- Coding responses may include an optional bounded `activity_title`, such as **Exploring call sites**. A separate **Agent intent** card appears before the requested action, even if approval is pending or the action later fails. Its informational style does not assert success. Enter expands the exact model response and saved annotation; `F` searches the title. Titles never grant permissions or count as verification evidence. Without a supplied title, the existing recorded-fact cards remain unchanged. See [validation and history semantics](13-agent-action-protocol.md#4-optional-activity-title-implemented).
+- Verification cards distinguish a failed individual check, recorded command exit, model-authored reviewer report, selected-evidence references and the aggregate policy verdict. A rejected check may coexist with a later aggregate pass under an any-of policy. A model report alone is not displayed as a verified pass.
+- File cards identify native write/restore records; `d` opens the matching journal diff. Artifact cards identify a creation event; `o` opens that exact version, even after a newer same-name version exists. Its browser supports provenance and adjacent-version diffs as usual.
+- Provider and partial-restore failures use their recorded structured fields. Unknown or malformed records retain raw evidence; invalid tool links become visible diagnostics rather than silently attaching unrelated output.
+
+`v` or `/events` switches to the original raw audit timeline, including request/correlation records; it never deletes events or changes approvals. Expanding a raw row shows that event's original payload. Expanded card/diff evidence uses the same terminal-safe bounded reader, including background preparation for large bodies. Card projections are cached by session, branch and latest immutable event ID; redraws do not repeatedly parse reports. No extra model calls generate titles or summaries.
+
+## Reading state, filtering and export
+
+Activity and artifact tabs retain independent selection, reading/list focus and scroll positions by session and branch. Selections use event IDs and artifact names/version IDs, so a new row does not move an inspected item. Activity retains its follow/pause state and any opened journal diff. Help/context/diagnostic panels have separate temporary scroll; closing them returns to the saved tab position. If a selected record is filtered out or unavailable, the tab uses a visible fallback with its offset reset. A newer same-name artifact resets that artifact's offset rather than applying an older body's position. Positions, filters and drafts are **in memory only** and disappear when the TUI exits. Raw/Markdown visibility settings retain their existing behavior; this is not a persistent bookmarks system.
+
+From activity navigation press **F** to filter event kinds, steps, card titles and summaries with a case-insensitive literal substring (including Unicode). Typing filters cached rows without reading the database or cloning their bodies; normal background polling still updates the source rows. Enter keeps the filter; Escape clears it. To clear an applied filter, press F then Escape. Filters are remembered per session/branch. This searches displayed metadata/summaries, not complete hidden payloads; use CLI history export for deep source searches. Lowercase `f` remains session search.
+
+Press **C** from a reading/navigation surface to copy its **full selected text**, beyond preview clipping. Artifact content is the original stored text; artifact-version content uses the selected creation ID; provenance/diff panels export their current report. Activity exports the complete expanded evidence (or raw audit record in raw mode). Help, context, diagnostics and restore previews export their displayed source. Clipboard work runs outside the input loop and confirms success only after the utility accepts the complete input and exits successfully.
+
+Copy uses `wl-copy`, then `xclip`, then `xsel`, with a two-second limit per utility. At least one utility and a working Wayland/X11 desktop session must be available. It targets **the machine running Greenlight**; SSH/cloud sessions do not automatically copy to your local terminal's clipboard. There is no OSC 52 fallback. Missing/failed utilities produce a scrollable diagnostic with CLI-export guidance. The harness sends original text, including control bytes, to the clipboard utility; it does not send the escaped/clipped preview or log document contents.
+
+Press **E** to open the selected text as a private read-only temporary `.txt` snapshot using `VISUAL`, then `EDITOR`, then `vi`. The TUI pauses and hands over the terminal until the editor exits, then redraws and restores input. Editor errors also restore the terminal and show a diagnostic. Editor commands support quoted program paths/arguments via `shlex`; they are launched as argv, not interpolated shell commands. Common Code/Codium/Cursor/Sublime commands receive `--wait` when absent, and gvim/mvim receive `-f`; other GUI editors must be configured to wait for the file to close. Snapshots are cleaned up on normal return, including editor errors. Forced process termination can leave a private temporary file.
+
+Edits to that snapshot are **not imported** into stored artifacts, history, project files or the composer. Save a separate file and explicitly use `put-artifact` if a new artifact version is intended. Editor handoff is refused while this TUI's own worker runs so approval dialogs remain available; copy remains usable during runs. These helpers are explicit local user actions, not sandboxed model-tool calls. C/E are literal text in composer/search/filter inputs and inactive during approvals. Native approval keys and permission semantics are unchanged.
+
 ## Failure diagnostics
 
 Worker failures/disconnects, blocked-step reasons, malformed known structured events, missing artifact bodies and partial restores appear in a red attention panel. Up/Down or j/k scroll the complete message; Escape dismisses it without changing execution state. Polling preserves diagnostic scroll position and does not repeatedly reopen an acknowledged unchanged error. Raw event evidence remains available; unknown event types remain readable rather than being rejected. These panels do not interpret model prose as a verified outcome.
 
 Restore failures include files changed versus files journaled. A failed restart does not fork, and a restore-then-fork failure is explicitly distinguished. Inspect workspace/history before retrying; a partial restore is not automatically rolled back. Artifact read failures preserve history access.
 
+## Provider failures and retry waits
+
+Provider errors show actionable guidance for credentials, account credit/quota, rate limiting, permissions, invalid requests and provider/network problems. Final failures block the session and appear in the existing diagnostic/history panels. Errors during verification stop the run directly; they cannot trigger a verification-failed workflow retry or detector call.
+
+Eligible rate-limit rejections or connection failures can retry with at most three requests. The activity list records each failure and retry delay. Press `x` in navigation (including a reading/help/diagnostic panel) to cancel a retry wait and stop future provider requests from this worker. It does not interrupt an in-flight HTTP request or stop a tool already running; a returned action may still finish before the next provider-call boundary. `x` stays literal text in the composer/search, and is inactive during approval dialogs. A fresh resume creates a new worker with cancellation cleared. See [provider failures](19-provider-failures.md) for retry/billing limits.
+
+## Token usage
+
+The footer reports input/cached-input/output token totals for recorded requests across the selected session’s branches. `~` marks estimates and `?` marks incomplete counts. Enter `/usage` in the composer for live-refreshed counts and estimated cost subtotals by model/attempt; arrows scroll and Escape closes the view. Unknown rates or cache hits do not become zero charges. Use CLI `usage SESSION_ID --json` for per-request provenance. Historical calls before the ledger was introduced are not reconstructed.
+
 ## Artifacts tab
 
-Press **2** in navigation mode to open the **Artifacts** tab; press **1** to return to the conversation. The left pane lists the most recent version of each artifact on the selected session's active branch, along with its producing step and byte size. The right pane renders headings, emphasis, inline/fenced code, lists, blockquotes and simple pipe tables. Press **m** in navigation mode to toggle between rendered Markdown (the default) and exact raw text; the original stored artifact is never rewritten. Other CommonMark features, hyperlinks and complex table layouts are not yet supported. **j/k**, arrows and **g/G** select a saved artifact; **Up/Down** or **j/k** scroll the artifact when the detail pane is focused. The selected artifact remains selected when newer versions are registered.
+Press **2** in navigation mode to open the **Artifacts** tab; press **1** to return to the conversation. The left pane lists the most recent version of each artifact on the selected session's active branch, along with its producing step and byte size. The right pane renders headings, emphasis, inline/fenced code, lists, blockquotes and simple pipe tables. Press **m** in navigation mode to toggle between rendered Markdown (the default) and a literal Markdown-source preview; the original stored artifact is never rewritten. Other CommonMark features, hyperlinks and complex table layouts are not yet supported. **j/k**, arrows and **g/G** select a saved artifact; **Up/Down** or **j/k** scroll the artifact when the detail pane is focused. The selected artifact remains selected when newer versions are registered.
 
-Artifacts are inputs to later workflow steps and an important human-review surface. This tab deliberately uses the same branch-aware `Store::artifacts` lookup as the CLI and does not alter artifact content. It currently shows **latest versions only**. To register a manually edited version, use `greenlight put-artifact SESSION_ID NAME --file PATH` from another terminal; version browsing and direct artifact editing are follow-on features.
+Both preview modes visibly escape terminal controls (including ANSI/OSC escape bytes, C1 controls and bidirectional formatting controls) as `\u{xxxx}` text. CRLF is normalized to newline, a lone carriage return is escaped, and tabs display as four spaces. International text, combining marks and emoji joiners remain intact. Simple table padding uses Ratatui terminal widths; unusually wide cells wrap normally, and alignment beyond the padding budget is not guaranteed. Longer code fences require a matching closing run of at least the opening length with no trailing content.
+
+Preview processing stops at the first of 256 KiB of source/sanitized text, 4,096 source lines or 8,192 sanitized bytes on one line. Both modes show an explicit truncation notice. Tables recognize up to 32 columns, with at most 240 cells of padding width per row; excessive-column tables stay literal. These are display limits independent of the workflow's artifact-size policy. To retrieve the full stored artifact, use `greenlight artifact SESSION NAME > artifact.md`; the CLI output is unfiltered, so redirect it to a file rather than relying on a terminal preview. The literal toggle preserves Markdown syntax, but is not an unfiltered terminal or unlimited export.
+
+Artifacts are inputs to later workflow steps and an important human-review surface. This tab deliberately uses the same branch-aware `Store::artifacts` lookup as the CLI and does not alter artifact content. The default list shows **latest versions**; press `v` for historical versions. To register a manually edited version, use `greenlight put-artifact SESSION_ID NAME --file PATH` from another terminal; direct artifact editing remains a follow-on feature.
+
+## Preview responsiveness
+
+Artifact/version content and expanded activity evidence over 8 KiB or 64 lines are prepared on a background preview worker. While it parses, wraps and prepares the visible viewport, the panel shows **Preparing document preview…** and keyboard input remains active. Moving to another version, toggling Markdown/literal mode or resizing cannot paint a result from the old selection. The worker reuses prepared text and wrapped line counts; an unchanged viewport is reused on redraw. Its input/result queues each hold at most one pending item. Preview limits and terminal escaping are unchanged, and the worker has no engine/store or approval authority.
+
+Short previews use the bounded synchronous path. Storage refresh/blob reads, explicit diff generation and approval-request rendering retain their existing paths; this change does not promise asynchronous execution of every TUI operation. If the preview worker fails, the panel reports that it is unavailable and CLI export/navigation remain available.
+
+## Artifact versions and provenance
+
+In the Artifacts tab, select an artifact and press `v`. The version browser shows saved creation-event IDs, producing steps and UTC timestamps, newest first. It only includes versions visible in the active branch's ancestry at each fork cutoff. Parent changes made after the fork and sibling/session versions remain excluded.
+
+Use arrows or `j/k` to select a version. Enter/Right opens its content at the available width; Enter again or Left returns to the version list. `o` opens content, `m` toggles literal/Markdown content, `p` opens provenance, and `d` compares the selected version with its immediate older visible version. In reading mode arrows/j/k, PgUp/PgDn and Home/End scroll. Escape closes the browser and returns to latest artifacts. Controls are read-only and preserve composer drafts. The inspected creation ID stays pinned when newer versions arrive; changing session/branch closes the browser. Incoming approvals take priority and close it.
+
+Provenance shows the exact creation event, source branch (including inheritance), associated recorded attempt/definition when the creation falls in that step's attempt interval, selected-input consumers and human approval events referring to that exact artifact event. An interval association does not identify whether a human or model authored the content. Unknown/legacy metadata is explicit. Historical approvals describe recorded review, not a fresh authorization or approval of later replacements. Malformed manifests/approval payloads are reported rather than reconstructed from latest names.
+
+Missing blobs show an error for content/diffs while metadata/provenance remains available. The first visible version has no predecessor. Identical bodies are labelled as identical; differing versions use the existing newline-aware unified diff. Unified diff generation is limited to 256 KiB per input; full originals, never clipped previews, are compared within the limit. Result previews retain terminal escaping and display limits.
+
+Export a specific visible version with `greenlight artifact SESSION NAME --event EVENT_ID > version.md`. Without `--event`, the CLI still exports the latest visible version. The event must belong to that artifact, session and active branch ancestry. Exports do not modify history or trigger execution.
 
 ## Restart from a historical step
 
@@ -39,18 +117,30 @@ The restore planner refuses mismatched file snapshots, manual drift, symlinks, a
 
 ## Keys
 
-The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, return with Left/Escape, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown are intentionally not bound**. Navigation opens without focusing the composer, even for blocked sessions.
+The focus model is **Yazi-inspired**: enter a nested pane with Right/Enter, return from detail with Enter/Left/Escape, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown optionally scroll eight lines**, and Home/End jump to the beginning/end of reading panels. Navigation opens without focusing the composer, even for blocked sessions.
 
 - **Left/Right** (or **Escape/Enter**) navigate from Sessions → event/artifact list → detail pane; focused detail content scrolls independently of the selected item.
-- **i** focuses the composer directly; **Enter** from the detail pane also focuses it, and **Enter** in the composer sends. **Escape** from the composer returns to the previous pane.
+- **i** focuses the composer directly; **Tab** from the detail pane also focuses it, and **Enter** in the composer sends. Enter in detail returns to the list. **Escape** from the composer returns to the previous pane.
 - **Ctrl+J** inserts a newline into the composer; **Escape** returns to the previously focused pane.
 - **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode; **m** toggles rendered Markdown/raw text in Artifacts.
 - **Tab** moves focus between Sessions, the current tab's list, detail and composer.
 - **j/k**, Up/Down and **g/G** or Home/End navigate sessions, events and artifacts when a list is focused; Up/Down or j/k scroll line by line when detail is focused.
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
 - **Up/Down** (or **j/k**) also scroll permission requests and restoration previews when those dialogs are open.
+- **F** filters activity; **C** copies the full selected text; **E** opens a temporary review snapshot in the editor. All are uppercase navigation keys.
+- **?** opens scrollable keyboard help in navigation; **/help** opens it from the composer. Escape closes it. During text entry, `?` is literal text; during approvals, help/navigation shortcuts are inactive.
 - **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/recover** recovers the selected session's interrupted execution owner without running it; **/events** toggles raw event visibility; **/help** lists shortcuts.
 - **q** quits from navigation mode when no agent is running. The TUI intentionally prevents quitting while its own worker is active, to avoid silently abandoning a pending prompt.
+
+## Drafts, following and terminal size
+
+Unsent composer text belongs to the selected session ID. Switching sessions, changing filters, opening help, cancelling restart and returning to an approval's owning session retain each session's draft separately. A new session starts with an empty draft. Drafts remain **in memory only**; exiting the TUI discards them. Long messages scroll to keep their end visible.
+
+Activity initially follows incoming events. Opening evidence or navigating activity pauses following, including when reading the latest event. Background polling preserves that event and its scroll position. In the activity list, End or `G` selects the latest visible event and resumes following; Home or `g` selects the first and pauses. The activity title indicates following/paused. Artifact and diagnostic scrolling remains independent of new activity.
+
+Below 72 columns or 22 rows, the TUI uses a compact header and the session list or active workspace at full width; Left/Right switches panes. Wrapped-content scroll bounds are recomputed at the current size, so overscrolling and resizing do not leave a blank reading panel. Below 40×14 it shows a resize notice and retains drafts/selections. Approval requests require at least 40×20; until then decision keys are disabled and Escape denies. Restoring the terminal size restores the pending request. Enter remains inert during approvals at every size.
+
+The wrapped-line calculation uses Ratatui's `unstable-rendered-line-info` feature on the version recorded in `Cargo.lock`; dependency upgrades must retain the resize/scroll tests.
 
 ## Limitations
 

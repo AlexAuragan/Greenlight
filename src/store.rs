@@ -29,6 +29,12 @@ pub struct WorkspaceEdit {
 #[derive(Debug, Clone)]
 pub struct Artifact { pub name: String, pub content: String, pub step: String, pub event_id: i64 }
 
+#[derive(Debug,Clone)]
+pub struct AttemptInfo {
+    pub id:String, pub step:String, pub definition_event:i64, pub start_event:i64,
+    pub end_event:Option<i64>, pub status:String,
+}
+
 pub struct Store { pub(crate) db: Connection, pub directory: PathBuf }
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
@@ -66,6 +72,10 @@ impl Store {
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              step TEXT NOT NULL, definition_event INTEGER NOT NULL, start_event INTEGER NOT NULL,
              end_event INTEGER, status TEXT NOT NULL);
+           CREATE TABLE IF NOT EXISTS model_calls (
+             id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
+             created_event INTEGER NOT NULL, payload TEXT NOT NULL);
+           CREATE INDEX IF NOT EXISTS calls_session ON model_calls(session,created_event);
            CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
@@ -145,7 +155,7 @@ impl Store {
         self.event(s,Some(step),"branch.forked",&format!("from_event: {event_id}"))?;
         Ok(())
     }
-    fn lineage(&self, branch: &str) -> Result<Vec<(String,i64)>> {
+    pub(crate) fn lineage(&self, branch: &str) -> Result<Vec<(String,i64)>> {
         let mut line = vec![];
         let mut cursor = branch.to_string();
         let mut cutoff = i64::MAX;
@@ -341,33 +351,35 @@ impl Store {
         }
         Ok(versions.into_values().collect())
     }
-    pub fn attempt_history(&self, s: &Session) -> Result<Vec<String>> {
+    pub fn attempts(&self, s: &Session) -> Result<Vec<AttemptInfo>> {
         let mut result = Vec::new();
         for (branch, cutoff) in self.lineage(&s.active_branch)? {
-            let mut query = self.db.prepare("SELECT id,step,start_event,end_event,status FROM step_attempts WHERE session=?1 AND branch=?2 AND start_event<=?3 ORDER BY start_event")?;
-            let rows = query.query_map(params![s.id,branch,cutoff], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<i64>>(3)?,r.get::<_,String>(4)?)))?;
+            let mut query = self.db.prepare("SELECT id,step,definition_event,start_event,end_event,status FROM step_attempts WHERE session=?1 AND branch=?2 AND start_event<=?3 ORDER BY start_event")?;
+            let rows = query.query_map(params![s.id,branch,cutoff], |r| Ok(AttemptInfo {id:r.get(0)?,step:r.get(1)?,definition_event:r.get(2)?,start_event:r.get(3)?,end_event:r.get(4)?,status:r.get(5)?}))?;
             for row in rows {
-                let (id,step,start,end,status) = row?;
-                let status = if end.is_none_or(|end| end > cutoff) && cutoff != i64::MAX { "inherited-partial" } else { &status };
-                result.push(format!("{id}  {step}  {status}  events {start}..{}",end.filter(|end| *end <= cutoff).map(|end| end.to_string()).unwrap_or_else(|| "open".into())));
+                let mut attempt=row?;
+                if attempt.end_event.is_none_or(|end|end>cutoff) && cutoff!=i64::MAX {attempt.status="inherited-partial".into();}
+                attempt.end_event=attempt.end_event.filter(|end|*end<=cutoff);
+                result.push(attempt);
             }
         }
         Ok(result)
     }
-    pub fn artifacts(&self,s:&Session, source: &str) -> Result<Vec<Artifact>> {
-        let mut versions: std::collections::BTreeMap<String,Artifact> = std::collections::BTreeMap::new();
-        for (branch,cutoff) in self.lineage(&s.active_branch)? {
-            let mut st = self.db.prepare("SELECT step,name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id")?;
-            let rows = st.query_map(params![s.id,branch,cutoff],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))?;
-            for row in rows {
-                let (step,name,blob,event_id) = row?;
-                if source != "session" && source != step { continue; }
-                let content = fs::read_to_string(self.directory.join("blobs").join(blob))?;
-                versions.insert(name.clone(), Artifact{name,content,step,event_id});
-            }
-        }
-        Ok(versions.into_values().collect())
+    pub fn attempt_history(&self, s:&Session)->Result<Vec<String>> {
+        Ok(self.attempts(s)?.into_iter().map(|a|format!("{}  {}  {}  events {}..{}",a.id,a.step,a.status,a.start_event,a.end_event.map(|end|end.to_string()).unwrap_or_else(||"open".into()))).collect())
     }
+    pub fn artifacts(&self,s:&Session, source: &str) -> Result<Vec<Artifact>> {
+        // Choose visible versions before opening blobs: a missing historical body
+        // must not prevent inspection of a healthy latest version.
+        let mut versions=std::collections::BTreeMap::new();
+        for (branch,cutoff) in self.lineage(&s.active_branch)? {
+            let mut st=self.db.prepare("SELECT step,name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id")?;
+            let rows=st.query_map(params![s.id,branch,cutoff],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))?;
+            for row in rows {let (step,name,blob,event)=row?;if source=="session" || source==step {versions.insert(name,(step,blob,event));}}
+        }
+        versions.into_iter().map(|(name,(step,blob,event_id))|Ok(Artifact{name,step,event_id,content:fs::read_to_string(self.directory.join("blobs").join(blob))?})).collect()
+    }
+
 }
 
 #[cfg(test)]

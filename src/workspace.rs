@@ -27,6 +27,15 @@ pub struct Manifest {
     /// Large/non-UTF8 paths omitted from the hash set. Excluded paths are
     /// deliberately not listed (they might themselves disclose secrets).
     pub skipped: Vec<String>,
+    #[serde(default)]
+    pub scan_stats: Option<ScanStats>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ScanStats {
+    pub files: u64,
+    pub bytes_hashed: u64,
+    pub elapsed_us: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -42,9 +51,21 @@ fn included(entry: &DirEntry) -> bool {
     if entry.file_type().is_symlink() {
         return false;
     }
-    let name = entry.file_name().to_string_lossy();
-    if matches!(
-        name.as_ref(),
+    !excluded_name(&entry.file_name().to_string_lossy())
+}
+
+pub(crate) fn path_in_scope(path: &Path) -> bool {
+    path.components().all(|part| {
+        let std::path::Component::Normal(name) = part else {return false;};
+        !excluded_name(&name.to_string_lossy())
+    }) && !path.components().collect::<Vec<_>>().windows(2).any(|pair| {
+        (pair[0].as_os_str()==crate::paths::PROJECT_DIR || pair[0].as_os_str()==crate::paths::LEGACY_PROJECT_DIR) && pair[1].as_os_str()=="state"
+    })
+}
+
+fn excluded_name(name: &str) -> bool {
+    matches!(
+        name,
         ".git" | "target" | "node_modules" | ".venv" | "venv" | "__pycache__"
             | ".pytest_cache" | ".mypy_cache" | ".ruff_cache" | ".next"
             | ".turbo" | "dist" | "build" | ".ssh" | ".aws" | ".git-credentials"
@@ -54,28 +75,18 @@ fn included(entry: &DirEntry) -> bool {
         || name.ends_with(".key")
         || name.ends_with(".p12")
         || name.ends_with(".pfx")
-    {
-        return false;
-    }
-    if name == "state" && entry.path().parent().is_some_and(|parent| {
-        parent.file_name().is_some_and(|folder| {
-            folder == crate::paths::PROJECT_DIR || folder == crate::paths::LEGACY_PROJECT_DIR
-        })
-    }) {
-        return false;
-    }
-    true
 }
 
 /// Read file bytes only to calculate hashes. Never store file content.
 pub fn scan(root: &Path) -> Result<Manifest> {
+    let started = std::time::Instant::now();
     let mut files = BTreeMap::new();
     let mut skipped = Vec::new();
     let mut count = 0usize;
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(included)
+        .filter_entry(|entry| entry.depth()==0 || (included(entry) && entry.path().strip_prefix(root).is_ok_and(path_in_scope)))
     {
         let entry = entry.context("walking project for workspace recording")?;
         if !entry.file_type().is_file() {
@@ -127,13 +138,15 @@ pub fn scan(root: &Path) -> Result<Manifest> {
             sha256: format!("{:x}", digest.finalize()),
         });
     }
-    Ok(Manifest { files, skipped })
+    let stats = ScanStats {files:files.len() as u64, bytes_hashed:files.values().map(|v|v.size).sum(),elapsed_us:started.elapsed().as_micros().min(u64::MAX as u128) as u64};
+    Ok(Manifest { files, skipped, scan_stats:Some(stats) })
 }
 
 pub fn differences(before: &Manifest, after: &Manifest) -> Vec<FileDifference> {
     let paths: BTreeSet<_> = before.files.keys().chain(after.files.keys()).collect();
     paths.into_iter().filter_map(|path| {
         let change = match (before.files.get(path), after.files.get(path)) {
+            _ if !covered(before,path) || !covered(after,path) => "coverage_changed",
             (None, Some(_)) => "created",
             (Some(_), None) => "removed",
             (Some(a), Some(b)) if a != b => "modified",
@@ -141,6 +154,10 @@ pub fn differences(before: &Manifest, after: &Manifest) -> Vec<FileDifference> {
         };
         Some(FileDifference { path: path.clone(), change: change.into() })
     }).collect()
+}
+
+pub(crate) fn covered(manifest: &Manifest, path: &str) -> bool {
+    path_in_scope(Path::new(path)) && !manifest.skipped.iter().any(|s|s==path || s.strip_prefix(path).is_some_and(|suffix|suffix.starts_with(" (larger than ")))
 }
 
 /// Record one immutable manifest in the branch-aware event journal.
@@ -160,38 +177,15 @@ pub fn record(
 
 /// Select the most recent manifest visible on the current branch (including
 /// an interrupted step's 'before' manifest).
-pub fn latest(store: &Store, session: &Session) -> Result<Option<(i64, String, Manifest)>> {
-    for (id, step, kind, payload) in store.history(session)?.into_iter().rev() {
+pub fn latest(history: &[(i64,String,String,String)]) -> Result<Option<(i64, String, Manifest)>> {
+    for (id, step, kind, payload) in history.iter().rev() {
         if kind == "workspace.manifest.before" || kind == "workspace.manifest.after" {
-            let manifest: Manifest = serde_json::from_str(&payload)
+            let manifest: Manifest = serde_json::from_str(payload)
                 .with_context(|| format!("invalid workspace manifest at event #{id}"))?;
-            return Ok(Some((id, step, manifest)));
+            return Ok(Some((*id, step.clone(), manifest)));
         }
     }
     Ok(None)
-}
-
-/// Compare the latest complete step's boundary snapshots. This reports
-/// observed changes, without claiming whether a user or tool caused them.
-pub fn latest_step_changes(
-    store: &Store, session: &Session,
-) -> Result<Option<(String, Vec<FileDifference>)>> {
-    let history = store.history(session)?;
-    let Some(after_index) = history.iter()
-        .rposition(|(_, _, kind, _)| kind == "workspace.manifest.after") else {
-        return Ok(None);
-    };
-    let (_, step, _, after_payload) = &history[after_index];
-    let before = history[..after_index].iter().rev()
-        .find(|(_, previous_step, kind, _)| {
-            previous_step == step && kind == "workspace.manifest.before"
-        })
-        .with_context(|| format!("missing workspace baseline for step {step}"))?;
-    let prior: Manifest = serde_json::from_str(&before.3)
-        .context("invalid prior workspace manifest")?;
-    let after: Manifest = serde_json::from_str(after_payload)
-        .context("invalid completed workspace manifest")?;
-    Ok(Some((step.clone(), differences(&prior, &after))))
 }
 
 #[cfg(test)]
@@ -242,11 +236,11 @@ mod tests {
         let mut session = store.create("wf", "goal", "implement").unwrap();
         fs::write(root.path().join("main.rs"), "old").unwrap();
         let (id, first) = record(root.path(), &store, &session, "implement", "before").unwrap();
-        let (found, _, parsed) = latest(&store, &session).unwrap().unwrap();
+        let (found, _, parsed) = latest(&store.history(&session).unwrap()).unwrap().unwrap();
         assert_eq!(found, id);
         assert_eq!(parsed.files, first.files);
         store.fork(&mut session, id, "implement").unwrap();
-        assert_eq!(latest(&store, &session).unwrap().unwrap().0, id);
+        assert_eq!(latest(&store.history(&session).unwrap()).unwrap().unwrap().0, id);
     }
 
     #[test]
@@ -258,14 +252,14 @@ mod tests {
         record(root.path(), &store, &session, "implement", "before").unwrap();
         fs::write(root.path().join("main.rs"), "updated").unwrap();
         record(root.path(), &store, &session, "implement", "after").unwrap();
-        let (step, changes) = latest_step_changes(&store, &session).unwrap().unwrap();
-        assert_eq!(step, "implement");
-        assert_eq!(changes, vec![
-            FileDifference { path: "main.rs".into(), change: "modified".into() },
-        ]);
+        let audit = crate::workspace_audit::latest_complete(&store, &session).unwrap().unwrap();
+        assert_eq!(audit.step, "implement");
+        assert_eq!(audit.paths.len(),1);
+        assert_eq!(audit.paths[0].path,"main.rs");
+        assert_eq!(audit.paths[0].observed_change,"modified");
         record(root.path(), &store, &session, "verify", "before").unwrap();
-        let (_, changes) = latest_step_changes(&store, &session).unwrap().unwrap();
-        assert_eq!(changes.len(), 1);
+        let audit = crate::workspace_audit::latest_complete(&store, &session).unwrap().unwrap();
+        assert_eq!(audit.paths.len(), 1);
     }
 
     #[cfg(unix)]

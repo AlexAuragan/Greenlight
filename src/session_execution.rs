@@ -11,7 +11,19 @@ pub struct ExecutionOwner {
     token: String,
 }
 
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub enum ExecutionState {Idle,Live,Interrupted}
+
 impl Store {
+    pub fn execution_state(&self,id:&str)->Result<ExecutionState> {
+        // Do not briefly lock idle sessions during polling: a resume may start concurrently.
+        if !self.has_execution_record(id)? && self.session(id)?.status!="running" {return Ok(ExecutionState::Idle);}
+        match self.session_lock(id) {
+            Ok(_lock)=>Ok(if self.has_execution_record(id)? || self.session(id)?.status=="running" {ExecutionState::Interrupted} else {ExecutionState::Idle}),
+            Err(error) if error.downcast_ref::<std::fs::TryLockError>().is_some_and(|e|matches!(e,std::fs::TryLockError::WouldBlock))=>Ok(ExecutionState::Live),
+            Err(error)=>Err(error),
+        }
+    }
     fn session_lock(&self, id: &str) -> Result<crate::locks::LockGuard> {
         self.session(id)?;
         let directory = self.directory.join("session-locks");
