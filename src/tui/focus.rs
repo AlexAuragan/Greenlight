@@ -8,10 +8,13 @@ impl App {
         }
         self.remember_reading();
         self.view = view;
+        if view != View::Conversation {
+            self.result_open = false;
+        }
         if self.focus != Focus::Compose && self.focus != Focus::Detail {
             self.focus = match view {
                 View::Conversation => Focus::Events,
-                View::Artifacts => Focus::Artifacts,
+                View::Artifacts | View::Edits => Focus::Artifacts,
             };
         }
         self.restore_reading();
@@ -19,7 +22,7 @@ impl App {
     pub(super) fn main_focus(&self) -> Focus {
         match self.view {
             View::Conversation => Focus::Events,
-            View::Artifacts => Focus::Artifacts,
+            View::Artifacts | View::Edits => Focus::Artifacts,
         }
     }
     pub(super) fn focus_composer(&mut self) {
@@ -100,6 +103,10 @@ impl App {
                     self.diff = None;
                 }
             }
+            Focus::Artifacts if self.view == View::Edits => {
+                self.edits.select(delta);
+                self.detail_scroll = 0;
+            }
             Focus::Artifacts => {
                 let next = move_index(self.artifact_index, delta, self.artifacts.len());
                 if next != self.artifact_index {
@@ -137,6 +144,15 @@ impl App {
                 };
                 self.detail_scroll = 0;
                 self.diff = None;
+            }
+            Focus::Artifacts if self.view == View::Edits => {
+                self.edits.index = if last {
+                    self.edits.files.len().saturating_sub(1)
+                } else {
+                    0
+                };
+                self.edits.select(0);
+                self.detail_scroll = 0;
             }
             Focus::Artifacts => {
                 self.artifact_index = if last {

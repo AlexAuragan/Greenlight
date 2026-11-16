@@ -44,6 +44,8 @@ pub(super) struct Reading {
 impl App {
     pub(super) fn reading_overlay(&self) -> bool {
         self.approval.is_some()
+            || self.edits.pending.is_some()
+            || (self.result_open && self.view == View::Conversation)
             || self.diagnostic.is_some()
             || self.usage_detail.is_some()
             || self.context_detail.is_some()
@@ -106,6 +108,7 @@ impl App {
                     diff,
                 }
             }
+            View::Edits => {}
             View::Artifacts => {
                 saved.artifacts = ArtifactPosition {
                     name: artifact.as_ref().map(|a| a.0.clone()),
@@ -178,6 +181,7 @@ impl App {
                     0
                 },
             ),
+            View::Edits => (false, 0),
             View::Artifacts => (
                 saved.artifacts.detail,
                 if self.artifact().map(|a| a.event_id) == saved.artifacts.version {

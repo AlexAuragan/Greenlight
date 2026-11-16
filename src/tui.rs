@@ -17,6 +17,8 @@ use ratatui::{
     Frame,
 };
 mod activity;
+mod edits;
+mod result;
 mod editor;
 mod approval;
 mod focus;
@@ -68,9 +70,14 @@ enum Focus {
 enum View {
     Conversation,
     Artifacts,
+    Edits,
 }
 
 struct App {
+    edits: edits::Edits,
+    result_open: bool,
+    result_text: String,
+    result_key: Option<(String,String,i64)>,
     sessions: Vec<Session>,
     session_index: usize,
     events: Vec<std::sync::Arc<EventRow>>,
@@ -137,6 +144,10 @@ struct App {
 impl App {
     fn new(initial_session: Option<&str>) -> Self {
         Self {
+            edits: Default::default(),
+            result_open: false,
+            result_text: String::new(),
+            result_key: None,
             sessions: Vec::new(),
             session_index: 0,
             events: Vec::new(),
@@ -278,6 +289,14 @@ impl App {
                 Err(error)=>{self.workspace=None;self.workspace_error=Some(format!("Workspace projection unavailable: {error:#}"));}
             }
             if session_changed {self.context_detail=None;self.follow_activity=true;}
+            if session.status == "completed" {
+                let completion = history.iter().rev().find(|e|e.2=="session.completed").map(|e|e.0).unwrap_or(0);
+                let key=(session.id.clone(),session.active_branch.clone(),completion);
+                if self.result_key.as_ref()!=Some(&key) {
+                    self.result_open=true;self.detail_scroll=0;self.result_key=Some(key);
+                }
+                self.result_text=result::summary(store,&session,&history);
+            } else {self.result_open=false;self.result_key=None;}
             let show_all = self.show_all;
             let generation=(session.id.clone(),session.active_branch.clone(),history.last().map(|event|event.0));
             if self.activity_generation.as_ref()!=Some(&generation) {
@@ -332,6 +351,8 @@ impl App {
             self.usage_line="Usage: no session selected".into();
             self.workspace=None;self.workspace_error=None;self.workspace_session=None;self.blocker_card=false;self.context_detail=None;
         }
+        if self.view==View::Edits && self.edits.pending.is_none() {self.refresh_edits(store);}
+        if self.session().is_none(){self.result_open=false;self.result_key=None;}
         if changed_session {
             self.artifact_index = 0;
         } else if let Some(name) = old_artifact {
@@ -347,7 +368,7 @@ impl App {
             self.event_index=self.events.iter().position(|event|event.id==id).unwrap_or(self.events.len().saturating_sub(1));
         } else {self.event_index=self.events.len().saturating_sub(1);}
         let event_changed=old_event!=self.event().map(|e|e.id);
-        if (changed_session || event_changed) && self.view==View::Conversation && self.diagnostic.is_none() && self.approval.is_none() && self.usage_detail.is_none() && self.context_detail.is_none() && !self.help && !self.blocker_card {
+        if (changed_session || event_changed) && self.view==View::Conversation && self.diagnostic.is_none() && self.approval.is_none() && self.usage_detail.is_none() && self.context_detail.is_none() && !self.help && !self.blocker_card && !self.result_open {
             self.detail_scroll=0;
         }
         if let Some(mut browser)=self.artifact_browser.take() {
@@ -402,7 +423,7 @@ impl App {
         if !matches!(&completion, Err(TryRecvError::Empty)) {
             self.notice = match completion {
                 Ok(result) => match result {
-                Ok(()) => "Workflow stopped or completed. See its latest events.".into(),
+                Ok(()) => "Run ended · s result · 3 edits / revert · 2 artifacts · h activity".into(),
                 Err(error) => format!("Runner error: {error}"),
                 },
                 Err(_) => "Worker disconnected; pending approval expired. Inspect history and use /recover before resuming.".into(),
@@ -607,3 +628,7 @@ mod navigation_tests;
 #[cfg(test)]
 #[path = "tui_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path="tui_edits_tests.rs"]
+mod edits_tests;

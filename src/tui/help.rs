@@ -5,8 +5,11 @@ pub(super) const HELP: &str = "Navigation
 Enter: open selected activity/artifact; from evidence, return to its list
 o: open an artifact card’s exact version · d: journal diff for a file card
 v or /events: raw audit history; Enter/Left/Esc returns from expanded evidence
-1/2: activity/artifacts · m: toggle artifact Markdown/raw
+1/2/3: activity/artifacts/recorded edits · m: toggle artifact Markdown/raw
 v in artifacts: saved versions · p provenance · d previous-version diff
+Edits: u previews selected-file revert · U previews all recorded edits
+Revert: y confirms · n/Esc cancels · Enter never confirms
+s: completed-run result · h: activity
 Version browser: Enter toggles read/list, Left list, o content, Esc close
 f: search sessions · n: choose workflow, enter goal, start session
 F: filter activity metadata/summaries · Enter applies, Esc clears

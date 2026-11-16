@@ -114,6 +114,31 @@ impl App {
                 _ => {}
             }
         }
+        if self.edits.pending.is_some() {
+            match key.code {
+                KeyCode::Char('y')
+                    if key.kind == KeyEventKind::Press
+                        && !key
+                            .modifiers
+                            .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL) =>
+                {
+                    self.confirm_revert(root, store)
+                }
+                KeyCode::Char('n') | KeyCode::Esc if key.kind == KeyEventKind::Press => {
+                    self.edits.pending = None;
+                    self.detail_scroll = 0;
+                    self.notice = "Revert cancelled; no files changed.".into();
+                }
+                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::PageUp => self.scroll_detail(-8),
+                KeyCode::PageDown => self.scroll_detail(8),
+                KeyCode::Home => self.detail_scroll = 0,
+                KeyCode::End => self.detail_scroll = u16::MAX,
+                _ => {}
+            }
+            return Ok(false);
+        }
         if self.artifact_browser.is_some() {
             if key.kind != KeyEventKind::Press
                 && matches!(
@@ -202,6 +227,57 @@ impl App {
                 _ => {}
             }
             return Ok(false);
+        }
+        if self.result_open
+            && self.view == View::Conversation
+            && self.focus != Focus::Compose
+            && !self.searching
+            && self.new_session.is_none()
+            && self.diagnostic.is_none()
+            && self.context_detail.is_none()
+            && self.usage_detail.is_none()
+            && self.restart_plan.is_none()
+            && self.restart_choices.is_empty()
+        {
+            match key.code {
+                KeyCode::Enter if self.focus != Focus::Sessions => {
+                    self.result_open = false;
+                    self.focus = Focus::Events;
+                    self.detail_scroll = 0;
+                    return Ok(false);
+                }
+                KeyCode::Esc | KeyCode::Char('h') => {
+                    self.result_open = false;
+                    self.focus = Focus::Events;
+                    self.detail_scroll = 0;
+                    return Ok(false);
+                }
+                KeyCode::Up | KeyCode::Char('k') if self.focus != Focus::Sessions => {
+                    self.scroll_detail(-1);
+                    return Ok(false);
+                }
+                KeyCode::Down | KeyCode::Char('j') if self.focus != Focus::Sessions => {
+                    self.scroll_detail(1);
+                    return Ok(false);
+                }
+                KeyCode::PageUp if self.focus != Focus::Sessions => {
+                    self.scroll_detail(-8);
+                    return Ok(false);
+                }
+                KeyCode::PageDown if self.focus != Focus::Sessions => {
+                    self.scroll_detail(8);
+                    return Ok(false);
+                }
+                KeyCode::Home if self.focus != Focus::Sessions => {
+                    self.detail_scroll = 0;
+                    return Ok(false);
+                }
+                KeyCode::End if self.focus != Focus::Sessions => {
+                    self.detail_scroll = u16::MAX;
+                    return Ok(false);
+                }
+                _ => {}
+            }
         }
         let scrolling = self.approval.is_some()
             || self.diagnostic.is_some()
@@ -461,6 +537,7 @@ impl App {
                 self.inspect_blocker()
             }
             KeyCode::Char('h') => {
+                self.result_open = false;
                 self.blocker_card = false;
                 self.view = View::Conversation;
                 self.focus = Focus::Events;
@@ -490,6 +567,22 @@ impl App {
             KeyCode::Esc | KeyCode::Left => self.focus_left(),
             KeyCode::Char('1') => self.switch_view(View::Conversation),
             KeyCode::Char('2') => self.switch_view(View::Artifacts),
+            KeyCode::Char('3') => {
+                self.switch_view(View::Edits);
+                self.refresh_edits(store);
+            }
+            KeyCode::Char('s') if self.session().is_some_and(|s| s.status == "completed") => {
+                self.switch_view(View::Conversation);
+                self.result_open = true;
+                self.focus = Focus::Detail;
+                self.detail_scroll = 0;
+            }
+            KeyCode::Char('u') if self.view == View::Edits => {
+                self.prepare_revert(root, store, false)
+            }
+            KeyCode::Char('U') if self.view == View::Edits => {
+                self.prepare_revert(root, store, true)
+            }
             KeyCode::Char('m') if self.view == View::Artifacts => {
                 self.render_markdown = !self.render_markdown;
                 self.detail_scroll = 0;

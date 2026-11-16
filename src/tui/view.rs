@@ -97,6 +97,14 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
                         inactive_tab
                     },
                 ),
+                Span::styled(
+                    " [3] Edits ",
+                    if app.view == View::Edits {
+                        active_tab
+                    } else {
+                        inactive_tab
+                    },
+                ),
                 Span::raw(" ? help · C copy · E editor · F filter"),
             ]),
         ])
@@ -104,7 +112,9 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         outer[0],
     );
 
-    let overlay = app.activity_filtering
+    let overlay = app.edits.pending.is_some()
+        || (app.result_open && app.view == View::Conversation)
+        || app.activity_filtering
         || app.artifact_browser.is_some()
         || app.approval.is_some()
         || app.new_session.is_some()
@@ -351,6 +361,20 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         );
     } else if app.restart_plan.is_some() || !app.restart_choices.is_empty() {
         recovery::draw(frame, app, columns[1]);
+    } else if app.edits.pending.is_some() || app.view == View::Edits {
+        edits::draw(frame, app, columns[1]);
+    } else if app.result_open && app.view == View::Conversation {
+        draw_scrolled(
+            frame,
+            app,
+            Paragraph::new(crate::markdown::render(&safe_display(&app.result_text)))
+                .wrap(Wrap { trim: false })
+                .block(border(
+                    " Workflow result · s result · 3 edits · h activity ",
+                    true,
+                )),
+            columns[1],
+        );
     } else if app.view == View::Artifacts {
         let panes = Layout::horizontal([Constraint::Percentage(38), Constraint::Percentage(62)])
             .split(columns[1]);
@@ -489,12 +513,22 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     app.composer_editor.draw(
         frame,
         &app.composer,
-        "Type instructions to resume this session…",
+        if app.session().is_some_and(|s| s.status == "completed") {
+            "Run ended · s result · 3 edits/revert · /ask QUESTION"
+        } else {
+            "Type instructions to resume this session…"
+        },
         input_area,
         app.focus == Focus::Compose && !overlay,
     );
 
-    let footer = if app.approval.is_some() {
+    let footer = if app.edits.pending.is_some() {
+        "Revert preview · y applies / n or Esc cancels · Enter does nothing · ↑/↓ scroll".into()
+    } else if app.result_open && app.view == View::Conversation {
+        "Run ended · report is agent-authored · 2 artifacts · 3 edits/revert · h activity · ↑/↓ scroll".into()
+    } else if app.view == View::Edits && !overlay {
+        "Recorded native edits · ↑/↓ files · Enter read/list · u revert file · U revert all (preview first)".into()
+    } else if app.approval.is_some() {
         "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
     } else if app.activity_filtering {
         "Type to filter activity · Enter keep · Esc clear".into()
@@ -526,7 +560,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             if compact && app.approval.is_some() {
                 "Approval: explicit keys only"
             } else if compact {
-                "? help · C copy · E editor · F filter"
+                "1 Activity · 2 Artifacts · 3 Edits · s Result"
             } else {
                 &app.usage_line
             }

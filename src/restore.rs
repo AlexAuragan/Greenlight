@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 pub struct RestorePlan {
     event: i64,
+    history_cutoff: Option<i64>,
     items: Vec<RestoreItem>,
 }
 
@@ -83,8 +84,14 @@ fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
 
 impl RestorePlan {
     pub fn prepare(root: &Path, store: &Store, session: &Session, event: i64) -> Result<Self> {
+        Self::prepare_paths(root, store, session, event, None)
+    }
+
+    /// A file revert must not be blocked by drift in unrelated files.
+    pub fn prepare_paths(root: &Path, store: &Store, session: &Session, event: i64, paths: Option<&[String]>) -> Result<Self> {
         store.ensure_no_pending_writes()?;
-        if !store.history(session)?.iter().any(|(id, _, _, _)| *id == event) {
+        let history=store.history(session)?;
+        if !history.iter().any(|(id, _, _, _)| *id == event) {
             bail!("event #{event} is not in the active branch ancestry");
         }
 
@@ -93,6 +100,7 @@ impl RestorePlan {
         // A gap between writes indicates an out-of-band change.
         let mut states: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
         for edit in store.workspace_edits(session)? {
+            if paths.is_some_and(|paths| !paths.contains(&edit.path)) { continue; }
             let entry = states
                 .entry(edit.path.clone())
                 .or_insert_with(|| (edit.before.clone(), edit.before.clone()));
@@ -105,6 +113,12 @@ impl RestorePlan {
             entry.1 = edit.after.clone();
             if edit.event_id <= event {
                 entry.0 = edit.after;
+            }
+        }
+
+        if let Some(paths) = paths {
+            if paths.is_empty() || paths.iter().any(|path| !states.contains_key(path)) {
+                bail!("revert selection must contain recorded file paths");
             }
         }
 
@@ -126,7 +140,7 @@ impl RestorePlan {
                 items.push(RestoreItem { relative, current, desired });
             }
         }
-        Ok(Self { event, items })
+        Ok(Self { event, items, history_cutoff:history.last().map(|e|e.0) })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -178,6 +192,9 @@ impl RestorePlan {
         let _session_lock = store.lock_idle_session(&session.id)?;
         if store.session(&session.id)?.active_branch != session.active_branch {
             bail!("session branch changed since restore preview");
+        }
+        if store.history(session)?.last().map(|e|e.0)!=self.history_cutoff {
+            bail!("restore cancelled: history changed since preview; review a fresh preview");
         }
         let _lock = store.native_write_lock()?;
         store.ensure_no_pending_writes()?;

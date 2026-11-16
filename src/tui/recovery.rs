@@ -3,6 +3,7 @@ use super::*;
 
 impl App {
     pub(super) fn open_restart(&mut self, root: &Path, store: &Store) {
+        self.result_open=false;
         if self.runner.is_some() {
             self.notice = "Cannot restart while an agent is running.".into();
             return;

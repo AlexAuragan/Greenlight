@@ -159,7 +159,8 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - [ ] **Design command-level shell grants together before implementation:** allow selected executables (e.g. `ls`) across approved argument/path variations without approving a whole shell string by prefix. Define argument/option restrictions, path and executable identity, wrappers/interpreters, pipelines/AND/OR/sequences, redirections, substitutions and environment assignments; validate every executed component or request approval for the whole compound command. Regression case: granting `cat` must never auto-approve `cat something.txt | ./harmful_script.sh` (nor hidden substitutions). Keep exact-command grants until this design is agreed.
 - [ ] Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
 - [ ] Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
-- [ ] Improve diff review (file list, hunk navigation, copied patch), final workflow recap and exportable verification evidence.
+- [x] Add completed-run results with agent conclusions, pinned reports, verification scope and recorded edit counts; **3 Edits** shows per-file net native diffs and guarded single/all-file revert previews.
+- [ ] Extend diff review with hunk navigation and exportable verification evidence.
 - [ ] Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
 - [ ] Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
 

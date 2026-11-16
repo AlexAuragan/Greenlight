@@ -29,6 +29,19 @@ impl App {
                 ),
                 browser.error.as_ref().unwrap_or(&browser.text).clone(),
             )
+        } else if let Some(pending) = &self.edits.pending {
+            ("revert preview".into(), pending.preview.clone())
+        } else if self.result_open && self.view == View::Conversation {
+            ("workflow result".into(), self.result_text.clone())
+        } else if self.view == View::Edits {
+            (
+                "recorded code diff".into(),
+                self.edits
+                    .error
+                    .as_ref()
+                    .unwrap_or(&self.edits.text)
+                    .clone(),
+            )
         } else if self.restart_plan.is_some() {
             ("restore preview".into(), self.restart_preview.clone())
         } else if !self.restart_choices.is_empty() {

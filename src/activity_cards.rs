@@ -217,7 +217,7 @@ impl Projection {
                 }
             }
         }
-        for (id, _, kind, raw) in history {
+        for (id, step, kind, raw) in history {
             if !is_protocol(kind) {
                 let card = if let Some(evidence) = result.titles.get(id) {
                     let annotation = &evidence.annotation;
@@ -229,6 +229,12 @@ impl Projection {
                         ),
                         Tone::Info,
                     )
+                } else if kind=="verification.passed" && {
+                    let boundary=boundaries.iter().rev().find(|e|**e<*id).copied().unwrap_or(0);
+                    let scope=||history.iter().filter(|e|e.0>boundary && e.0<*id && e.1==*step);
+                    scope().any(|e|e.2=="verification.none") && !scope().any(|e|matches!(e.2.as_str(),"verification.command"|"verification.agent"|"verification.human"))
+                } {
+                    card("Policy accepted · no checks", "No checks required; no improvement established", Tone::Info)
                 } else {
                     describe(*id, kind, raw, result.tools.get(id))
                 };
@@ -840,7 +846,7 @@ mod engine_tests {
         assert!(projection
             .cards
             .values()
-            .any(|card| card.title == "Verification passed"));
+            .any(|card| card.title == "Policy accepted · no checks"));
     }
 }
 
