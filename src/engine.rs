@@ -13,31 +13,7 @@ use std::{
     path::Path,
 };
 
-const PROTOCOL: &str = r#"You are a human-supervised workflow agent. Do not silently change scope, fix unrelated issues, or use risky workarounds.
-Each reply MUST be exactly one YAML mapping (optionally fenced with ```yaml). No JSON, no commentary outside YAML.
-Available actions:
-  action: tool
-  tool: read | write | shell | web
-  path: relative/path   # for read/write
-  input: command_or_search_query  # for shell/web
-  content: |              # for write
-    file content
-  action: artifact
-  name: notes.md
-  content: |
-    artifact content
-  action: deviation
-  deviation_id: configured_rule_id
-  summary: |
-    Evidence, blocker, and proposed options
-  action: finish
-  summary: |
-    Description and evidence that step is complete
-Use exactly one action per response. An artifact action registers a session artifact, it does NOT modify code. Each step is one stage of a multi-step workflow with its own fresh context and tools, and `finish` completes only the current step: the harness then advances to the next step, which continues the work. Finish this step as soon as its required outputs are registered, even when the overall session goal is not yet fully achieved, and only request the tools this step enables. Commands and edits require authorization. Shell commands run without network or host HOME access, with project files read-only. Use the native write tool for all source edits; shell writes cannot alter project files. Tool failure is a fact; don't hide it. If a tool fails, describe it instead of working around an environment mismatch.
-Any action may include an optional activity_title string, for example: activity_title: Exploring call sites
-Use a short plain-text description of intent, 1–80 Unicode characters after trimming surrounding whitespace; no control characters, newlines, invisible direction/format controls, or claims of verified success. Omit it when unnecessary. It is only a model-authored annotation, never permission or execution evidence. Keep exactly one action per response; there is no separate title action.
-No invented tool results. If blocked, report a deviation. Keep outputs concise.
-"#;
+const PROTOCOL: &str = crate::agent_protocol::SYSTEM;
 
 // TUI workers render from recorded events; direct stdout corrupts the screen.
 macro_rules! console_println {
@@ -509,15 +485,13 @@ impl Engine {
         for artifact in inputs {
             context.push_str(&format!("\n--- ARTIFACT {} (event #{}) ---\n{}\n", artifact.name, artifact.event_id, artifact.content));
         }
+        let default_tools = vec!["read".to_string(), "shell".to_string(), "write".to_string()];
+        let tools = step.tools.as_deref().unwrap_or(&default_tools);
+        context.push('\n');
+        context.push_str(&crate::agent_protocol::tool_help(tools));
         if context.len() > self.cfg.session.max_artifact_bytes {
             bail!("assembled step context exceeds byte limit; revise artifact selection");
         }
-        let default_tools = vec!["read".to_string(), "shell".to_string(), "write".to_string()];
-        let tools = step.tools.as_deref().unwrap_or(&default_tools);
-        context.push_str(&format!(
-            "\nEnabled tools: {}. Only use these tool names.\n",
-            tools.join(", ")
-        ));
         self.store
             .event(s, Some(&step.id), "context.assembled", &context)?;
         let mut messages = vec![
@@ -536,9 +510,7 @@ impl Engine {
             let action = match parse_action(&raw) {
                 Ok(a) => a,
                 Err(e) => {
-                    let result = format!(
-                        "Invalid YAML action: {e:#}. Re-emit exactly one valid YAML action."
-                    );
+                    let result = crate::agent_protocol::correction(&e, tools);
                     self.store
                         .event(s, Some(&step.id), "protocol.error", &result)?;
                     messages.push(json!({"role":"user","content":result}));
@@ -579,7 +551,7 @@ impl Engine {
                         result
                     } else {
                         Err(anyhow!(
-                            "tool {kind} is not enabled for this step (enabled: {})",
+                            "tool {kind} is not enabled for this step (enabled: {}). This is a workflow restriction, not a protocol format error or proof that other tools are missing.",
                             tools.join(", ")
                         ))
                     };
@@ -600,7 +572,7 @@ impl Engine {
                             console_println!(self, "[tool error] {error}");
                             self.store.tool_outcome(s,&step.id,request_event,kind,"tool.error",&error)?;
                             messages.push(json!({"role":"user","content":format!(
-                                "Tool error:\n{error}\n\nThe tool did not run; do not invent its output. If this step enables another tool that can achieve the same goal, use it; if this step's required outputs are already registered, reply with a finish action; otherwise report one of this step's declared deviations."
+                                "Tool request failed:\n{error}\n\nThe action format was accepted, but the requested operation failed. Execution may already have started; use the recorded error/output, not invented results. Do not infer that all tools are unavailable. A workflow restriction, a permission denial and an execution/environment failure are different conditions. Do not bypass a permission denial with another tool or script. Use other enabled tools only for operations that remain authorized; if required outputs are ready, finish honestly about unverified results, otherwise report a configured deviation."
                             )}));
                         }
                     }

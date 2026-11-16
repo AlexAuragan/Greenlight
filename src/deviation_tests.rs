@@ -392,3 +392,50 @@ async fn unlimited_agent_still_stops_before_dispatch_when_cancelled() {
     assert_eq!(h.script.lock().unwrap().responses.len(),1);
     assert_eq!(h.count("step.completed"),0);assert_eq!(h.count("step.error"),1);
 }
+
+#[tokio::test]
+async fn format_correction_reaches_the_model_and_a_corrected_read_really_executes() {
+    fn respond(messages:&[serde_json::Value])->Result<String,String>{
+        let last=messages.last().unwrap()["content"].as_str().unwrap();
+        match messages.len() {
+            2=>{
+                assert!(messages[0]["content"].as_str().unwrap().contains("read, write, shell and web are TOOL NAMES"));
+                assert!(last.contains("Workflow-enabled tool names: read"));
+                Ok("action: read\npath: notes.md".into())
+            }
+            4=>{
+                assert!(last.contains("protocol format error"));assert!(last.contains("no tool was attempted"));
+                assert!(last.contains("action: tool\ntool: read"));assert!(last.contains("NOT evidence that tools are unavailable"));
+                Ok("action: tool\ntool: read\npath: notes.md".into())
+            }
+            6=>{assert!(last.contains("Tool result:\nACTUAL_FILE_BODY"));Ok(FINISH.into())}
+            _=>Err("unexpected request".into()),
+        }
+    }
+    let mut h=Harness::new("  - id: blocker\n    action: pause",vec![]);
+    let file=h.root.path().join("workflows/demo/step.md");
+    fs::write(&file,fs::read_to_string(&file).unwrap().replace("tools: []","tools: [read]")).unwrap();
+    fs::write(h.root.path().join("notes.md"),"ACTUAL_FILE_BODY").unwrap();
+    h.script.lock().unwrap().responder=Some(respond);
+    h.run().await;h.assert_calls(3);assert_eq!(h.status(),"completed");
+    assert_eq!(h.count("protocol.error"),1);assert_eq!(h.count("tool.request"),1);assert_eq!(h.count("tool.result"),1);assert_eq!(h.count("tool.error"),0);
+}
+
+#[tokio::test]
+async fn correcting_request_syntax_never_bypasses_host_denial_or_workflow_tool_selection() {
+    for denied_by_host in [true,false] {
+        let mut h=Harness::new("  - id: blocker\n    action: pause",vec![Ok("action: read\npath: notes.md"),Ok("action: tool\ntool: read\npath: notes.md"),Ok(FINISH)]);
+        fs::write(h.root.path().join("notes.md"),"MUST_NOT_REACH_MODEL").unwrap();
+        if denied_by_host {
+            let file=h.root.path().join("workflows/demo/step.md");
+            fs::write(&file,fs::read_to_string(&file).unwrap().replace("tools: []","tools: [read]")).unwrap();
+            h.engine.tools.policies.read="deny".into();
+        }
+        h.run().await;h.assert_calls(3);
+        assert_eq!(h.count("protocol.error"),1);assert_eq!(h.count("tool.request"),1);assert_eq!(h.count("tool.result"),0);assert_eq!(h.count("tool.error"),1);
+        let script=h.script.lock().unwrap();
+        let last=script.requests[2].last().unwrap()["content"].as_str().unwrap();
+        assert!(!last.contains("MUST_NOT_REACH_MODEL"));assert!(last.contains("action format was accepted"));assert!(last.contains("Do not bypass a permission denial"));
+        assert!(last.contains(if denied_by_host {"read forbidden by policy"}else{"not enabled for this step"}));
+    }
+}

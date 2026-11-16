@@ -29,7 +29,12 @@ pub fn parse_action(text:&str)->Result<AgentAction> {
         &trimmed[start..end]
     } else { trimmed };
     let action:AgentAction=serde_yaml::from_str(yaml).context("model output must be a single YAML action")?;
-    if !["tool","artifact","finish","deviation"].contains(&action.action.as_str()) { bail!("unknown action {}",action.action); }
+    if !["tool","artifact","finish","deviation"].contains(&action.action.as_str()) {
+        if let Some(example)=crate::agent_protocol::tool_example(&action.action) {
+            bail!("unknown action {}: this is a tool name, not an action. Syntax example (not a permission grant):\n{example}",action.action);
+        }
+        bail!("unknown action {}. Valid action names: tool, artifact, deviation, finish",action.action);
+    }
     Ok(action)
 }
 

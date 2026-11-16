@@ -1,6 +1,6 @@
 # Agent action protocol — authoritative field reference (current v0.1)
 
-**Status:** documentation of the **currently implemented** model-to-harness YAML contract. This is the canonical **human-readable reference for agent responses**, not a second permitted YAML syntax. The runtime implementation remains the enforcement authority: [`src/tools.rs`](../src/tools.rs) (`AgentAction`, `parse_action`, `Tools::call`), [`src/activity_titles.rs`](../src/activity_titles.rs) (title validation) and [`src/engine.rs`](../src/engine.rs) (`PROTOCOL` and action dispatch). If this file, the prompt and the parser disagree, **the running code determines what is accepted** and all three should be reconciled.
+**Status:** documentation of the **currently implemented** model-to-harness YAML contract. This is the canonical **human-readable reference for agent responses**, not a second permitted YAML syntax. The runtime implementation remains the enforcement authority: [`src/tools.rs`](../src/tools.rs) (`AgentAction`, `parse_action`, `Tools::call`), [`src/activity_titles.rs`](../src/activity_titles.rs) (title validation), [`src/engine.rs`](../src/engine.rs) (action dispatch) and [`src/agent_protocol.rs`](../src/agent_protocol.rs) ([compiled coding-agent prompt](prompts/coding-agent-v1.md), tool examples and corrective feedback). If this file, the prompt and the parser disagree, **the running code determines what is accepted** and these sources should be reconciled.
 
 Scope: *one model response describing one action*. This document is **not** the schema for `greenlight.yaml`, `workflows/*/workflow.yaml` or step Markdown frontmatter; those are independent authoring interfaces covered by [`02-workflow-format.md`](02-workflow-format.md) and the strict serde types in `src/config.rs`. The deviation detector's `detected`/`reason` response is likewise a separate internal schema.
 
@@ -174,3 +174,11 @@ The [manager JSON interface](20-conversational-coordinator.md#manager-output-con
 3. Add success/failure fixtures for each action and invalid combinations: unknown keys, missing required fields, wrong tool, wrong types, extra fence commentary and invalid paths.
 4. Favor a tagged per-action enum or explicit post-deserialization validation if we later need to reject action-inapplicable known fields; **do not** quietly tighten parsing without compatibility tests.
 5. Distinguish **documented/implemented** from **proposed** extensions. The runtime remains the executable authority while this file provides the stable human-facing contract.
+
+## Format rejection is not tool unavailability
+
+`action: read`, `action: write`, `action: shell` and `action: web` are rejected. They are not aliases that the harness silently executes. A request must use `action: tool` and the separate `tool` field, with its required path/input/content fields. The compiled prompt shows separate complete YAML examples, and step context repeats examples only for workflow-enabled tools.
+
+Format feedback states that the rejected response attempted no tool, supplies the valid action names and a tool-specific syntax example, and asks for the original intended fields. A corrected request still goes through the step allowlist, host policy, approvals, private-path checks and sandbox. A disabled tool is a workflow restriction; denial is an authorization decision; execution errors can reflect paths, credentials or the sandbox. An execution error must not claim that nothing ran if it may have started. None of these establishes that all tools are missing.
+
+Previous model-authored artifacts claiming only `artifact` and `finish` exist are not authoritative capability declarations. Historical artifacts are retained unchanged; the current protocol and recorded outcomes govern a new attempt.

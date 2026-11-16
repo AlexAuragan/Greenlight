@@ -2,6 +2,7 @@ mod approvals;
 mod changes;
 mod config;
 mod engine;
+mod agent_protocol;
 mod markdown;
 mod artifact_history;
 mod activity_cards;
