@@ -196,3 +196,5 @@ The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the p
 The `optimize-performance` example loops on `target_not_met` and stops on regressions; automatic code rollback is intentionally **not** implemented. For safe rollback, restore the repository from a known Git checkpoint before resuming.
 
 See [documentation and decisions](docs/16-decision-log.md), the [manual smoke-test guide](docs/17-smoke-test.md), and the rest of `docs/` for execution contracts, workflow syntax and engineering tradeoffs.
+
+The [approval-dialog design and static mockups](docs/25-approval-dialog-design.md) show all valid grant choices, explicit scope confirmation and read-only Help. These remain design studies.

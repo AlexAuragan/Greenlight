@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-label="Global native-write grant confirmation; only confirmation choices are active">
+<title>Global native-write grant confirmation; only confirmation choices are active</title>
+<rect width="1200" height="820" fill="#111827"/>
+<text x="24" y="27" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">DESIGN STUDY · SAMPLE DATA · NOT THE RUNNING APP</text>
+<path d="M24 43h1152" stroke="#374151"/>
+<text x="24" y="76" fill="#657086" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Greenlight / bar-project</text>
+<text x="24" y="105" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Investigate slow startup</text>
+<text x="884" y="76" fill="#A18A48" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="700" xml:space="preserve">● Decision pending</text>
+<text x="24" y="153" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Activity   Artifacts   Edits</text>
+<path d="M24 176h1152" stroke="#374151"/>
+<text x="24" y="223" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Your decision is needed</text>
+<text x="24" y="280" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">Recent activity</text>
+<text x="24" y="329" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Read project instructions</text>
+<text x="24" y="379" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Read src/bar.py</text>
+<path d="M24 747h1152" stroke="#374151"/>
+<text x="24" y="789" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Open selected     Compose     Stop requests     More</text>
+<rect x="60" y="115" width="1080" height="606" rx="5" fill="#1F2937" stroke="#FBBF24"/>
+<text x="86" y="156" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="22" font-weight="700" xml:space="preserve">Save a global write grant?</text>
+<text x="86" y="185" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Separate confirmation · Bar startup investigation</text>
+<path d="M86 203h1028" stroke="#374151"/>
+<text x="86" y="236" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">Future scope</text>
+<text x="86" y="273" fill="#F87171" font-family="DejaVu Sans Mono,monospace" font-size="21" font-weight="700" xml:space="preserve">ALL permitted native writes in ALL projects</text>
+<text x="86" y="307" fill="#F87171" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">for this user account</text>
+<text x="86" y="351" fill="#FBBF24" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="700" xml:space="preserve">This is broader than the pending change to src/bar.py. Future matching writes may run without asking.</text>
+<text x="86" y="390" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">Configured denials and protected-path checks still apply.</text>
+<text x="86" y="427" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">Confirming saves the grant and authorizes the current request. Cancelling saves nothing and denies this request.</text>
+<rect x="86" y="633" width="238" height="32" rx="3" fill="#1F2937" stroke="#F87171"/>
+<text x="99" y="653" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Save grant &amp; allow · Y</text>
+<rect x="336" y="633" width="247" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="349" y="653" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Cancel &amp; deny · N / Esc</text>
+<rect x="595" y="633" width="103" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="608" y="653" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Help · h</text>
+<text x="86" y="694" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">A fresh explicit key or click is required. Enter does not decide.</text>
+</svg>

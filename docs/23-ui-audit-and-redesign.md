@@ -21,6 +21,7 @@ User edits from commit `ef9672a` and the subsequent layout discussion establish 
 | Semantic colors | Blue user input, cyan focus/active controls, neutral model body, green recorded positive outcomes, amber attention, red errors/destructive actions | Exact shades, optional attribution accents and theme fallbacks remain to validate |
 | Mouse | **Enabled by default** for clicks/scrolling, with complete keyboard operation and a discoverable way to disable capture | Hit regions, terminal text-selection interaction and supported-terminal behavior require implementation/testing |
 | Help over approvals | `h` opens read-only Help above the pending decision; decision keys are disabled while Help is open; Esc closes Help and returns to the approval | Exact Help content, focus restoration and request-expiry presentation remain to design/test |
+| Approval choices | **Every valid grant choice visible immediately**, including process/project/global where valid; persistent grants retain a separate confirmation | Exact layout and labels remain to validate; see [approval studies](25-approval-dialog-design.md) |
 | Running header | **Compact:** project/session, status and current step; full goal/roadmap/technical metadata under Run details | Exact row count, sizing and narrow-layout action placement remain to validate |
 | Live output | **Small preview**, expandable and hideable while generating | Exact preview height, expanded-reader presentation and truncation treatment remain to validate |
 
@@ -332,7 +333,7 @@ Icons are supplementary: one for working, attention, document, source edit, and 
 
 ### 6.1 Replace duplicated hints with an action dock
 
-Show **one primary action and up to two relevant secondary actions** near the current task. Put additional actions under More and the full shortcut reference under Help. A short key label may appear on a button; do not duplicate the whole keymap in every pane title.
+Show **one primary action and up to two relevant secondary actions** near the current task. **Approval exception:** show every valid grant choice immediately; do not hide them under More. Put additional actions under More and the full shortcut reference under Help. A short key label may appear on a button; do not duplicate the whole keymap in every pane title.
 
 The dock must derive from **state + focus + selection + ownership + active overlay**, not only the tab. Labels, enabled state, keyboard activation and eventual mouse activation should refer to the same action definition. A disabled action must explain why when selected/inspected; it must not appear to do nothing.
 
@@ -344,7 +345,7 @@ The dock must derive from **state + focus + selection + ownership + active overl
 | Ready overview | Start step | Add instructions, Details | What will run next |
 | Running activity list | Inspect selected event | Follow latest, Stop requests | Reading older evidence pauses following |
 | Running agent composer | Ask manager, if supported/chosen | Cancel composition | Direct live guidance is not implemented; never imply that typed text was delivered to the running step |
-| Tool approval | Allow once / Deny, both clearly visible | Process scope, Review grant | Exact request and scope; Enter never implicitly decides |
+| Tool approval | All valid choices visible: once / current worker / project / global / deny, as typed mode permits | Help and full evidence reader | Exact request and scope; Enter never implicitly decides |
 | Human checkpoint | Approve / Reject | Review evidence | Exact evidence version being approved |
 | Persistent grant confirmation | Explicit confirm grant | Cancel | Exact command/all-writes scope and project/global reach |
 | Blocked overview | Inspect cause, then supported retry/recovery | Restart from step, Ask manager | Retry/resume semantics and prerequisites |
@@ -420,7 +421,7 @@ This is the component review checklist for our discussion. “Recommended” mea
 | E25 — Artifact list | Many draft/availability notes compete with final required outputs | Mark required/final/current documents; readable filename and source step | Bytes, immutable record IDs and ancestry detail on demand; grouping must not discard extra artifacts |
 | E26 — Document reader | Permanent split and border text reduce reading width | Expandable/full-width reader with scrollbar and simple title | Raw toggle/versions/provenance in clear controls; retain sanitization and preview limits |
 | E27 — Version/provenance controls | `v`, `p`, `d`, `m`, `o` depend on context without strong affordances | Labeled Versions / Provenance / Compare controls | Exact approval/consumer version references remain available; source-edit diff stays a different concept |
-| E28 — Tool approval choices | Decision-looking text but no button/focus grammar | Distinct command/diff block, typed scope, Allow once and Deny controls | Broader scope review explicit; process/project/global matching semantics unchanged |
+| E28 — Tool approval choices | Decision-looking text but no button/focus grammar | Distinct command/diff block, typed scope, every valid grant choice immediately visible | Broader scope review explicit; process/project/global matching semantics unchanged |
 | E29 — Human checkpoint | Generic approval frame can hide that actual evidence is being reviewed | Name checkpoint and exact documents being approved | Full artifacts must be reviewable without accidentally deciding or approving a newer version |
 | E30 — Persistent grant confirmation | Dense prose and scope warnings can blend together | Scope/location summary plus separate deliberate confirm/cancel controls | Global reach and all-native-writes coverage never relegated to optional details |
 | E31 — Diagnostics | Different severities share a large ATTENTION pane | Cause-first banner/card; expand evidence; actionable supported recovery | Data loss/partial restore/accounting failures persist, not dismissing themselves as a toast |
@@ -533,10 +534,13 @@ If an inspector is opened on a wide screen, it replaces some main-content width,
  │ Scope: this exact command, including arguments and operators        │
  │ Environment: isolated shell; host user-service access may be absent │
  │                                                                    │
- │ [Allow once · Y]   [Deny · N]   [Review scope options]   [Help]       │
+ │ [Allow once · Y]   [Deny · N]   [This run · A]   [Help · h]         │
+ │ [Review project grant · P]   [Review global grant · G]              │
  │ Enter does not decide.                                             │
  └────────────────────────────────────────────────────────────────────┘
 ```
+
+The [focused approval review and four static studies](25-approval-dialog-design.md) detail scope, confirmation and Help behavior. The user selected every valid grant choice immediately visible.
 
 The workspace remains recognizable behind the layer. Long commands/diffs get a real review reader; scope and decision ownership do not scroll away into ambiguity. A systemctl request is not granted host service access merely because the shell command is approved.
 

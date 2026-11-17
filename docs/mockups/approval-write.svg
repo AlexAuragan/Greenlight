@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-label="Native write approval study; broad write grant scope is visible">
+<title>Native write approval study; broad write grant scope is visible</title>
+<rect width="1200" height="820" fill="#111827"/>
+<text x="24" y="27" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">DESIGN STUDY · SAMPLE DATA · NOT THE RUNNING APP</text>
+<path d="M24 43h1152" stroke="#374151"/>
+<text x="24" y="76" fill="#657086" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Greenlight / bar-project</text>
+<text x="24" y="105" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Investigate slow startup</text>
+<text x="884" y="76" fill="#A18A48" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="700" xml:space="preserve">● Decision pending</text>
+<text x="24" y="153" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Activity   Artifacts   Edits</text>
+<path d="M24 176h1152" stroke="#374151"/>
+<text x="24" y="223" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Your decision is needed</text>
+<text x="24" y="280" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">Recent activity</text>
+<text x="24" y="329" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Read project instructions</text>
+<text x="24" y="379" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Read src/bar.py</text>
+<path d="M24 747h1152" stroke="#374151"/>
+<text x="24" y="789" fill="#566075" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Open selected     Compose     Stop requests     More</text>
+<rect x="60" y="99" width="1080" height="643" rx="5" fill="#1F2937" stroke="#FBBF24"/>
+<text x="86" y="140" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="22" font-weight="700" xml:space="preserve">File write permission required</text>
+<text x="86" y="169" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Bar startup investigation · bar-project</text>
+<path d="M86 187h1028" stroke="#374151"/>
+<text x="86" y="221" fill="#FBBF24" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="700" xml:space="preserve">Proposed replacement · not written yet</text>
+<text x="86" y="253" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="19" font-weight="700" xml:space="preserve">src/bar.py</text>
+<rect x="86" y="270" width="1028" height="168" rx="3" fill="#111827" stroke="#374151"/>
+<text x="102" y="298" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">--- a/src/bar.py</text>
+<text x="102" y="321" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">+++ b/src/bar.py</text>
+<text x="102" y="344" fill="#F87171" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">-    load_icons()</text>
+<text x="102" y="367" fill="#F87171" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">-    show_window()</text>
+<text x="102" y="390" fill="#4ADE80" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">+    show_window()</text>
+<text x="102" y="413" fill="#4ADE80" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">+    schedule_icon_loading()</text>
+<rect x="917" y="384" width="180" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="930" y="404" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Expand full diff</text>
+<text x="86" y="469" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">Allow once applies only this proposed replacement.</text>
+<text x="86" y="499" fill="#FBBF24" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="700" xml:space="preserve">This run allows ALL permitted native writes in this worker, not only this file. Project/global choices review</text>
+<text x="86" y="522" fill="#FBBF24" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="700" xml:space="preserve">persistent ALL-write grants.</text>
+<rect x="86" y="591" width="161" height="32" rx="3" fill="#1F2937" stroke="#67E8F9"/>
+<text x="99" y="611" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Allow once · Y</text>
+<rect x="259" y="591" width="103" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="272" y="611" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Deny · N</text>
+<rect x="374" y="591" width="141" height="32" rx="3" fill="#1F2937" stroke="#FBBF24"/>
+<text x="387" y="611" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">This run · A</text>
+<rect x="527" y="591" width="103" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="540" y="611" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Help · h</text>
+<rect x="86" y="637" width="257" height="32" rx="3" fill="#1F2937" stroke="#FBBF24"/>
+<text x="99" y="657" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Review project grant · P</text>
+<rect x="355" y="637" width="247" height="32" rx="3" fill="#1F2937" stroke="#FBBF24"/>
+<text x="368" y="657" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Review global grant · G</text>
+<text x="86" y="695" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Explicit key or click decides. Enter does not decide.</text>
+</svg>

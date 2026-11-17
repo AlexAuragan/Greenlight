@@ -1,6 +1,6 @@
 # Running screen — focused design review
 
-**Status:** design-only. The layout choices marked agreed below are user decisions; mockup wording, exact dimensions and interaction details remain a review proposal. No application implementation is authorized by this document.
+**Status:** design-only. The user approved the cleaner overall visual direction of these studies. The layout choices marked agreed below are user decisions; mockup wording, exact dimensions and interaction details remain a review proposal. No application implementation is authorized by this document.
 
 **Date:** 2026-11-17, Europe/Paris. Builds on the [UI audit and review decisions](23-ui-audit-and-redesign.md). The drawings contain fictional sample content, not results from a real project.
 
