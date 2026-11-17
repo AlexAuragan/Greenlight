@@ -18,7 +18,13 @@ These are documentation assets for the [running-screen review](../24-running-scr
 | Provider authentication failure | [PNG](attention-provider.png) | [SVG](attention-provider.svg) |
 | Interrupted worker | [PNG](attention-interrupted.png) | [SVG](attention-interrupted.svg) |
 | Interrupted native write | [PNG](attention-write.png) | [SVG](attention-write.svg) |
+| New session: workflow selection | [PNG](create-workflow.png) | [SVG](create-workflow.svg) |
+| New session: goal editor | [PNG](create-goal.png) | [SVG](create-goal.svg) |
+| Read-only manager composer | [PNG](compose-manager.png) | [SVG](compose-manager.svg) |
+| Resume-step composer | [PNG](compose-resume.png) | [SVG](compose-resume.svg) |
 
 The studies use the agreed semantic color roles and example RGB values from the main UI draft. The SVGs contain only drawing/text elements, not scripts or external resources. No runtime or project dependencies were added to create them.
 
 See the [attention and recovery review](../27-attention-and-recovery-design.md) for the four recovery studies.
+
+See the [session creation and composer review](../28-session-creation-and-composer-design.md) for the four input-flow studies.

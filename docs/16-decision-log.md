@@ -213,3 +213,7 @@ The user authorizes the next design-only pass. The [completed-screen proposal](2
 ## 2026-11-17 — Completed direction approved; attention/recovery proposed
 
 The user approves the completed-screen visual direction and requests the next design pass. The [attention/recovery proposal](27-attention-and-recovery-design.md) adds four fictional PNG/SVG studies separating blocked-step instructions, terminal provider errors, guarded owner recovery and CLI native-write reconciliation. Action wording follows current contracts: recovery does not resume, restart restores/forks before explicit continuation, and provider retry policy remains unchanged. Exact interactions remain proposals for review. No application code or runtime behavior changes.
+
+## 2026-11-17 — Session creation and composer proposal
+
+The user requests the next design-only pass. The [creation/composer proposal](28-session-creation-and-composer-design.md) adds four fictional PNG/SVG studies for workflow selection, goal entry, read-only manager questions and idle-step resume instructions. It preserves explicit Start/Send effects and separates manager proposals from executable workflow delivery. Mode-specific drafts, literal-message handling and richer input controls are labeled proposed implementation work, not existing capabilities or newly settled user decisions. No application or routing changes.

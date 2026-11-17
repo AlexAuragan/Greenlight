@@ -202,3 +202,5 @@ The [approval-dialog design and static mockups](docs/25-approval-dialog-design.m
 The [completed-workflow design and static mockups](docs/26-completed-screen-design.md) propose an outcome-first result view with scoped verification, edits and historical-result warnings.
 
 The [attention and recovery design](docs/27-attention-and-recovery-design.md) proposes distinct blocked, provider-error, interrupted-owner and unfinished-write views.
+
+The [session creation and composer design](docs/28-session-creation-and-composer-design.md) covers workflow selection, goal editing and explicit manager/step message modes.
