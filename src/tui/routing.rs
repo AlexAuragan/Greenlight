@@ -24,6 +24,95 @@ impl App {
         }
 
         self.sync_draft();
+        // Help owns input above every decision; no keys fall through to a prompt.
+        if self.help {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('h' | '?') => {
+                    self.help = false;
+                    self.detail_scroll = self.shell.help_scroll;
+                }
+                KeyCode::Char('M') => self.shell.mouse = !self.shell.mouse,
+                KeyCode::Char('C') => self.start_copy(),
+                KeyCode::Tab | KeyCode::BackTab => {
+                    if self.shell.help_actions {self.shell.help_action_index=1-self.shell.help_action_index;}
+                    else {self.shell.help_actions=true;self.shell.help_action_index=if key.code==KeyCode::BackTab {1}else{0};}
+                }
+                KeyCode::Left | KeyCode::Right if self.shell.help_actions => self.shell.help_action_index=1-self.shell.help_action_index,
+                KeyCode::Enter if self.shell.help_actions => {
+                    if self.shell.help_action_index==0 {self.help=false;self.detail_scroll=self.shell.help_scroll;}
+                    else {self.shell.mouse = !self.shell.mouse;}
+                }
+                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::PageDown => self.scroll_detail(8),
+                KeyCode::PageUp => self.scroll_detail(-8),
+                KeyCode::Home => self.detail_scroll = 0,
+                KeyCode::End => self.detail_scroll = u16::MAX,
+                _ => {}
+            }
+            return Ok(false);
+        }
+        let typing = self.composer_active()
+            || self.searching || self.activity_filtering || self.new_session.is_some();
+        if (self.searching || self.activity_filtering || self.new_session.is_some())
+            && (matches!(key.code,KeyCode::Tab|KeyCode::BackTab) || self.shell.actions_focus) {
+            match key.code {
+                KeyCode::Tab|KeyCode::BackTab => {
+                    if self.shell.actions_focus {self.shell.action_index=1-self.shell.action_index.min(1);}
+                    else {self.shell.actions_focus=true;self.shell.action_index=if key.code==KeyCode::BackTab {1}else{0};}
+                }
+                KeyCode::Esc => self.shell.actions_focus=false,
+                KeyCode::Enter => {
+                    let action=if self.shell.action_index==0 {shell::Action::Help}else{shell::Action::Close};
+                    self.shell.actions_focus=false;
+                    return self.activate(action,root,store);
+                }
+                _=>{}
+            }
+            return Ok(false);
+        }
+        if !typing && matches!(key.code, KeyCode::Char('h' | '?')) {
+            self.open_help();
+            return Ok(false);
+        }
+        if self.shell.more {
+            let actions=self.more_actions();
+            match key.code {
+                KeyCode::Esc => self.shell.more=false,
+                KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => self.shell.menu_index=(self.shell.menu_index+1)%actions.len(),
+                KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => self.shell.menu_index=(self.shell.menu_index+actions.len()-1)%actions.len(),
+                KeyCode::Enter => {let action=actions[self.shell.menu_index.min(actions.len()-1)];self.shell.more=false;return self.activate(action,root,store)},
+                _=>{}
+            }
+            return Ok(false);
+        }
+        if !typing && !self.blocking_surface() {
+            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+                let actions = self.shell_actions();
+                if !actions.is_empty() {
+                    if !self.shell.actions_focus { self.shell.action_index = if key.code == KeyCode::BackTab {actions.len()-1} else {0}; }
+                    else { self.shell.action_index = (self.shell.action_index + if key.code == KeyCode::BackTab {actions.len()-1} else {1}) % actions.len(); }
+                    self.shell.actions_focus = true;
+                }
+                return Ok(false);
+            }
+            if self.shell.actions_focus {
+                match key.code {
+                    KeyCode::Esc => self.shell.actions_focus = false,
+                    KeyCode::Left => self.shell.action_index = self.shell.action_index.saturating_sub(1),
+                    KeyCode::Right => self.shell.action_index = (self.shell.action_index + 1) % self.shell_actions().len(),
+                    KeyCode::Enter => {
+                        if let Some(action) = self.shell_actions().get(self.shell.action_index).copied() {
+                            self.shell.actions_focus = false;
+                            return self.activate(action, root, store);
+                        }
+                    }
+                    _ => {}
+                }
+                return Ok(false);
+            }
+        }
+
         if self.approval.is_none()
             && self.focus != Focus::Compose
             && !self.searching
@@ -246,7 +335,7 @@ impl App {
                     self.detail_scroll = 0;
                     return Ok(false);
                 }
-                KeyCode::Esc | KeyCode::Char('h') => {
+                KeyCode::Esc | KeyCode::Char('H') => {
                     self.result_open = false;
                     self.focus = Focus::Events;
                     self.detail_scroll = 0;
@@ -471,8 +560,8 @@ impl App {
 
         if self.focus == Focus::Compose {
             match key.code {
-                KeyCode::Tab => self.focus = Focus::Sessions,
-                KeyCode::Esc => self.focus = self.focus_before_compose,
+                KeyCode::Tab => { self.focus = self.focus_before_compose; self.shell.actions_focus = true; self.shell.action_index = 0; },
+                KeyCode::Esc => { self.focus = self.focus_before_compose; },
                 KeyCode::Enter
                     if !key
                         .modifiers
@@ -489,6 +578,8 @@ impl App {
 
         match key.code {
             KeyCode::Char('?') => self.open_help(),
+            KeyCode::Char('P') => self.shell.preview = !self.shell.preview,
+            KeyCode::Char('Z') => self.shell.expanded = !self.shell.expanded,
             KeyCode::Char('F') if self.view == View::Conversation => {
                 self.activity_filtering = true;
                 self.filter_editor.reset();
@@ -496,6 +587,7 @@ impl App {
             KeyCode::Char('f') => {
                 self.searching = true;
                 self.session_editor.reset();
+                self.shell.sessions = true;
                 self.focus = Focus::Sessions;
             }
             KeyCode::Char('n') => {
@@ -517,8 +609,9 @@ impl App {
                         .as_ref()
                         .map(|w| {
                             format!(
-                                "{}\n\nLatest recorded step states (loops may revisit):\n{}",
+                                "{}\n{}\n\nLatest recorded step states (loops may revisit):\n{}",
                                 w.context(),
+                                w.stepper(self.session().map(|s|s.current_step.as_str()).unwrap_or(""),100),
                                 w.step_summary()
                             )
                         })
@@ -536,7 +629,7 @@ impl App {
             KeyCode::Char('e') if self.workspace.as_ref().is_some_and(|w| w.blocker.is_some()) => {
                 self.inspect_blocker()
             }
-            KeyCode::Char('h') => {
+            KeyCode::Char('H') => {
                 self.result_open = false;
                 self.blocker_card = false;
                 self.view = View::Conversation;
@@ -558,11 +651,8 @@ impl App {
             }
             .into(),
             KeyCode::Tab | KeyCode::Right => {
-                if self.focus == Focus::Detail && key.code == KeyCode::Tab {
-                    self.focus_composer();
-                } else {
-                    self.focus_right();
-                }
+                self.shell.actions_focus = true;
+                self.shell.action_index = 0;
             }
             KeyCode::Esc | KeyCode::Left => self.focus_left(),
             KeyCode::Char('1') => self.switch_view(View::Conversation),
@@ -595,8 +685,13 @@ impl App {
                     self.inspect_blocker();
                 } else if self.focus == Focus::Detail {
                     self.focus_left();
+                } else if self.focus == Focus::Sessions {
+                    self.shell.sessions = false;
+                    self.focus = self.main_focus();
                 } else {
-                    self.focus_right();
+                    self.inspector_open = true;
+                    self.focus = Focus::Detail;
+                    self.follow_activity = false;
                 }
             }
             KeyCode::Char('i') => self.focus_composer(),

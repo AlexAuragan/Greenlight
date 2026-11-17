@@ -17,6 +17,8 @@ use ratatui::{
     Frame,
 };
 mod activity;
+mod shell;
+mod theme;
 mod edits;
 mod result;
 mod editor;
@@ -74,6 +76,8 @@ enum View {
 }
 
 struct App {
+    shell: shell::Shell,
+    inspector_open: bool,
     edits: edits::Edits,
     result_open: bool,
     result_text: String,
@@ -144,6 +148,8 @@ struct App {
 impl App {
     fn new(initial_session: Option<&str>) -> Self {
         Self {
+            shell: Default::default(),
+            inspector_open: false,
             edits: Default::default(),
             result_open: false,
             result_text: String::new(),
@@ -157,11 +163,7 @@ impl App {
             artifact_index: 0,
             view: View::Conversation,
             render_markdown: true,
-            focus: if initial_session.is_some() {
-                Focus::Events
-            } else {
-                Focus::Sessions
-            },
+            focus: Focus::Events,
             focus_before_compose: if initial_session.is_some() {
                 Focus::Events
             } else {
@@ -176,7 +178,7 @@ impl App {
             goal_editor: Default::default(),
             session_editor: Default::default(),
             filter_editor: Default::default(),
-            notice: "←/→ panes · ↑/↓ navigate/scroll · i compose · Enter open".into(),
+            notice: String::new(),
             runner: None,
             approval: None,
             restart_choices: Vec::new(),
@@ -412,6 +414,8 @@ impl App {
                         }
                         self.requested_session=Some(id.clone());
                     }
+                    self.shell.request_epoch += 1;
+                    self.shell.actions_focus = false;
                     self.approval = Some(question);
                     self.detail_scroll = 0;
                 }
@@ -423,7 +427,7 @@ impl App {
         if !matches!(&completion, Err(TryRecvError::Empty)) {
             self.notice = match completion {
                 Ok(result) => match result {
-                Ok(()) => "Run ended · s result · 3 edits / revert · 2 artifacts · h activity".into(),
+                Ok(()) => "Run ended · s result · 3 edits / revert · 2 artifacts · H activity".into(),
                 Err(error) => format!("Runner error: {error}"),
                 },
                 Err(_) => "Worker disconnected; pending approval expired. Inspect history and use /recover before resuming.".into(),
@@ -545,7 +549,7 @@ fn move_index(current: usize, delta: isize, len: usize) -> usize {
 }
 
 fn border(title: &'static str, focused: bool) -> Block<'static> {
-    let color = if focused { Color::Cyan } else { Color::DarkGray };
+    let color = if focused { theme::FOCUS } else { theme::MUTED };
     Block::default()
         .borders(Borders::ALL)
         .title(title)
@@ -583,13 +587,20 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
     }
     let result = ratatui::run(|terminal| -> Result<()> {
         crossterm::execute!(io::stdout(), crossterm::cursor::SetCursorStyle::BlinkingBar)?;
+        let _capture = shell::CaptureGuard::start()?;
+        let mut captured_mouse = true;
         let mut last_refresh = Instant::now();
         loop {
             let size=terminal.size()?;
             app.viewport=(size.width,size.height);
             app.tick();
+            if captured_mouse != app.shell.mouse {shell::set_mouse(app.shell.mouse)?;captured_mouse=app.shell.mouse;}
             if let Some(snapshot)=app.pending_editor.take(){
+                crossterm::execute!(io::stdout(), event::DisableMouseCapture, event::DisableBracketedPaste)?;
                 let result=exports::with_terminal_suspended(||exports::open_editor(&snapshot))?;
+                crossterm::execute!(io::stdout(), event::EnableBracketedPaste)?;
+                shell::set_mouse(app.shell.mouse)?;
+                captured_mouse=app.shell.mouse;
                 terminal.clear()?;
                 match result{Ok(())=>app.notice="Editor closed; snapshot changes were not imported.".into(),Err(error)=>app.raise_diagnostic(format!("Editor unavailable: {error:#}"))}
             }
@@ -599,8 +610,9 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
             }
             terminal.draw(|frame| draw(frame, &app))?;
             if event::poll(Duration::from_millis(150))? {
-                if let Event::Key(key) = event::read()? {
-                    match app.on_key(key, &root, &store) {
+                {
+                    let event = event::read()?;
+                    match app.on_event(event, &root, &store) {
                         Ok(true) => return Ok(()),
                         Ok(false) => {}
                         Err(error) => app.raise_diagnostic(format!("Action error: {error:#}")),

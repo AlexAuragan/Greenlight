@@ -109,13 +109,7 @@ fn focus_moves_across_panes_and_arrows_scroll_detail() {
         .unwrap();
     let mut app = App::new(None);
     app.refresh(&store).unwrap();
-    assert_eq!(app.focus, Focus::Sessions);
-    app.on_key(
-        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
-        root.path(),
-        &store,
-    )
-    .unwrap();
+    assert_eq!(app.focus, Focus::Events);
     assert_eq!(app.focus, Focus::Events);
     app.on_key(
         KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE),
@@ -125,7 +119,7 @@ fn focus_moves_across_panes_and_arrows_scroll_detail() {
     .unwrap();
     assert_eq!(app.focus, Focus::Artifacts);
     app.on_key(
-        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
         root.path(),
         &store,
     )

@@ -194,7 +194,9 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         return;
     }
     let panels =
-        Layout::horizontal([Constraint::Percentage(33), Constraint::Percentage(67)]).split(area);
+        Layout::horizontal(if app.inspector_open || app.focus==Focus::Detail {
+            if area.width>=100 {[Constraint::Percentage(33),Constraint::Percentage(67)]}else{[Constraint::Length(0),Constraint::Min(1)]}
+        }else{[Constraint::Min(1),Constraint::Length(0)]}).split(area);
     let items = app.edits.files.iter().map(|f| {
         ListItem::new(vec![
             Line::from(inline_display(&f.path)),
@@ -225,6 +227,11 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         panels[0],
         &mut selection,
     );
+    for index in selection.offset()..app.edits.files.len() {
+        let y=panels[0].y+1+((index-selection.offset())*2) as u16;
+        if y>=panels[0].bottom().saturating_sub(1){break}
+        app.shell.hit(ratatui::layout::Rect::new(panels[0].x,y,panels[0].width,2.min(panels[0].bottom().saturating_sub(1)-y)),shell::Action::Edit(index));
+    }
     let source = app.edits.error.as_deref().unwrap_or(&app.edits.text);
     reader::draw_document(
         frame,

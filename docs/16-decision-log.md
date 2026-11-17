@@ -237,3 +237,7 @@ The user requests a more compact UI with arrows, j/k and Tab and rejects functio
 ## 2026-11-17 — Compact direction approved; implementation handoff drafted
 
 The user approves the denser direction and requests continuation. The [consolidated implementation plan](34-ui-implementation-plan.md) separates explicitly selected choices from detailed proposals and defines a first compact-workspace/theme/action/focus/Help/mouse/paste slice with acceptance evidence. Later slices retain independent Keep-review storage, explicit composer routing and existing approval/restore/accounting contracts. This turn consolidates planning only; no runtime changes, model calls or future-test claims.
+
+## 2026-11-17 — First compact TUI slice implemented
+
+The user authorizes implementation after the design handoff. The workspace now uses a compact header, optional sidebar/composer, explicitly opened readers, restrained live preview and shared semantic colors/actions. A More menu keeps additional actions reachable. h/? opens Help above pending decisions, with isolated keys and preserved return state; H accesses activity. Mouse buttons/rows share guarded routes, press/release targets are freshness-bound, editors accept literal bracketed paste and caret clicks, and terminal capture is cleaned up/suspended for editor handoff. Existing provider/permission/restore/accounting behavior remains authoritative. Keep markers, Edits file cycling and the remaining full-surface designs are later slices. Verification uses fixtures rather than paid model calls.

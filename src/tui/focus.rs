@@ -31,21 +31,11 @@ impl App {
         }
         self.focus = Focus::Compose;
     }
-    pub(super) fn focus_right(&mut self) {
-        self.focus = match self.focus {
-            Focus::Sessions => self.main_focus(),
-            Focus::Events => {
-                self.follow_activity = false;
-                Focus::Detail
-            }
-            Focus::Artifacts => Focus::Detail,
-            other => other,
-        };
-    }
     pub(super) fn focus_left(&mut self) {
         self.focus = match self.focus {
-            Focus::Detail => self.main_focus(),
-            Focus::Events | Focus::Artifacts => Focus::Sessions,
+            Focus::Sessions => { self.shell.sessions=false; self.main_focus() },
+            Focus::Detail => { self.inspector_open = false; self.main_focus() },
+            Focus::Events | Focus::Artifacts => { self.shell.sessions = !self.shell.sessions; if self.shell.sessions {Focus::Sessions} else {self.main_focus()} },
             other => other,
         };
     }
@@ -71,6 +61,9 @@ impl App {
         }
     }
     pub(super) fn open_help(&mut self) {
+        self.shell.help_scroll = self.detail_scroll;
+        self.shell.help_actions = false;
+        self.shell.help_action_index = 0;
         self.help = true;
         self.detail_scroll = 0;
     }

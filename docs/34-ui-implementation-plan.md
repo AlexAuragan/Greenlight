@@ -98,3 +98,11 @@ First-slice foundations may touch these surfaces enough to keep them accessible,
 Before each code slice, restate the concrete scope and any changed design choices, then implement and verify that slice. Report actual behavior, tests and known limits; distinguish completed UI work from pending proposals. Update [current TUI docs](11-tui.md) and runtime Help when their behavior changes, leaving research/decision history dated.
 
 No implementation, merge or environment publication occurs in this planning document. The next work item is implementing the first slice above after this design handoff.
+
+## 7. First-slice implementation — 2026-11-17
+
+The compact workspace and interaction foundations are now implemented: shared semantic roles, hidden sidebar/on-demand composer, explicit activity/artifact/native-edit inspection, small hideable/expandable live preview, keyboard/mouse actions and More menu, Help above typed approvals, literal bracketed paste, caret clicks and terminal capture cleanup. Current keys and scope are in [the runtime TUI guide](11-tui.md). Help retains a static full reference alongside the shared action definitions; generation of every reference entry from one registry remains a refinement.
+
+This does not implement later-slice Keep tracking/file cycling, richer draft/recipient routing or the full screen studies. TestBackend/state tests cover geometry, navigation, drafts, topmost Help, stale click rejection and paste; a local scripted-provider PTY smoke checks actual rendered streaming, Unicode editing, cursor/capture sequences and Help/mouse toggling. These are implementation checks, not user acceptance of every remaining proposal.
+
+Verification for this slice: 287 tests passed, one existing test ignored; offline build and all-target Clippy completed (five pre-existing test-code warnings). A local fixture-provider PTY smoke passed without paid calls. Follow-up TUI runs covered the final focus/layer refinements.

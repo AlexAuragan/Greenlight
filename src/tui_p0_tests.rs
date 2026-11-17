@@ -182,6 +182,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     key(&mut app, &store, root.path(), KeyCode::Esc);
     app.view = View::Artifacts;
     app.focus = Focus::Artifacts;
+    key(&mut app,&store,root.path(),KeyCode::Enter);
     assert!(screen(&app).contains("Initial report"));
     start(
         &mut app,
@@ -412,7 +413,7 @@ fn workspace_cards_expose_context_and_exact_blocker_at_80x24() {
     key(&mut app,&store,root.path(),KeyCode::Char('e'));
     assert_eq!(app.events[app.event_index].id,evidence);
     assert_eq!(app.focus,Focus::Detail);
-    key(&mut app,&store,root.path(),KeyCode::Char('h'));
+    key(&mut app,&store,root.path(),KeyCode::Char('H'));
     assert!(!app.blocker_card);
     assert_eq!(app.focus,Focus::Events);
 }

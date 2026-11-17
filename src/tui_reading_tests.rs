@@ -34,7 +34,7 @@ fn each_tab_keeps_its_selection_focus_scroll_and_draft_across_polling() {
     app.composer = "Unsent instructions".into();
     key(&mut app, root.path(), &store, KeyCode::Char('2'));
     assert_eq!(app.detail_scroll, 0);
-    key(&mut app, root.path(), &store, KeyCode::Right);
+    key(&mut app, root.path(), &store, KeyCode::Enter);
     for _ in 0..4 {
         key(&mut app, root.path(), &store, KeyCode::Down);
     }

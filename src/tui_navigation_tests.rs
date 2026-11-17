@@ -102,7 +102,7 @@ fn paused_evidence_survives_polling_and_new_activity_until_explicit_follow() {
         .unwrap();
     let mut app = App::new(Some(&s.id));
     app.refresh(&store).unwrap();
-    key(&mut app, &store, root.path(), KeyCode::Right);
+    key(&mut app, &store, root.path(), KeyCode::Enter);
     assert_eq!(app.focus, Focus::Detail);
     assert!(!app.follow_activity);
     app.detail_scroll = 4;
@@ -157,7 +157,7 @@ fn help_is_scrollable_and_does_not_consume_or_execute_the_message_draft() {
     key(&mut app, &store, root.path(), KeyCode::Char('?'));
     assert!(screen(&mut app, 80, 24).contains("Keyboard help"));
     key(&mut app, &store, root.path(), KeyCode::End);
-    assert!(screen(&mut app, 60, 20).contains("quit when"));
+    assert!(screen(&mut app, 60, 20).contains("q quits only"));
     key(&mut app, &store, root.path(), KeyCode::Esc);
     assert_eq!(app.composer, "Unsent instructions");
     assert!(app.runner.is_none());
@@ -197,7 +197,10 @@ fn resize_clamps_scroll_and_preserves_draft_selection_and_reading_position() {
     screen(&mut app, 12, 6);
     key(&mut app, &store, root.path(), KeyCode::Char('i'));
     assert_eq!(app.composer, "draft survives resize");
-    assert!(screen(&mut app, 80, 24).contains("draft survives resize"));
+    assert!(!screen(&mut app, 80, 24).contains("draft survives resize"));
+    key(&mut app,&store,root.path(),KeyCode::Esc);
+    key(&mut app,&store,root.path(),KeyCode::Char('i'));
+    assert!(screen(&mut app,80,24).contains("draft survives resize"));
 }
 #[test]
 fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
@@ -224,6 +227,10 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
     assert!(app.approval.is_some());
     assert!(screen(&mut app, 60, 20).contains("Sensitive global scope"));
     key(&mut app, &store, root.path(), KeyCode::Char('?'));
+    assert!(app.help);
+    key(&mut app,&store,root.path(),KeyCode::Char('y'));
+    assert!(received.try_recv().is_err());
+    key(&mut app,&store,root.path(),KeyCode::Esc);
     assert!(!app.help);
     assert!(received.try_recv().is_err());
     key(&mut app, &store, root.path(), KeyCode::Enter);
@@ -290,7 +297,9 @@ fn compact_layout_shows_picker_then_activity_and_handles_zero_size() {
     let mut app = App::new(None);
     app.refresh(&store).unwrap();
     assert!(screen(&mut app, 60, 20).contains("Sessions"));
-    key(&mut app, &store, root.path(), KeyCode::Right);
+    key(&mut app, &store, root.path(), KeyCode::Char('f'));
+    key(&mut app, &store, root.path(), KeyCode::Enter);
+    key(&mut app, &store, root.path(), KeyCode::Enter);
     assert!(screen(&mut app, 60, 20).contains("Activity evidence"));
     for (w, h) in [(0, 0), (1, 1), (30, 10)] {
         screen(&mut app, w, h);

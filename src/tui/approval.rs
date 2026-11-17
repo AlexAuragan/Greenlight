@@ -47,7 +47,7 @@ pub(super) fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
         } else {
             "Allow once"
         },
-        Color::Green,
+        theme::FOCUS,
     )];
     if matches!(mode, ApprovalMode::Tool | ApprovalMode::Persistent) {
         options.push(approval_line('a', "Allow for this process", Color::Cyan));
@@ -147,6 +147,13 @@ pub(super) fn draw(
             .block(border(title, true)),
         approval_areas[0],
     );
+    let keys = ['y','a','p','g','n'].into_iter().filter(|key|prompt.mode.accepts(*key)).collect::<Vec<_>>();
+    for (index,key) in keys.into_iter().enumerate() {
+        let y=approval_areas[1].y+1+index as u16;
+        if y<approval_areas[1].bottom().saturating_sub(1) {
+            app.shell.hit(ratatui::layout::Rect::new(approval_areas[1].x+1,y,approval_areas[1].width.saturating_sub(2),1),shell::Action::Decision(key));
+        }
+    }
     frame.render_widget(
         Paragraph::new(approval_options(prompt.mode))
             .block(border(" Press a key to decide — no Enter needed ", true)),

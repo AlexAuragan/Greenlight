@@ -2,6 +2,41 @@
 use super::*;
 
 pub(super) fn draw(frame: &mut Frame, app: &App) {
+    app.begin_frame();
+    draw_workspace(frame, app);
+    if (app.help || app.shell.more) && (frame.area().width<4 || frame.area().height<4) {app.shell.hits.borrow_mut().clear();return;}
+    if app.shell.more && !app.help {
+        app.shell.hits.borrow_mut().clear();
+        let actions=app.more_actions();
+        let area=frame.area();
+        let width=area.width.saturating_sub(4).min(38);
+        let height=(actions.len() as u16+3).min(area.height.saturating_sub(2));
+        let popup=ratatui::layout::Rect::new((area.width-width)/2,(area.height-height)/2,width,height);
+        frame.render_widget(ratatui::widgets::Clear,popup);
+        frame.render_widget(border(" Actions · Esc closes ",true),popup);
+        let start=app.shell.menu_index.saturating_sub(height.saturating_sub(3) as usize);
+        for (row,(index,action)) in actions.into_iter().enumerate().skip(start).take(height.saturating_sub(2) as usize).enumerate() {
+            shell::button(frame,app,ratatui::layout::Rect::new(popup.x+1,popup.y+1+row as u16,width.saturating_sub(2),1),action,index==app.shell.menu_index);
+        }
+    }
+    if app.help {
+        app.shell.hits.borrow_mut().clear();
+        let area = frame.area();
+        let width = area.width.saturating_sub(4).min(90);
+        let height = area.height.saturating_sub(2).min(22);
+        let popup = ratatui::layout::Rect::new((area.width-width)/2,(area.height-height)/2,width,height);
+        frame.render_widget(ratatui::widgets::Clear,popup);
+        let regions = Layout::vertical([Constraint::Min(1),Constraint::Length(2)]).split(popup);
+        let context = format!("Keyboard help · {} · mouse {}\n\n{}", if app.approval.is_some(){"Approval pending; decisions disabled"}else if app.view==View::Edits{"Recorded edits"}else{"Workspace"},if app.shell.mouse{"on"}else{"off"},HELP);
+        draw_scrolled(frame,app,Paragraph::new(context).wrap(Wrap{trim:false}).block(border(" Help · Esc returns ",true)),regions[0]);
+        let mut x=regions[1].x;
+        for (index,action) in [shell::Action::Close,shell::Action::Mouse].into_iter().enumerate() {
+            let width=(action.label().len() as u16+3).min(regions[1].right().saturating_sub(x));
+            shell::button(frame,app,ratatui::layout::Rect::new(x,regions[1].y,width,1),action,app.shell.help_actions && app.shell.help_action_index==index);x+=width;
+        }
+    }
+}
+fn draw_workspace(frame: &mut Frame, app: &App) {
     let area = frame.area();
     if area.width < 40 || area.height < 14 || (app.approval.is_some() && area.height < 20) {
         let text = if app.approval.is_some() {
@@ -14,12 +49,11 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     }
     let compact = area.width < 72 || area.height < 22;
     let outer = Layout::vertical([
-        Constraint::Length(if compact { 4 } else { 7 }),
-        Constraint::Min(6),
-        Constraint::Length(if compact { 3 } else { 4 }),
-        Constraint::Length(2),
-    ])
-    .split(area);
+        Constraint::Length(4),
+        Constraint::Min(3),
+        Constraint::Length(if app.composer_active() {4} else {0}),
+        Constraint::Length(3),
+    ]).split(area);
     let (workflow, raw_status, step) = match app.session() {
         Some(session) => (
             session.workflow.as_str(),
@@ -46,71 +80,20 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else {
         raw_status.to_uppercase()
     };
-    let active_tab = Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
-    let inactive_tab = Style::default().fg(Color::DarkGray);
     let goal = workspace
         .map(|w| w.goal.as_str())
         .or_else(|| app.session().map(|s| s.goal.as_str()))
         .unwrap_or("Choose a session");
-    let attempt = workspace
-        .map(|w| w.attempt_label())
-        .unwrap_or_else(|| "context unavailable".into());
-    let progress = workspace
-        .map(|w| w.stepper(step, area.width.saturating_sub(2) as usize))
-        .unwrap_or_else(|| "Workflow context unavailable; h history remains available".into());
-    let next = if app.approval.is_some() {
-        "Decide in the approval pane; Enter never approves"
-    } else {
-        workspace
-            .map(|w| w.primary.label())
-            .unwrap_or("Inspect configuration/history")
-    };
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(inline_display(&format!(" {goal}"))).style(
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Line::from(inline_display(&format!(
-                " {workflow} · {status} · {step} · {attempt}"
-            ))),
-            Line::from(inline_display(&progress)),
-            Line::from(inline_display(&format!(" Next: {next}")))
-                .style(Style::default().fg(Color::Yellow)),
-            Line::from(vec![
-                Span::styled(
-                    " [1] Activity ",
-                    if app.view == View::Conversation {
-                        active_tab
-                    } else {
-                        inactive_tab
-                    },
-                ),
-                Span::styled(
-                    " [2] Artifacts ",
-                    if app.view == View::Artifacts {
-                        active_tab
-                    } else {
-                        inactive_tab
-                    },
-                ),
-                Span::styled(
-                    " [3] Edits ",
-                    if app.view == View::Edits {
-                        active_tab
-                    } else {
-                        inactive_tab
-                    },
-                ),
-                Span::raw(" ? help · C copy · E editor · F filter"),
-            ]),
-        ])
-        .block(border(" Session workspace ", false)),
-        outer[0],
-    );
+    let state_color=match status.as_str() {"RUNNING"|"STARTING"=>theme::FOCUS,"BLOCKED"|"INTERRUPTED"=>theme::ATTENTION,_=>theme::MUTED};
+    frame.render_widget(Paragraph::new(vec![
+        Line::from(vec![Span::styled(format!("Greenlight · {}",inline_display(workflow)),Style::default().add_modifier(Modifier::BOLD)),Span::styled(format!(" · {status} · {}",inline_display(step)),Style::default().fg(state_color))]),
+        Line::from(inline_display(goal)),
+    ]),outer[0]);
+    let mut x=outer[0].x;
+    for (action,view) in [(shell::Action::Activity,View::Conversation),(shell::Action::Artifacts,View::Artifacts),(shell::Action::Edits,View::Edits)] {
+        let width=action.label().len() as u16+4;
+        shell::button(frame,app,ratatui::layout::Rect::new(x,outer[0].y+2,width,1),action,app.view==view);x+=width;
+    }
 
     let overlay = app.edits.pending.is_some()
         || (app.result_open && app.view == View::Conversation)
@@ -125,29 +108,18 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         || app.context_detail.is_some()
         || app.restart_plan.is_some()
         || !app.restart_choices.is_empty();
-    let widths = if compact {
-        if app.focus == Focus::Sessions && !overlay {
-            [Constraint::Percentage(100), Constraint::Length(0)]
-        } else {
-            [Constraint::Length(0), Constraint::Percentage(100)]
-        }
+    let show_sessions = app.shell.sessions || app.focus == Focus::Sessions;
+    let widths = if !show_sessions || overlay {
+        [Constraint::Length(0),Constraint::Percentage(100)]
+    } else if compact {
+        [Constraint::Percentage(100),Constraint::Length(0)]
     } else {
-        [Constraint::Percentage(27), Constraint::Percentage(73)]
+        [Constraint::Length(30),Constraint::Min(1)]
     };
     let columns = Layout::horizontal(widths).split(outer[1]);
 
     let sessions = app.sessions.iter().map(|session| {
-        ListItem::new(format!(
-            "{}\n{} [{}]\n{}\n{}",
-            inline_display(&session.goal),
-            inline_display(&session.workflow),
-            inline_display(&session.status),
-            inline_display(&session.current_step),
-            app.session_activity
-                .get(&session.id)
-                .map(|(_, date)| format!("Last {}Z", date.get(5..16).unwrap_or(date)))
-                .unwrap_or_else(|| "Last: not recorded".into())
-        ))
+        ListItem::new(format!("{}\n{} · {}", inline_display(&session.goal),inline_display(&session.status),inline_display(&session.current_step)))
     });
     let sessions_list = List::new(sessions)
         .block(
@@ -170,7 +142,14 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         session_state.select(Some(app.session_index));
     }
     frame.render_stateful_widget(sessions_list, columns[0], &mut session_state);
+    for index in session_state.offset()..app.sessions.len() {
+        let y=columns[0].y+1+((index-session_state.offset())*2) as u16;
+        if y>=columns[0].bottom().saturating_sub(1){break}
+        app.shell.hit(ratatui::layout::Rect::new(columns[0].x,y,columns[0].width,2.min(columns[0].bottom().saturating_sub(1)-y)),shell::Action::Session(index));
+    }
 
+
+    if overlay {app.shell.hits.borrow_mut().clear();}
     if let Some(prompt) = &app.approval {
         approval::draw(frame, app, prompt, columns[1]);
     } else if let Some(browser) = &app.artifact_browser {
@@ -245,6 +224,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else if app.activity_filtering {
         input_panel(
             frame,
+            app,
             &app.filter_editor,
             &app.activity_query,
             "Filter activity",
@@ -254,20 +234,12 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             ),
             columns[1],
         );
-    } else if app.help {
-        draw_scrolled(
-            frame,
-            app,
-            Paragraph::new(HELP)
-                .wrap(Wrap { trim: false })
-                .block(border(" Keyboard help · Esc closes ", true)),
-            columns[1],
-        );
     } else if let Some(form) = &app.new_session {
         if let Some(goal) = &form.goal {
             let choice = &form.workflows[form.cursor];
             input_panel(
                 frame,
+                app,
                 &app.goal_editor,
                 goal,
                 " New session · goal ",
@@ -317,6 +289,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     } else if app.searching {
         input_panel(
             frame,
+            app,
             &app.session_editor,
             &app.session_query,
             " Find session ",
@@ -375,9 +348,14 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
                 )),
             columns[1],
         );
+    } else if app.session().is_none() {
+        frame.render_widget(Paragraph::new(if app.session_query.is_empty() {
+            "No sessions selected.\n\nChoose New session to select a workflow, enter a goal and start.\nSessions opens project history; Help explains the current controls."
+        } else {"No sessions match this search.\n\nUse f to change the search, or clear it with Esc in the search field."}).wrap(Wrap{trim:false}).block(border(" Project workspace ",false)),columns[1]);
     } else if app.view == View::Artifacts {
-        let panes = Layout::horizontal([Constraint::Percentage(38), Constraint::Percentage(62)])
-            .split(columns[1]);
+        let panes = Layout::horizontal(if app.focus==Focus::Detail || app.inspector_open {
+            if columns[1].width>=100 {[Constraint::Percentage(38),Constraint::Percentage(62)]}else{[Constraint::Length(0),Constraint::Min(1)]}
+        }else{[Constraint::Min(1),Constraint::Length(0)]}).split(columns[1]);
         let items = app.artifacts.iter().map(|artifact| {
             ListItem::new(format!(
                 "{}\n  step: {}  ·  {} bytes",
@@ -403,6 +381,11 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             state.select(Some(app.artifact_index));
         }
         frame.render_stateful_widget(artifacts, panes[0], &mut state);
+        for index in state.offset()..app.artifacts.len() {
+            let y=panes[0].y+1+((index-state.offset())*2) as u16;
+            if y>=panes[0].bottom().saturating_sub(1){break}
+            app.shell.hit(ratatui::layout::Rect::new(panes[0].x,y,panes[0].width,2.min(panes[0].bottom().saturating_sub(1)-y)),shell::Action::Artifact(app.artifacts[index].event_id));
+        }
 
         let title = if app.render_markdown {
             " Artifact · Markdown · Enter returns · m raw "
@@ -456,8 +439,8 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             .as_ref()
             .filter(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
             .and_then(|r| r.live.as_ref());
-        if let Some(live) = live {
-            let panels = Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)])
+        if let Some(live) = live.filter(|_| app.shell.preview) {
+            let panels = Layout::vertical([Constraint::Min(3), Constraint::Length(if app.shell.expanded {columns[1].height.saturating_sub(3)} else {5.min(columns[1].height.saturating_sub(4))})])
                 .split(columns[1]);
             activity::draw(frame, app, workspace, panels[0]);
             let live = live.lock().unwrap();
@@ -473,7 +456,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             };
             let paragraph = Paragraph::new(body)
                 .wrap(Wrap { trim: false })
-                .style(Style::default().fg(Color::Yellow))
+                .style(Style::default())
                 .block(
                     border(" Live model output · unvalidated preview ", false).title_bottom(
                         inline_display(&format!(
@@ -519,58 +502,24 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             "Type instructions to resume this session…"
         },
         input_area,
-        app.focus == Focus::Compose && !overlay,
+        app.composer_active(),
     );
 
-    let footer = if app.edits.pending.is_some() {
-        "Revert preview · y applies / n or Esc cancels · Enter does nothing · ↑/↓ scroll".into()
-    } else if app.result_open && app.view == View::Conversation {
-        "Run ended · report is agent-authored · 2 artifacts · 3 edits/revert · h activity · ↑/↓ scroll".into()
-    } else if app.view == View::Edits && !overlay {
-        "Recorded native edits · ↑/↓ files · Enter read/list · u revert file · U revert all (preview first)".into()
-    } else if app.approval.is_some() {
-        "Press a decision key · Esc denies · Enter does nothing · ↑/↓ scroll request".into()
-    } else if app.activity_filtering {
-        "Type to filter activity · Enter keep · Esc clear".into()
-    } else if app.artifact_browser.is_some() {
-        "↑/↓ select/scroll · Enter read/list · p provenance · d diff · o content · m raw · Esc close".into()
-    } else if app.help {
-        "↑/↓ or j/k scroll · PgUp/PgDn page · Home/End · Esc close".into()
-    } else if app.new_session.is_some() {
-        "New session · Enter chooses workflow / starts goal · Ctrl+J newline · arrows edit · Esc cancel".into()
-    } else if app.searching {
-        "Search · type to filter · Enter keeps filter · Esc clears · ↑/↓ select".into()
-    } else if app.diagnostic.is_some() {
-        "Attention required · ↑/↓ scroll full diagnostic · Esc close · inspect evidence before retrying".into()
-    } else if app.context_detail.is_some() || app.usage_detail.is_some() {
-        "↑/↓ scroll · Esc close".into()
-    } else if app.restart_plan.is_some() {
-        "Restore uses recorded edits · y confirm / n cancel · ↑/↓ scroll preview".into()
-    } else if !app.restart_choices.is_empty() {
-        "j/k choose step  ·  Enter preview  ·  Esc cancel".into()
-    } else {
-        format!(
-            "{}   │   ? help · C copy · E editor · F filter · f sessions · i message",
-            app.notice
-        )
-    };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{}\n{footer}",
-            if compact && app.approval.is_some() {
-                "Approval: explicit keys only"
-            } else if compact {
-                "1 Activity · 2 Artifacts · 3 Edits · s Result"
-            } else {
-                &app.usage_line
-            }
-        )),
-        outer[3],
-    );
+    let actions=app.shell_actions();
+    let mut x=outer[3].x;let mut y=outer[3].y;
+    for (index,action) in actions.into_iter().enumerate() {
+        let width=action.label().len() as u16+3;
+        if x+width>outer[3].right(){x=outer[3].x;y+=1;}
+        if y>=outer[3].y+2 {break;}
+        shell::button(frame,app,ratatui::layout::Rect::new(x,y,width.min(outer[3].width),1),action,app.shell.actions_focus && app.shell.action_index==index);x+=width;
+    }
+    frame.render_widget(Paragraph::new(inline_display(&app.notice)).style(Style::default().fg(theme::MUTED)),ratatui::layout::Rect::new(outer[3].x,outer[3].y+2,outer[3].width,1));
+
 }
 
 fn input_panel(
     frame: &mut Frame,
+    app: &App,
     editor: &editor::Editor,
     text: &str,
     title: &'static str,
@@ -591,5 +540,5 @@ fn input_panel(
             .wrap(Wrap { trim: false }),
         panels[0],
     );
-    editor.draw(frame, text, "Type here…", panels[1], true);
+    editor.draw(frame, text, "Type here…", panels[1], !app.help && !app.shell.actions_focus);
 }

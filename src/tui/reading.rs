@@ -43,7 +43,7 @@ pub(super) struct Reading {
 }
 impl App {
     pub(super) fn reading_overlay(&self) -> bool {
-        self.approval.is_some()
+        self.shell.more || self.approval.is_some()
             || self.edits.pending.is_some()
             || (self.result_open && self.view == View::Conversation)
             || self.diagnostic.is_some()
@@ -101,7 +101,7 @@ impl App {
                 saved.activity = ActivityPosition {
                     event,
                     scroll: self.detail_scroll,
-                    detail: focus == Focus::Detail,
+                    detail: focus == Focus::Detail || self.inspector_open,
                     follow: self.follow_activity,
                     query: self.activity_query.clone(),
                     blocker: Some(self.blocker_card),
@@ -114,7 +114,7 @@ impl App {
                     name: artifact.as_ref().map(|a| a.0.clone()),
                     version: artifact.map(|a| a.1),
                     scroll: self.detail_scroll,
-                    detail: focus == Focus::Detail,
+                    detail: focus == Focus::Detail || self.inspector_open,
                 }
             }
         }
@@ -191,6 +191,7 @@ impl App {
                 },
             ),
         };
+        self.inspector_open = detail;
         self.detail_scroll = scroll;
         self.rendered_scroll.set(None);
         let focus = if detail {
