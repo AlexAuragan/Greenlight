@@ -714,3 +714,5 @@ The [attention and recovery proposal](27-attention-and-recovery-design.md) separ
 The [session creation and composer proposal](28-session-creation-and-composer-design.md) adds focused workflow/goal selection, explicit manager-versus-step targets, editing rules and submission feedback. These remain design proposals rather than runtime capabilities.
 
 The [Edits/revert proposal](29-edits-and-revert-design.md) and [cross-screen consistency review](30-ui-consistency-review.md) cover restore scope, explicit confirmation, failure states and remaining design/validation work.
+
+The user-selected [Edits review amendment](29-edits-and-revert-design.md) adds All files, Tab cycling and per-file/all-file acceptance of applied edits. [Artifact reading, versions and provenance](31-artifact-reader-and-history-design.md) remain a separate document-evidence flow.

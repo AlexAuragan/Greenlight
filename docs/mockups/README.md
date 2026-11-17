@@ -26,6 +26,12 @@ These are documentation assets for the [running-screen review](../24-running-scr
 | Explicitly opened file diff | [PNG](edits-inspector.png) | [SVG](edits-inspector.svg) |
 | Revert reverse-diff confirmation | [PNG](edits-revert-preview.png) | [SVG](edits-revert-preview.svg) |
 | Manual drift refuses revert | [PNG](edits-revert-conflict.png) | [SVG](edits-revert-conflict.svg) |
+| Revised Edits: All files review | [PNG](edits-review-all.png) | [SVG](edits-review-all.svg) |
+| Revised Edits: Keep file | [PNG](edits-review-file.png) | [SVG](edits-review-file.svg) |
+| Artifact document reader | [PNG](artifact-reader.png) | [SVG](artifact-reader.svg) |
+| Saved artifact versions | [PNG](artifact-versions.png) | [SVG](artifact-versions.svg) |
+| Exact-version provenance | [PNG](artifact-provenance.png) | [SVG](artifact-provenance.svg) |
+| Adjacent document comparison | [PNG](artifact-compare.png) | [SVG](artifact-compare.svg) |
 
 The studies use the agreed semantic color roles and example RGB values from the main UI draft. The SVGs contain only drawing/text elements, not scripts or external resources. No runtime or project dependencies were added to create them.
 
@@ -34,3 +40,5 @@ See the [attention and recovery review](../27-attention-and-recovery-design.md) 
 See the [session creation and composer review](../28-session-creation-and-composer-design.md) for the four input-flow studies.
 
 See the [Edits/revert review](../29-edits-and-revert-design.md) for the four recorded-edit studies.
+
+The [Edits review amendment](../29-edits-and-revert-design.md) supersedes the initial list default with All files and file cycling. See the [artifact-reader review](../31-artifact-reader-and-history-design.md) for document/history studies.

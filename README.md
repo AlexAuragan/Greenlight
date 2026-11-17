@@ -206,3 +206,5 @@ The [attention and recovery design](docs/27-attention-and-recovery-design.md) pr
 The [session creation and composer design](docs/28-session-creation-and-composer-design.md) covers workflow selection, goal editing and explicit manager/step message modes.
 
 The [Edits/revert design](docs/29-edits-and-revert-design.md) covers recorded diffs and guarded restoration. The [cross-screen consistency review](docs/30-ui-consistency-review.md) consolidates shared rules and remaining design work.
+
+The [artifact reader/history design](docs/31-artifact-reader-and-history-design.md) covers exact saved versions, document comparison and provenance. The Edits design also includes All files, Tab cycling and Keep-file/Keep-all review.

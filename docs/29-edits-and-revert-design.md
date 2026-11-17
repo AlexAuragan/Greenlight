@@ -70,3 +70,29 @@ Cancelling changes no files and returns to the same diff/list. A stale preview h
 Later verification should exercise added/deleted/modified/net-zero paths, per-file versus all-file scope, pre-existing work, drift/history gaps, no-op state, stale session/branch/history, pending writes, ownership, partial writes/journal failures and historical-result warnings. Test actual terminal wrapping, diff prefixes, Help layering and explicit activation. No model calls or Git reset/checkout are introduced by this view.
 
 These four PNG/SVG studies use fictional data and illustrative dimensions. They are not screenshots, prototypes or terminal-cell fit tests. Application code and restore behavior remain unchanged.
+
+## 6. User-requested review flow — supersedes the earlier default list
+
+The user requests Tab cycling and acceptance per file or for all files. Keep the earlier list/inspector studies above as background exploration; these two studies are the revised default direction. This is a design change, not implemented review tracking.
+
+![All files review overview](mockups/edits-review-all.png)
+
+[Editable SVG](mockups/edits-review-all.svg)
+
+![Single-file review with Keep action](mockups/edits-review-file.png)
+
+[Editable SVG](mockups/edits-review-file.svg)
+
+When multiple changed files exist, the first internal view is **All files**, followed by one view per recorded changed file. Tab advances and Shift+Tab reverses through these views, wrapping back to All files. Clicking a file view or selecting a file from the overview opens its diff. With one file, open that file directly; with none, show the existing empty/no-net-change state. Long file sets use a scrollable strip and current position, not an ever-widening row of buttons.
+
+These are internal Edits views; they do not add top-level tabs beyond Activity / Artifacts / Edits. Opening a file view is explicit inspection, so it remains compatible with quiet list browsing. Moving the overview's row selection alone does not open a reader.
+
+**Keep file** accepts the already-applied recorded edits for that file. **Keep all** accepts the current reviewable changed-file set from the overview. These actions record review intent; they do not write the proposed changes for the first time, approve tools, stage/commit Git changes, restart a workflow or independently validate correctness. No Git commands are needed. The label Keep distinguishes this review action from tool approval. Revert still requires the reverse-diff preview and explicit confirmation.
+
+Propose review markers scoped to session, branch, path and exact recorded revision. Later writes/restores invalidate an earlier Keep marker for the changed revision. Do not hide kept files or automatically switch tabs after Keep; show a receipt and let the user Tab onward. Keep all names its full scope, includes off-screen reviewable files, and cannot silently exclude conflicts while claiming every file accepted. History gaps, unavailable snapshots and detected current-file drift need an explanation rather than a clean acceptance mark. Snapshot checks used for acceptance must distinguish the recorded revision from actual disk state.
+
+Review markers are a new proposed data feature, not existing engine evidence. Persistence/replay storage still needs an implementation decision; an in-memory-only implementation must disclose that marks reset on exit. Do not reinterpret these marks as existing human checkpoint approvals. Pending or unkept edits are already present in the workspace and are not automatically reverted on exit. A future pre-application staging feature would require a separate contract.
+
+**Focus exception:** reserve Tab/Shift+Tab for file cycling while the Edits review region owns focus. Propose F6/Shift+F6 to move between review and its action controls; within the action controls Tab follows normal control traversal. Help must expose this local exception and the visible controls remain mouse accessible. Editors, Help, confirmation dialogs and other topmost overlays consume Tab themselves; cycling cannot change the target of an open revert plan. This resolves the conflict with ordinary composer Tab traversal without making Tab a global file-navigation key. Exact F6 traversal is a proposal to validate across terminals.
+
+Additional later checks: zero/one/many files, backward wrapping, overflow, focus escape, Keep-one/Keep-all receipts, changed revision after Keep, session/branch switch, current-file drift, persistence disclosure, and no effect on tool authorization or Git state.

@@ -10,6 +10,7 @@
 | Hierarchy | One current task, evidence on demand, IDs/provenance under Details | [Running](24-running-screen-design.md), [results](26-completed-screen-design.md) |
 | Color | Blue user text, cyan focus/active controls, neutral model body, green scoped recorded positive outcomes, amber attention, red error/destructive | All studies; diff colors are contextual addition/deletion notation |
 | State lamp | Label required; finished is neutral, not proof of goal success | [Results](26-completed-screen-design.md), [attention](27-attention-and-recovery-design.md) |
+| Edits review navigation | User-selected Tab/Shift+Tab cycles All files and file views while review owns focus; modal/editor/control focus retains its own routing | [Edits amendment](29-edits-and-revert-design.md) |
 | Ordinary actions | One primary plus few secondary actions, More for extras; no permanent global shortcut legend | All workspace studies |
 | Approval exception | Every valid grant choice visible immediately; typed mode determines validity; project/global still confirmed separately | [Approvals](25-approval-dialog-design.md) |
 | Enter | Open/select in navigation, submit in editor; never authorize approval/grant/revert/restart confirmation | [Approvals](25-approval-dialog-design.md), [input](28-session-creation-and-composer-design.md), [revert](29-edits-and-revert-design.md) |
@@ -37,6 +38,8 @@ These are documentation-level consistency checks, not proof that runtime behavio
 ## 3. Remaining design work and validation
 
 The audit inventories more surfaces than these focused studies render. Before calling the design complete, cover the artifact reader/version/provenance comparison, session navigation/filter/empty home, human verification checkpoint, run details/usage, and Help itself at sufficient detail for implementation. They should reuse the reviewed patterns rather than add permanent panes.
+
+The user subsequently selected All files plus Tab cycling and per-file/all-file acceptance for Edits; proposed Keep markers must stay separate from tool and human-checkpoint approvals. The [artifact reader/history follow-up](31-artifact-reader-and-history-design.md) now covers the document-reader surfaces listed above; navigation/checkpoint/details/Help still need focused review.
 
 Remaining choices include final Activity/history binding (`H` suggested), precise focus traversal/return rules, inspector positions per item, theme fallback and contrast, compact breakpoints, exact RGB/glyphs, mouse-selection toggle placement, and full editor draft/literal-command behavior. Some can be validated during a small implementation slice, but none is settled solely because it appears in a static drawing.
 
