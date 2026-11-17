@@ -712,3 +712,5 @@ The local cached sources for Ratatui 0.30.2 / ratatui-widgets 0.3.2 and Crosster
 The [attention and recovery proposal](27-attention-and-recovery-design.md) separates blocked-step continuation, provider failures, owner recovery and unfinished native writes. Its four static studies preserve existing recovery contracts; this remains design-only. The user has approved the overall completed-screen visual direction in [the previous pass](26-completed-screen-design.md).
 
 The [session creation and composer proposal](28-session-creation-and-composer-design.md) adds focused workflow/goal selection, explicit manager-versus-step targets, editing rules and submission feedback. These remain design proposals rather than runtime capabilities.
+
+The [Edits/revert proposal](29-edits-and-revert-design.md) and [cross-screen consistency review](30-ui-consistency-review.md) cover restore scope, explicit confirmation, failure states and remaining design/validation work.

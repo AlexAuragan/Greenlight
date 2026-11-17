@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-label="Edits: explicit file revert preview">
+<title>Edits: explicit file revert preview</title>
+<rect width="1200" height="820" fill="#111827"/>
+<text x="24" y="27" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">DESIGN STUDY · SAMPLE DATA · NOT THE RUNNING APP</text>
+<path d="M24 43h1152" stroke="#374151"/>
+<text x="24" y="76" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Greenlight / bar-project</text>
+<text x="24" y="105" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Investigate slow startup</text>
+<text x="890" y="76" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="700" xml:space="preserve">● Workflow finished</text>
+<text x="24" y="153" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Activity</text>
+<text x="129" y="153" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Artifacts</text>
+<text x="257" y="153" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="700" xml:space="preserve">Edits</text>
+<path d="M257 162h48" stroke="#67E8F9"/>
+<rect x="795" y="128" width="103" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="808" y="148" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Sessions</text>
+<rect x="910" y="128" width="132" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="923" y="148" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Run details</text>
+<rect x="1054" y="128" width="83" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="1067" y="148" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Help h</text>
+<path d="M24 176h1152" stroke="#374151"/>
+<rect x="60" y="126" width="1080" height="606" rx="3" fill="#1F2937" stroke="#F87171"/>
+<text x="84" y="170" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="22" font-weight="700" xml:space="preserve">Revert src/bar.py?</text>
+<text x="84" y="209" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Restore this file to its first recorded pre-edit contents.</text>
+<text x="84" y="240" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Workspace only · no history rewind, fork or automatic resume.</text>
+<text x="84" y="285" fill="#FBBF24" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="700" xml:space="preserve">Reverse diff · proposed change, not applied yet</text>
+<rect x="84" y="309" width="1032" height="211" rx="3" fill="#111827" stroke="#374151"/>
+<text x="104" y="342" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">--- a/src/bar.py</text>
+<text x="104" y="370" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">+++ b/src/bar.py</text>
+<text x="104" y="398" fill="#F87171" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">-    show_window()</text>
+<text x="104" y="426" fill="#F87171" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">-    schedule_icon_loading()</text>
+<text x="104" y="454" fill="#4ADE80" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">+    load_icons()</text>
+<text x="104" y="482" fill="#4ADE80" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="400" xml:space="preserve">+    show_window()</text>
+<text x="84" y="561" fill="#FBBF24" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Files created by recorded edits may be deleted by a revert.</text>
+<text x="84" y="593" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Drift, ownership and history are checked again when you confirm.</text>
+<rect x="84" y="648" width="170" height="32" rx="3" fill="#1F2937" stroke="#F87171"/>
+<text x="97" y="668" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Revert file · Y</text>
+<rect x="266" y="648" width="180" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="279" y="668" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Cancel · N / Esc</text>
+<rect x="458" y="648" width="64" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="471" y="668" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Help</text>
+<text x="84" y="712" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Enter does not confirm. Cancelling changes nothing.</text>
+</svg>

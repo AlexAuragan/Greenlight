@@ -217,3 +217,7 @@ The user approves the completed-screen visual direction and requests the next de
 ## 2026-11-17 — Session creation and composer proposal
 
 The user requests the next design-only pass. The [creation/composer proposal](28-session-creation-and-composer-design.md) adds four fictional PNG/SVG studies for workflow selection, goal entry, read-only manager questions and idle-step resume instructions. It preserves explicit Start/Send effects and separates manager proposals from executable workflow delivery. Mode-specific drafts, literal-message handling and richer input controls are labeled proposed implementation work, not existing capabilities or newly settled user decisions. No application or routing changes.
+
+## 2026-11-17 — Creation direction approved; Edits/revert and consistency reviewed
+
+The user approves the overall creation/composer direction and requests the next pass. The [Edits/revert proposal](29-edits-and-revert-design.md) adds four fictional PNG/SVG studies for quiet file browsing, opened diff, reverse-diff confirmation and preparation refusal on manual drift. It preserves native-journal scope, first pre-edit snapshots, fresh lock/history checks and partial-failure distinctions. The [consistency review](30-ui-consistency-review.md) checks shared rules across the studies and explicitly lists remaining reader/navigation/detail surfaces and terminal validation. No application changes or blanket design-complete claim.

@@ -1,6 +1,6 @@
 # Session creation and composition — focused design review
 
-**Status:** design proposal only. Continues the agreed on-demand composer, retained memory-only draft, blue user text, cyan focus, default-on mouse and complete keyboard operation. Screen wording, mode selection and detailed behavior below remain proposals for review; no application implementation is authorized here.
+**Status:** design only. The user approved the overall creation/composer direction; exact mechanics remain proposals. Continues the agreed on-demand composer, retained memory-only draft, blue user text, cyan focus, default-on mouse and complete keyboard operation. Screen wording, mode selection and detailed behavior below remain proposals for review; no application implementation is authorized here.
 
 **Date:** 2026-11-17, Europe/Paris. Builds on [running screens](24-running-screen-design.md), [completed results](26-completed-screen-design.md) and [attention/recovery](27-attention-and-recovery-design.md).
 

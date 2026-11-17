@@ -22,9 +22,15 @@ These are documentation assets for the [running-screen review](../24-running-scr
 | New session: goal editor | [PNG](create-goal.png) | [SVG](create-goal.svg) |
 | Read-only manager composer | [PNG](compose-manager.png) | [SVG](compose-manager.svg) |
 | Resume-step composer | [PNG](compose-resume.png) | [SVG](compose-resume.svg) |
+| Recorded edits list | [PNG](edits-list.png) | [SVG](edits-list.svg) |
+| Explicitly opened file diff | [PNG](edits-inspector.png) | [SVG](edits-inspector.svg) |
+| Revert reverse-diff confirmation | [PNG](edits-revert-preview.png) | [SVG](edits-revert-preview.svg) |
+| Manual drift refuses revert | [PNG](edits-revert-conflict.png) | [SVG](edits-revert-conflict.svg) |
 
 The studies use the agreed semantic color roles and example RGB values from the main UI draft. The SVGs contain only drawing/text elements, not scripts or external resources. No runtime or project dependencies were added to create them.
 
 See the [attention and recovery review](../27-attention-and-recovery-design.md) for the four recovery studies.
 
 See the [session creation and composer review](../28-session-creation-and-composer-design.md) for the four input-flow studies.
+
+See the [Edits/revert review](../29-edits-and-revert-design.md) for the four recorded-edit studies.

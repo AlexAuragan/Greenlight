@@ -204,3 +204,5 @@ The [completed-workflow design and static mockups](docs/26-completed-screen-desi
 The [attention and recovery design](docs/27-attention-and-recovery-design.md) proposes distinct blocked, provider-error, interrupted-owner and unfinished-write views.
 
 The [session creation and composer design](docs/28-session-creation-and-composer-design.md) covers workflow selection, goal editing and explicit manager/step message modes.
+
+The [Edits/revert design](docs/29-edits-and-revert-design.md) covers recorded diffs and guarded restoration. The [cross-screen consistency review](docs/30-ui-consistency-review.md) consolidates shared rules and remaining design work.
