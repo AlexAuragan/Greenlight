@@ -1,7 +1,9 @@
 # Greenlight UI review: screens, components and interaction design
 
-**Status: DRAFT FOR JOINT REVIEW — no UI implementation authorized by this document.**  
-**Date:** 2026-11-17, Europe/Paris. **Audited baseline:** `5a982be` on `feat/install-and-project-layout`.  
+**Status: DRAFT FOR JOINT REVIEW — no UI implementation authorized by this document.**
+
+**Date:** 2026-11-17, Europe/Paris. **Audited baseline:** `5a982be` on `feat/install-and-project-layout`.
+
 **Scope:** reduce visual noise, establish a color system, improve discoverability and choose a larger set of presentation tools before writing UI code.
 
 This is a source-based inventory of the current application, informed by the user's real-session screenshots. It is not a claim that every state has been visually exercised in every terminal. Proposed controls and wireframes below are not implemented screens. This review updates the visual/interaction direction in the [earlier dated UX research](12-tui-ux-analysis.md); it does not replace execution, approval or restore contracts. [Current TUI behavior](11-tui.md) remains the operational reference until changes land.
