@@ -14,5 +14,11 @@ These are documentation assets for the [running-screen review](../24-running-scr
 | Completed, measurement unavailable | [PNG](completed-unmeasured.png) | [SVG](completed-unmeasured.svg) |
 | Completed, recorded checks passed | [PNG](completed-checks.png) | [SVG](completed-checks.svg) |
 | Historical result after restore | [PNG](completed-restored.png) | [SVG](completed-restored.svg) |
+| Blocked step | [PNG](attention-blocked.png) | [SVG](attention-blocked.svg) |
+| Provider authentication failure | [PNG](attention-provider.png) | [SVG](attention-provider.svg) |
+| Interrupted worker | [PNG](attention-interrupted.png) | [SVG](attention-interrupted.svg) |
+| Interrupted native write | [PNG](attention-write.png) | [SVG](attention-write.svg) |
 
 The studies use the agreed semantic color roles and example RGB values from the main UI draft. The SVGs contain only drawing/text elements, not scripts or external resources. No runtime or project dependencies were added to create them.
+
+See the [attention and recovery review](../27-attention-and-recovery-design.md) for the four recovery studies.

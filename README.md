@@ -200,3 +200,5 @@ See [documentation and decisions](docs/16-decision-log.md), the [manual smoke-te
 The [approval-dialog design and static mockups](docs/25-approval-dialog-design.md) show all valid grant choices, explicit scope confirmation and read-only Help. These remain design studies.
 
 The [completed-workflow design and static mockups](docs/26-completed-screen-design.md) propose an outcome-first result view with scoped verification, edits and historical-result warnings.
+
+The [attention and recovery design](docs/27-attention-and-recovery-design.md) proposes distinct blocked, provider-error, interrupted-owner and unfinished-write views.

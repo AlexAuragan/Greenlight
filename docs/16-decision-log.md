@@ -209,3 +209,7 @@ Following approval of the running-screen visual direction, the user selects ever
 ## 2026-11-17 — Completed-workflow result design proposal
 
 The user authorizes the next design-only pass. The [completed-screen proposal](26-completed-screen-design.md) adds three fictional PNG/SVG studies for unavailable measurement, scoped passing checks and a historical result after workspace restore. It separates neutral workflow completion, agent-reported conclusions, final-step verification and branch-visible native edits; it adds no automatic outcome classifier or model calls. Proposed actions lead to exact report versions, guarded edit review, recorded activity, explicit read-only manager questions and reviewed restart paths. This records a proposal for review, not user acceptance of every detail or application implementation.
+
+## 2026-11-17 — Completed direction approved; attention/recovery proposed
+
+The user approves the completed-screen visual direction and requests the next design pass. The [attention/recovery proposal](27-attention-and-recovery-design.md) adds four fictional PNG/SVG studies separating blocked-step instructions, terminal provider errors, guarded owner recovery and CLI native-write reconciliation. Action wording follows current contracts: recovery does not resume, restart restores/forks before explicit continuation, and provider retry policy remains unchanged. Exact interactions remain proposals for review. No application code or runtime behavior changes.

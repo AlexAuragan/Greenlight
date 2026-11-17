@@ -1,6 +1,6 @@
 # Completed workflow — focused design review
 
-**Status:** design proposal only. Continues the approved [running-screen visual direction](24-running-screen-design.md), semantic colors and on-demand panels. The user has authorized this design pass, not UI implementation or a new outcome classifier.
+**Status:** design only. The user approved the overall completed-screen visual direction; exact labels, sizing and detailed interactions remain proposals. Continues the approved [running-screen visual direction](24-running-screen-design.md), semantic colors and on-demand panels. The user has authorized this design pass, not UI implementation or a new outcome classifier.
 
 **Date:** 2026-11-17, Europe/Paris. Builds on the [UI audit](23-ui-audit-and-redesign.md) and [approval design](25-approval-dialog-design.md).
 

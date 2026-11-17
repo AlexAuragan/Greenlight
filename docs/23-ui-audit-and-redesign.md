@@ -706,3 +706,7 @@ The local cached sources for Ratatui 0.30.2 / ratatui-widgets 0.3.2 and Crosster
 | [Current help](../src/tui/help.rs) · [Current contract](11-tui.md) · [Earlier UX research](12-tui-ux-analysis.md) | Existing key meanings, historical proposals and migration caveats |
 
 **Review deliverable:** a current inventory, researched toolkit and draft visual/interaction specification. No application code, dependency, keybinding, permission policy or execution behavior is changed by this document.
+
+## Focused attention/recovery follow-up
+
+The [attention and recovery proposal](27-attention-and-recovery-design.md) separates blocked-step continuation, provider failures, owner recovery and unfinished native writes. Its four static studies preserve existing recovery contracts; this remains design-only. The user has approved the overall completed-screen visual direction in [the previous pass](26-completed-screen-design.md).
