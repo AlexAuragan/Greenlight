@@ -58,8 +58,22 @@ impl ApprovalMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HumanReviewKind { Checkpoint, StepResult }
+#[derive(Clone, Debug)]
+pub struct HumanReview {
+    pub kind: HumanReviewKind,
+    pub session: String,
+    pub branch: String,
+    pub step: String,
+    pub attempt: String,
+    pub manifest: Option<i64>,
+    pub question: String,
+    pub documents: Vec<crate::store::Artifact>,
+}
 #[derive(Clone, Debug)]
 pub struct ApprovalPrompt {
+    pub review: Option<HumanReview>,
     pub content: String,
     pub mode: ApprovalMode,
     /// Exact shell command for presentation, not authorization matching.
@@ -73,10 +87,10 @@ pub enum PromptDriver {
 }
 
 impl PromptDriver {
-    fn ask(&mut self, prompt: &str, mode: ApprovalMode) -> Result<String> {
-        self.ask_with_command(prompt, mode, None)
-    }
     fn ask_with_command(&mut self, prompt: &str, mode: ApprovalMode, command: Option<&str>) -> Result<String> {
+        self.ask_with_review(prompt, mode, command, None)
+    }
+    fn ask_with_review(&mut self, prompt: &str, mode: ApprovalMode, command: Option<&str>, review: Option<HumanReview>) -> Result<String> {
         match self {
             Self::Terminal => {
                 println!("{prompt}");
@@ -87,7 +101,7 @@ impl PromptDriver {
                 Ok(answer.trim().to_string())
             }
             Self::Tui { requests, answers } => {
-                requests.send(ApprovalPrompt { content: prompt.to_string(), mode, command: command.map(str::to_owned) })
+                requests.send(ApprovalPrompt { review, content: prompt.to_string(), mode, command: command.map(str::to_owned) })
                     .context("TUI approval channel closed")?;
                 answers.recv().context("TUI approval response channel closed")
             }
@@ -122,9 +136,9 @@ impl Tools {
         matches!(&self.prompt_driver, PromptDriver::Tui { .. })
     }
 
-    pub fn ask_yes(&mut self, message: &str) -> Result<bool> {
-        let answer = self.prompt_driver.ask(
-            &format!("{message}\n[y] approve / [n] deny (default)"), ApprovalMode::Human,
+    pub fn ask_review(&mut self, message: &str, review: HumanReview) -> Result<bool> {
+        let answer = self.prompt_driver.ask_with_review(
+            &format!("{message}\n[y] approve / [n] deny (default)"), ApprovalMode::Human, None, Some(review),
         )?;
         Ok(answer.trim().eq_ignore_ascii_case("y"))
     }

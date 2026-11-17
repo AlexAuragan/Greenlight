@@ -426,7 +426,13 @@ impl Engine {
                 } else {
                     "Approve and continue?".to_owned()
                 };
-                if !self.tools.ask_yes(&question)? {
+                let review = crate::tools::HumanReview {
+                    kind: crate::tools::HumanReviewKind::Checkpoint,
+                    session:s.id.clone(), branch:s.active_branch.clone(), step:step.id.clone(),
+                    attempt:self.store.active_attempt(s,&step.id)?.0, manifest:Some(input_manifest),
+                    question:format!("{prompt}\n{extra}"), documents:inputs.clone(),
+                };
+                if !self.tools.ask_review(&question, review)? {
                     self.store.event(s, Some(&step.id), "human.declined", "")?;
                     return Ok(Outcome::Deviation(
                         "human_declined".into(),
@@ -718,7 +724,14 @@ impl Engine {
         let result: Result<()> = match check {
             Verify::None => Ok(()),
             Verify::Human => {
-                let approved = self.tools.ask_yes("Verification: approve step result?")?;
+                let review = crate::tools::HumanReview {
+                    kind:crate::tools::HumanReviewKind::StepResult,
+                    session:s.id.clone(), branch:s.active_branch.clone(), step:step.id.clone(),
+                    attempt:self.store.active_attempt(s,&step.id)?.0, manifest:None,
+                    question:"Approve this step result? Review the recorded result evidence before deciding.".into(),
+                    documents:if self.tools.is_tui() {self.store.attempt_artifacts(s,&step.id)?} else {Vec::new()},
+                };
+                let approved = self.tools.ask_review("Verification: approve step result?",review)?;
                 self.store.event(
                     s,
                     Some(&step.id),

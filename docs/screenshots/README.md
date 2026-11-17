@@ -43,6 +43,17 @@ Run/usage captures use the existing ledger with fixture data; these screens do n
 | Exact request | [PNG](usage-request-80x24.png) | — | — |
 | No recorded usage | [PNG](usage-empty-80x24.png) | — | — |
 
+
+Human review captures use typed fixture metadata and a locally owned review. The 40×20 layout is supported; 40×14 shows the existing safe size fallback with acceptance disabled.
+
+| View | 80×24 | 120×36 | 40×20 |
+| --- | --- | --- | --- |
+| Human checkpoint | [PNG](checkpoint-human-80x24.png) | [PNG](checkpoint-human-120x36.png) | [PNG](checkpoint-human-40x20.png) |
+| Step-result verification | [PNG](checkpoint-step-result-80x24.png) | [PNG](checkpoint-step-result-120x36.png) | [PNG](checkpoint-step-result-40x20.png) |
+| Exact evidence reader | [PNG](checkpoint-evidence-80x24.png) | — | — |
+| Changed input | [PNG](checkpoint-changed-80x24.png) | — | — |
+| Unsupported size | [PNG](checkpoint-small-40x14.png) | — | — |
+
 Regenerate from the repository root:
 
 ```bash

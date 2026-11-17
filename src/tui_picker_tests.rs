@@ -112,6 +112,10 @@ fn new_session_form_starts_worker_without_draft_loss_and_keeps_approvals() {
     assert!(screen(&app).contains("Review before execution"));
     key(&mut app, root.path(), &store, KeyCode::Enter);
     assert!(app.approval.is_some());
+    assert!(app.checkpoint.reading);
+    key(&mut app, root.path(), &store, KeyCode::Char('y'));
+    assert!(app.approval.is_some());
+    key(&mut app, root.path(), &store, KeyCode::Esc);
     key(&mut app, root.path(), &store, KeyCode::Char('y'));
     while app.runner.is_some() {
         assert!(Instant::now() < deadline, "{}", app.notice);
@@ -160,7 +164,7 @@ fn pending_approval_clears_filter_that_hides_its_owner() {
     });
     app.searching = true;
     sender
-        .send(ApprovalPrompt { command: None,
+        .send(ApprovalPrompt { review: None, command: None,
             content: "Owner permission".into(),
             mode: ApprovalMode::Human,
         })

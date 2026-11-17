@@ -506,7 +506,7 @@ mod approval_priority_tests {
             answers,
             finished,
         });
-        app.approval = Some(ApprovalPrompt { command: None,
+        app.approval = Some(ApprovalPrompt { review: None, command: None,
             mode: ApprovalMode::Human,
             content: "Review this approval".into(),
         });

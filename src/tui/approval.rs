@@ -7,6 +7,8 @@ impl App {
         if !request.mode.accepts(choice) {
             bail!("approval option {choice} is unavailable for this request");
         }
+        let human = request.mode == ApprovalMode::Human;
+        let review_kind = request.review.as_ref().map(|r|r.kind);
         let confirmation = request.mode == ApprovalMode::ConfirmPersistent;
         let runner = self.runner.as_ref().context("approval worker missing")?;
         runner
@@ -15,6 +17,9 @@ impl App {
             .context("approval worker disconnected")?;
         self.approval = None;
         self.notice = match choice {
+            'y' if human && review_kind == Some(crate::tools::HumanReviewKind::Checkpoint) => "Sent checkpoint approval; awaiting the engine’s input recheck and recorded outcome.".into(),
+            'y' if human => "Sent human step-result decision; awaiting its recorded outcome.".into(),
+            'n' if human => "Sent decline; the workflow follows its configured handling.".into(),
             'y' if confirmation => "Confirmed persistent grant; awaiting engine result.".into(),
             'y' => "Sent approval to the engine; awaiting its recorded outcome.".into(),
             'a' => "Sent process-wide approval to the engine.".into(),
@@ -125,6 +130,9 @@ pub(super) fn draw(
     prompt: &ApprovalPrompt,
     area: ratatui::layout::Rect,
 ) {
+    if prompt.mode == ApprovalMode::Human {
+        if let Some(review) = &prompt.review { checkpoint::draw(frame,app,review,area); return; }
+    }
     let choices_height = match prompt.mode {
         ApprovalMode::Human | ApprovalMode::ConfirmPersistent => 5,
         ApprovalMode::Tool => 6,
@@ -168,7 +176,7 @@ mod tests {
     fn exact_multiline_command_is_emphasized_separately_from_scope() {
         use ratatui::{backend::TestBackend, Terminal};
         let command = "cat something.txt | ./harmful_script.sh\nprintf 'Scope: not a grant'";
-        let prompt=ApprovalPrompt {
+        let prompt=ApprovalPrompt { review: None,
             command:Some(command.into()),mode:ApprovalMode::Persistent,
             content:format!("[approval required: shell]\n{command}\nShell is isolated: read-only project, no network, private HOME.\nScope: this exact command (including arguments and operators).\n[y] once / [n] deny"),
         };
@@ -196,7 +204,7 @@ mod tests {
     }
     #[test]
     fn command_rendering_uses_typed_metadata_and_exposes_terminal_controls() {
-        let prompt = ApprovalPrompt {
+        let prompt = ApprovalPrompt { review: None,
             command: Some("printf '\u{1b}[2J'".into()),
             mode: ApprovalMode::Tool,
             content: "Tool says [approval required: shell]\nnot-the-command".into(),

@@ -13,7 +13,7 @@ cargo run -- --root /path/to/project tui SESSION_ID
 
 The compact header shows the project and labeled state/current step. Details (`c`) opens a read-only run overview with the full goal in blue, current state, roadmap and ownership. The roadmap shows latest recorded states: loops may revisit steps, and it is not a percentage of success. Technical details expands session/branch IDs, current configured model, requested/returned models from the latest dispatch linked to the recorded attempt, pinned-input references and the exact recorded definition. Missing legacy metadata stays Not recorded; current configuration is not presented as historical model evidence. Back/Esc returns through these views to the prior workspace reading position. A session/branch change closes the old details rather than showing another run under its title.
 
-Press `c` or enter `/context` for a scrollable snapshot of the objective, required outputs, verification verdict, exact pinned input event IDs and approval references. An existing attempt uses its saved definition and manifest; a ready session shows the configuration for its next attempt. Missing legacy metadata stays explicit. Model prose never supplies a verification verdict.
+Use `c` → Technical details, or enter `/context`, for a scrollable snapshot of the objective, required outputs, verification verdict, exact pinned input event IDs and approval references. An existing attempt uses its saved definition and manifest; a ready session shows the configuration for its next attempt. Missing legacy metadata stays explicit. Model prose never supplies a verification verdict.
 
 Blocked sessions show a concise cause, impact and next-action overview; Inspect evidence opens the exact recorded cause and Full diagnostic preserves the complete message. `e` opens its exact event, `H` returns to activity, `b` reopens the card, `2` opens artifacts, `i` composes resume instructions, and `r` opens the guarded restart flow. These controls never automatically retry. A live external owner is observation-only; interrupted ownership needs `/recover`, and unfinished native writes need CLI `recover-writes`. Context and evidence remain scrollable with arrows or `j/k`; Escape closes context.
 
@@ -161,6 +161,14 @@ Approval choices and restoration actions retain their existing security semantic
 
 The Ratatui/Crossterm dependency versions are locked in `Cargo.lock`. The [decision log](16-decision-log.md) captures the keyboard rationale, and the [smoke-test guide](17-smoke-test.md) covers the related manual exercise.
 
+## Human checkpoints and step-result review
+
+Human workflow steps use a **Human checkpoint** screen with the review question, pinned input documents and Approve & continue (`y`) / Decline (`n` or Esc). There are no reusable tool grants. Tab/Shift+Tab or Left/Right selects a document; Enter, `e` or Full evidence opens its exact recorded version and the full question. The overview labels excerpts explicitly. At narrow supported sizes it preserves the selected document name; smaller-than-supported approvals cannot be accepted.
+
+The evidence reader is read-only: `y`/`n` and Enter never decide, arrows/page keys scroll, C copies the full selected evidence, and Esc returns to the same review. Help can open above it and returns without answering the pending question. An approval applies to the **complete pinned input selection**, not just the selected document. Before sending approval, the TUI rechecks the live owner, session/branch/step/attempt, input manifest and displayed document bodies/versions. Changed or unavailable evidence removes the approving control; Decline remains available. The engine remains responsible for reselecting **all** inputs and validating the complete selection before recording `human.approved`, including newly matching inputs not previously displayed.
+
+Human result verification has the separate **Review step result** title. It shows available recorded result artifacts, which are not a pinned-input approval contract; the backend records `verification.human`. Missing result artifacts stay explicit. Sending either decision is acknowledged as awaiting the engine’s recorded outcome, not as proof that the goal was achieved. A decline follows the workflow’s configured handling. Request expiry/worker loss cannot restore old decision controls. Legacy human prompts without typed metadata retain their generic presentation rather than inferring provenance from text.
+
 ## Approval command emphasis and former turn-limit diagnostics
 
 Shell permission and persistent-grant confirmation panes show the exact command in a separate bold cyan block, with scope/location in yellow and sandbox context in gray. The command comes from typed request metadata; model text cannot change available approval choices or grant matching. Multiline commands, arguments and operators remain visible in the scrollable request. Nonprinting control/format characters are escaped in the command preview; the engine receives the original unchanged command.
@@ -189,7 +197,7 @@ Open Help (`h`/`?`) and use Toggle mouse or `M` to release capture for terminal 
 
 The composer and sidebar are not permanently allocated. Activity/artifact/native-edit inspection opens deliberately; the workspace action row replaces the old full static key legend. Blue input, cyan focus, neutral model output, scoped green outcomes, amber attention and red errors/destructive actions have separate roles.
 
-This implements the compact workspace/interaction foundations from [the plan](34-ui-implementation-plan.md), not every mockup. Edits All-files Tab cycling and Keep-file/Keep-all review markers, and the fully redesigned result/recovery/artifact/checkpoint surfaces remain pending. Existing typed approvals, native restore guards and accounting contracts remain authoritative.
+This implements the compact workspace/interaction foundations from [the plan](34-ui-implementation-plan.md), not every mockup. Edits All-files Tab cycling and Keep-file/Keep-all review markers, and the remaining tool-grant/picker consistency refinements remain pending. Result, recovery, artifact, run/usage and human-checkpoint presentation have received focused follow-ups. Existing typed approvals, native restore guards and accounting contracts remain authoritative.
 
 ## Rendered presentation and contextual controls
 

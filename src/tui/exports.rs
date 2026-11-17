@@ -15,6 +15,8 @@ impl App {
     pub(super) fn export_snapshot(&self) -> Result<Snapshot> {
         let (label, text) = if self.help {
             ("keyboard help".into(), HELP.into())
+        } else if self.human_review().is_some() {
+            ("human review · selected recorded evidence".into(),self.review_document_text().unwrap_or_default())
         } else if let Some(text) = &self.diagnostic {
             ("diagnostic".into(), text.clone())
         } else if let Some(page) = self.details.page {

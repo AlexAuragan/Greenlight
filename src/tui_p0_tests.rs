@@ -53,6 +53,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
     let (finished_tx, finished) = mpsc::channel();
     let session = session.to_string();
     let instruction = instruction.to_string();
+    let owner_session = session.clone();
     engine.tools.use_tui(prompts_tx, answer_rx);
     thread::spawn(move || {
         let result = tokio::runtime::Runtime::new().unwrap().block_on(engine.run(
@@ -65,7 +66,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
     app.runner = Some(Runner {
         live: None,
         cancel_retry: None,
-        session_id: None,
+        session_id: Some(owner_session),
         prompts,
         answers,
         finished,
@@ -88,7 +89,7 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
         answers,
         finished,
     });
-    app.approval=Some(ApprovalPrompt { command: None,content:"ALL native writes in ALL projects\nFuture matching requests may skip prompts.\n[y] save / [n] cancel".into(),mode:ApprovalMode::ConfirmPersistent});
+    app.approval=Some(ApprovalPrompt { review: None, command: None,content:"ALL native writes in ALL projects\nFuture matching requests may skip prompts.\n[y] save / [n] cancel".into(),mode:ApprovalMode::ConfirmPersistent});
     let rendered = screen(&app);
     assert!(rendered.contains("Confirm persistent grant"));
     assert!(rendered.contains("Save grant and allow"));
@@ -204,7 +205,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
             .as_ref()
             .is_some_and(|p| p.mode == ApprovalMode::Human)
     });
-    assert!(screen(&app).contains("Human approval required"));
+    assert!(screen(&app).contains("Human checkpoint"));
     assert!(app
         .approval
         .as_ref()
@@ -225,7 +226,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     let (pt, prompts) = mpsc::channel();
     let (answers, old_answers) = mpsc::channel();
     let (ft, finished) = mpsc::channel();
-    pt.send(ApprovalPrompt {
+    pt.send(ApprovalPrompt { review: None,
         command: None,
         content: "Unanswered checkpoint".into(),
         mode: ApprovalMode::Human,
@@ -462,7 +463,7 @@ fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
         finished,
     });
     sender
-        .send(ApprovalPrompt {
+        .send(ApprovalPrompt { review: None,
             command: None,
             content: "Owner permission".into(),
             mode: ApprovalMode::Human,
@@ -476,4 +477,30 @@ fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
     assert!(screen(&app).contains("Owner permission"));
     key(&mut app,&store,root.path(),KeyCode::Char('c'));
     assert!(app.context_detail.is_none());
+}
+
+#[test]
+fn human_result_verification_transports_recorded_outputs_without_pinned_approval_claims() {
+    let root=tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    fs::write(root.path().join(".greenlight/config.yaml"),"provider:\n  model: fixture\n  pricing_discovery: false\n").unwrap();
+    let folder=root.path().join(".greenlight/workflows/review-result");fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("workflow.yaml"),"id: review-result\ntitle: Review result\nstart: work\nsteps: [work]\n").unwrap();
+    fs::write(folder.join("work.md"),"---\nid: work\noutputs:\n  required: [result.md]\nverification:\n  type: human\n---\nPrepare a result for human review\n").unwrap();
+    let store=Store::open(root.path()).unwrap();
+    let session=store.create("review-result","Review the generated result","work").unwrap();
+    let mut app=App::new(Some(&session.id));app.refresh(&store).unwrap();
+    start(&mut app,root.path(),&session.id,"Prepare the result",&["action: artifact\nname: result.md\ncontent: Exact result evidence","action: finish\nsummary: Result prepared"]);
+    wait(&mut app,&store,|a|a.approval.is_some());
+    let review=app.human_review().unwrap();
+    assert_eq!(review.kind,crate::tools::HumanReviewKind::StepResult);
+    assert!(review.manifest.is_none());assert_eq!(review.documents.len(),1);
+    assert_eq!(review.documents[0].content,"Exact result evidence");
+    assert!(screen(&app).contains("Review step result"));
+    key(&mut app,&store,root.path(),KeyCode::Char('y'));
+    wait(&mut app,&store,|a|a.runner.is_none());
+    let history=store.history(&store.session(&session.id).unwrap()).unwrap();
+    assert!(history.iter().any(|e|e.2=="verification.human" && e.3=="approved"));
+    assert!(!history.iter().any(|e|e.2=="human.approved"));
+    assert_eq!(store.session(&session.id).unwrap().status,"completed");
 }

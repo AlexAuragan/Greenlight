@@ -609,3 +609,45 @@ fn run_details_and_usage_render_scoped_summaries_and_exact_request_evidence() {
     screen(&mut app,80,24,"usage-empty");
     assert!(app.details.text.contains("No recorded requests"));
 }
+
+#[test]
+fn human_checkpoint_and_step_result_have_distinct_review_surfaces() {
+    let (root,store,s,mut app,received,_owner)=checkpoint::tests::fixture();
+    app.shell.project="sample-project".into();
+    let before=store.history(&s).unwrap().len();
+    for (w,h) in [(80,24),(120,36),(40,20)] {
+        let output=text(&screen(&mut app,w,h,"checkpoint-human"));
+        assert!(output.contains("Human checkpoint"));
+        assert!(output.contains("Approve"));assert!(output.contains("Decline"));
+        assert!(!output.contains("project grant"));assert!(!output.contains("global grant"));
+        assert!(!output.contains(&s.id));
+        assert!(output.contains("plan.md"));
+        if w>=80 {assert!(output.contains("Pinned input documents"));assert!(output.contains("Excerpt only"));}
+    }
+    let output=text(&screen(&mut app,40,14,"checkpoint-small"));
+    assert!(!output.contains("Approve"));
+    app.on_key(KeyEvent::new(KeyCode::Char('y'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert!(received.try_recv().is_err());
+    app.viewport=(80,24);
+    app.checkpoint_open(&store);
+    let output=text(&screen(&mut app,80,24,"checkpoint-evidence"));
+    assert!(output.contains("Read-only evidence"));assert!(output.contains("Original exact plan"));
+    app.on_key(KeyEvent::new(KeyCode::Char('n'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert!(received.try_recv().is_err());
+    app.checkpoint_back(&store);
+    store.add_artifact(&s,"plan","plan.md","A newer unseen plan").unwrap();
+    app.refresh_checkpoint(&store);
+    let output=text(&screen(&mut app,80,24,"checkpoint-changed"));
+    assert!(!output.contains("Approve & continue"));assert!(output.contains("Decline"));assert!(output.contains("newer version"));
+    let review=app.approval.as_mut().unwrap().review.as_mut().unwrap();
+    review.kind=crate::tools::HumanReviewKind::StepResult;review.manifest=None;review.documents.clear();
+    review.question="Approve this step result? Review the available result evidence.".into();
+    app.refresh_checkpoint(&store);
+    for (w,h) in [(80,24),(120,36),(40,20)] {
+        let output=text(&screen(&mut app,w,h,"checkpoint-step-result"));
+        assert!(output.contains("Review step result"));assert!(!output.contains("Human checkpoint"));
+        assert!(!output.contains("project grant"));
+    }
+    assert_eq!(store.history(&s).unwrap().len(),before+1);
+    assert!(!store.history(&s).unwrap().iter().any(|e|e.2=="human.approved" || e.2=="verification.human"));
+}

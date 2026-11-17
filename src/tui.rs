@@ -20,6 +20,7 @@ mod activity;
 mod approval;
 mod attention;
 mod compose;
+mod checkpoint;
 mod details;
 mod editor;
 mod edits;
@@ -111,6 +112,7 @@ struct App {
     notice: String,
     runner: Option<Runner>,
     approval: Option<ApprovalPrompt>,
+    checkpoint: checkpoint::State,
     restart_choices: Vec<RestartCandidate>,
     restart_cursor: usize,
     restart_plan: Option<RestorePlan>,
@@ -194,6 +196,7 @@ impl App {
             notice: String::new(),
             runner: None,
             approval: None,
+            checkpoint: checkpoint::State::default(),
             restart_choices: Vec::new(),
             restart_cursor: 0,
             restart_plan: None,
@@ -512,6 +515,7 @@ impl App {
             self.blocker_card = false;
             self.context_detail = None;
         }
+        self.refresh_checkpoint(store);
         self.refresh_run_details(store);
         if self.view == View::Edits && self.edits.pending.is_none() {
             self.refresh_edits(store);
@@ -611,6 +615,7 @@ impl App {
                     }
                     self.shell.request_epoch += 1;
                     self.shell.actions_focus = false;
+                    self.checkpoint = checkpoint::State::default();
                     self.approval = Some(question);
                     self.detail_scroll = 0;
                 }

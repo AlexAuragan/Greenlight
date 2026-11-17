@@ -29,6 +29,7 @@ impl App {
             match key.code {
                 KeyCode::Esc | KeyCode::Char('h' | '?') => {
                     self.help = false;
+                    self.refresh_checkpoint(store);
                     self.detail_scroll = self.shell.help_scroll;
                 }
                 KeyCode::Char('M') => self.shell.mouse = !self.shell.mouse,
@@ -194,9 +195,23 @@ impl App {
                 return Ok(false);
             }
         }
+        if self.human_review().is_some() && self.checkpoint.reading {
+            match key.code {
+                KeyCode::Esc => self.checkpoint_back(store),
+                KeyCode::Char('C') => self.start_copy(),
+                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::PageDown => self.scroll_detail(8),
+                KeyCode::PageUp => self.scroll_detail(-8),
+                KeyCode::Home => self.detail_scroll=0,
+                KeyCode::End => self.detail_scroll=u16::MAX,
+                _ => {}
+            }
+            return Ok(false);
+        }
         if self.too_small() {
             if key.code == KeyCode::Esc && self.approval.is_some() {
-                self.deliver_approval('n')?;
+                self.deliver_checked_approval('n', store)?;
             }
             return Ok(key.code == KeyCode::Char('q')
                 && self.runner.is_none()
@@ -206,6 +221,14 @@ impl App {
             if key.kind != KeyEventKind::Press {
                 return Ok(false);
             }
+            if self.human_review().is_some() {
+                match key.code {
+                    KeyCode::Tab | KeyCode::Right => {self.checkpoint_select(1);return Ok(false);}
+                    KeyCode::BackTab | KeyCode::Left => {self.checkpoint_select(-1);return Ok(false);}
+                    KeyCode::Enter | KeyCode::Char('e') => {self.checkpoint_open(store);return Ok(false);}
+                    _ => {}
+                }
+            }
             match key.code {
                 KeyCode::Char(choice)
                     if !key
@@ -213,9 +236,9 @@ impl App {
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                         && mode.accepts(choice.to_ascii_lowercase()) =>
                 {
-                    self.deliver_approval(choice.to_ascii_lowercase())?;
+                    self.deliver_checked_approval(choice.to_ascii_lowercase(), store)?;
                 }
-                KeyCode::Esc => self.deliver_approval('n')?,
+                KeyCode::Esc => self.deliver_checked_approval('n', store)?,
                 // Enter is intentionally inert. Approval must be an explicit
                 // choice, never an accidental confirmation of a default.
                 KeyCode::Enter => {}

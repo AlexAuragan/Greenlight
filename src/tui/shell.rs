@@ -57,6 +57,8 @@ pub(super) enum Action {
     UsageAccounting,
     DetailsBack,
     UsageRequest(usize),
+    ReviewOpen,
+    ReviewBack,
     Follow,
     Stop,
     Preview,
@@ -113,6 +115,8 @@ impl Action {
             Self::Copy => "Copy",
             Self::Editor => "Editor",
             Self::Filter => "Filter",
+            Self::ReviewOpen => "[e] Full evidence",
+            Self::ReviewBack => "Back to review",
             Self::Usage => "Usage",
             Self::Technical => "Technical details",
             Self::Requests => "Request details",
@@ -208,7 +212,7 @@ impl App {
             ":{}:{}:{:?}",
             self.shell.more, self.shell.menu_index, self.shell.actions_focus
         ) + &format!(":{:?}:{:?}:{:?}", self.details.page, self.details.selected, self.details.page.and(self.details.report.as_ref()).map(|r| r.calls.iter().map(|c|c.id.as_str()).collect::<Vec<_>>()))
-            + &format!(":{:?}", self.compose.mode)
+            + &format!(":{:?}:{}:{}", self.compose.mode, self.checkpoint.reading, self.checkpoint.index)
             + &format!(
                 ":{:?}",
                 self.sessions
@@ -321,6 +325,9 @@ impl App {
             return vec![Action::Close, Action::Mouse];
         }
         if self.approval.is_some() {
+            if self.human_review().is_some() {
+                return if self.checkpoint.reading {vec![Action::ReviewBack,Action::Copy,Action::Help]} else {vec![Action::ReviewOpen,Action::Help]};
+            }
             return vec![Action::Help];
         }
         if self.new_session.is_some() {
@@ -687,6 +694,8 @@ impl App {
             Copy => KeyCode::Char('C'),
             Editor => KeyCode::Char('E'),
             Filter => KeyCode::Char('F'),
+            ReviewOpen => { self.checkpoint_open(store); return Ok(false); }
+            ReviewBack => { self.checkpoint_back(store); return Ok(false); }
             Usage => {
                 self.open_run_details(details::Page::Usage, store);
                 return Ok(false);
@@ -949,6 +958,8 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::Help => "Help",
             Action::InspectAttention => "Evidence",
             Action::FullDiagnostic => "Details",
+            Action::ReviewOpen => "Evidence [e]",
+            Action::ReviewBack => "Back",
             Action::Technical => "Technical",
             Action::Requests => "Requests",
             Action::OpenRequest => "Open",
@@ -1101,7 +1112,7 @@ mod tests {
             answers,
             finished,
         });
-        app.approval = Some(ApprovalPrompt {
+        app.approval = Some(ApprovalPrompt { review: None,
             command: Some("ls".into()),
             content: "Scope: exact command".into(),
             mode: ApprovalMode::Persistent,
@@ -1184,7 +1195,7 @@ mod tests {
             answers,
             finished,
         });
-        app.approval = Some(ApprovalPrompt {
+        app.approval = Some(ApprovalPrompt { review: None,
             command: None,
             content: "First".into(),
             mode: ApprovalMode::Human,
