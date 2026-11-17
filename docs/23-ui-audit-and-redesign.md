@@ -270,7 +270,7 @@ Rules:
 
 ### 5.2 Greenlight status motif
 
-Recommend a **small colored lamp with a text label**, not a large three-row traffic-light drawing in every pane. A traffic-light motif is useful branding, but three colors cannot replace the state model.
+Recommend a **small colored lamp with a text label** (), not a large three-row traffic-light drawing in every pane. A traffic-light motif is useful branding, but three colors cannot replace the state model.
 
 | User-facing state | Visual recommendation | Source / interpretation |
 | --- | --- | --- |
@@ -335,7 +335,7 @@ Immediate direct-key decisions remain compatible with button presentation. Selec
 
 ### 6.3 Help and keybinding proposal
 
-Recommend **uppercase `H`** for Help in navigation, retaining `?` as an alias initially. Lowercase `h` currently means activity/history, so silently rebinding it would create another inconsistency. During text entry letters remain text; provide a visible Help action accessible through navigation. The treatment of `H` over approvals is the explicit layer-policy decision in section 4.4.
+Recommend ** `h`** for Help in navigation, retaining `?` as an alias initially.`h` currently means activity/history, and should be bound to something else like uppercase `H`. During text entry letters remain text; provide a visible Help action accessible through navigation. The treatment of `h` over approvals is the explicit layer-policy decision in section 4.4.
 
 Help should start with **This screen**: focus, eligible actions, what Enter/Escape do, how to return. A Navigation section explains movement. All actions is searchable or grouped by task, with descriptions rather than just letters. Advanced key combinations and CLI alternatives belong here, not on the always-visible footer.
 
