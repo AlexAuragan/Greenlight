@@ -144,7 +144,7 @@ pub(super) fn draw(
         app,
         Paragraph::new(approval_text(prompt))
             .wrap(Wrap { trim: false })
-            .block(border(title, true)),
+            .block(border("", true).title(format!("{} · {}",title.trim(),super::view::fit(app.session().map(|s|s.goal.as_str()).unwrap_or("Current request"),40)))),
         approval_areas[0],
     );
     let keys = ['y','a','p','g','n'].into_iter().filter(|key|prompt.mode.accepts(*key)).collect::<Vec<_>>();

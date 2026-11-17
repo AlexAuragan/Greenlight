@@ -76,3 +76,5 @@ Ordinary focus/control traversal applies here. The user-requested Tab-to-cycle-f
 Later checks should cover explicit-open/follow-selection behavior, exact-version result links, inherited versions/cutoffs, missing bodies, legacy approvals, corrupt manifests, identical/first/oversized comparisons, safe raw rendering, truncation/export labeling, async stale results, resize, Help and keyboard/mouse equivalence. Static drawings are fictional examples, not cell-accurate terminal acceptance tests.
 
 Next design pass: session navigation/empty home, human checkpoints, run details/usage and Help. The focused screen set is not yet a complete replacement specification for every audited surface.
+
+Implementation follow-up: artifact list density, contextual document/version controls and the dark reader presentation have landed. [Actual Ratatui renders](screenshots/README.md) distinguish the implemented surfaces from the broader proposed version/provenance interactions above.

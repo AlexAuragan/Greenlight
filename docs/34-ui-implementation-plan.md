@@ -106,3 +106,9 @@ The compact workspace and interaction foundations are now implemented: shared se
 This does not implement later-slice Keep tracking/file cycling, richer draft/recipient routing or the full screen studies. TestBackend/state tests cover geometry, navigation, drafts, topmost Help, stale click rejection and paste; a local scripted-provider PTY smoke checks actual rendered streaming, Unicode editing, cursor/capture sequences and Help/mouse toggling. These are implementation checks, not user acceptance of every remaining proposal.
 
 Verification for this slice: 287 tests passed, one existing test ignored; offline build and all-target Clippy completed (five pre-existing test-code warnings). A local fixture-provider PTY smoke passed without paid calls. Follow-up TUI runs covered the final focus/layer refinements.
+
+## 8. Visual-fidelity correction
+
+User terminal screenshots showed that the first slice changed the shell while preserving old result/list presentation. The follow-up replaces the result dump with evidence-scoped fields, preserves full evidence in a separate reader, pins the report action to its original version, removes the full goal from the header, adds the shared dark palette/framed controls, and gives artifact lists compact rows and contextual actions. Actual [Ratatui cell captures](screenshots/README.md), rather than new proportional mockups, are the review reference for these screens. This does not claim all planned UI surfaces or Keep-review semantics are finished.
+
+Visual-fidelity verification: 291 full-suite tests passed with one existing ignored test; the final 92 TUI tests passed after layout polish. Offline build, all-target Clippy (existing test-code warnings only), documentation/capture validation and the local-provider PTY smoke completed without paid model calls.

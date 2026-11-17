@@ -11,7 +11,7 @@ cargo run -- --root /path/to/project tui SESSION_ID
 
 ## Session workspace
 
-The compact header shows the session goal/title, workflow/status and current step. Full attempt metadata and the roadmap are under Details (`c`). The stepper there is an overview: loops can revisit steps and unvisited branches stay pending. It does not imply a linear execution plan. Long workflows window around the current step.
+The compact header shows the project and labeled state/current step. The full goal, workflow and attempt metadata/roadmap are under Details (`c`). The stepper there is an overview: loops can revisit steps and unvisited branches stay pending. It does not imply a linear execution plan. Long workflows window around the current step.
 
 Press `c` or enter `/context` for a scrollable snapshot of the objective, required outputs, verification verdict, exact pinned input event IDs and approval references. An existing attempt uses its saved definition and manifest; a ready session shows the configuration for its next attempt. Missing legacy metadata stays explicit. Model prose never supplies a verification verdict.
 
@@ -143,7 +143,7 @@ Unsent composer text belongs to the selected session ID. Switching sessions, cha
 
 Activity initially follows incoming events. Opening evidence or navigating activity pauses following, including when reading the latest event. Background polling preserves that event and its scroll position. In the activity list, End or `G` selects the latest visible event and resumes following; Home or `g` selects the first and pauses. The activity title indicates following/paused. Artifact and diagnostic scrolling remains independent of new activity.
 
-The compact header is used at every size. Below 72 columns or 22 rows the open session picker/workspace uses full width; close Sessions to return to the workspace. Wrapped-content scroll bounds are recomputed at the current size, so overscrolling and resizing do not leave a blank reading panel. Below 40×14 it shows a resize notice and retains drafts/selections. Approval requests require at least 40×20; until then decision keys are disabled and Escape denies. Restoring the terminal size restores the pending request. Enter remains inert during approvals at every size.
+The compact header is used at every size. At narrow widths common header actions use a second navigation row; short button labels fit their available cells. Below 72 columns or 22 rows the open session picker/workspace uses full width; close Sessions to return to the workspace. Wrapped-content scroll bounds are recomputed at the current size, so overscrolling and resizing do not leave a blank reading panel. Below 40×14 it shows a resize notice and retains drafts/selections. Approval requests require at least 40×20; until then decision keys are disabled and Escape denies. Restoring the terminal size restores the pending request. Enter remains inert during approvals at every size.
 
 The wrapped-line calculation uses Ratatui's `unstable-rendered-line-info` feature on the version recorded in `Cargo.lock`; dependency upgrades must retain the resize/scroll tests.
 
@@ -165,7 +165,7 @@ A recorded `step hit limit of 16 model turns` diagnostic means an older engine s
 
 ## Completed-run results and recorded source edits
 
-When a selected run completes (or a completed session is first loaded), the Activity view opens a result panel. `s` reopens it; `H`, Escape or Enter returns to activity. The panel shows the number of source files with recorded native writes, final-step verification scope, the agent's final step summary and its exact historical report version. Step summaries/reports are labelled model-authored. Completion means control flow reached the end, not that performance improved or the user's objective was independently validated. `verification: none` displays “no checks required”; its aggregate pass is not a substantive test. Artifacts replaced after completion do not rewrite the report for that run.
+When a selected run completes (or a completed session is first loaded), the Activity view opens a result panel. `s` reopens it; `H`, Escape or Enter returns to activity. The overview separates a three-line, attributed conclusion excerpt, final-step verification scope and the recorded native-edit count. It does not dump the report body into the overview. Read final report opens the exact historical version; Review edits opens recorded diffs; More → Full result preserves the complete summary/report evidence. Step summaries/reports are labelled model-authored. Completion means control flow reached the end, not that performance improved or the user's objective was independently validated. `verification: none` displays “no checks required”; its aggregate pass is not a substantive test. Artifacts replaced after completion do not rewrite the report for that run.
 
 Press **3** for **Edits**. This lists paths recorded by the selected session's active branch ancestry and shows their net journal diff: first recorded pre-edit contents to latest recorded state, including previous explicit restores. Newly created files are labelled added; already reverted files remain in history with no net change. Artifact-only actions are not source edits. Missing snapshots and history gaps are explicit errors, not a claim that no edits occurred. Enter toggles between the file list and scrollable diff; copy/editor snapshot actions also work here.
 
@@ -186,3 +186,9 @@ Open Help (`h`/`?`) and use Toggle mouse or `M` to release capture for terminal 
 The composer and sidebar are not permanently allocated. Activity/artifact/native-edit inspection opens deliberately; the workspace action row replaces the old full static key legend. Blue input, cyan focus, neutral model output, scoped green outcomes, amber attention and red errors/destructive actions have separate roles.
 
 This implements the compact workspace/interaction foundations from [the plan](34-ui-implementation-plan.md), not every mockup. Edits All-files Tab cycling and Keep-file/Keep-all review markers, explicit-purpose composer modes, and the fully redesigned result/recovery/artifact/checkpoint surfaces remain pending. Existing typed approvals, native restore guards and accounting contracts remain authoritative.
+
+## Rendered presentation and contextual controls
+
+The TUI uses a shared dark background/panel palette and rounded, framed action buttons, with a filled primary action. The bottom row depends on the current screen: results expose Read final report / Review edits / More; artifacts expose Open selected / Versions / More, or Back / Versions / More while reading. Sessions, Details and Help remain in the header, reachable through the same keyboard focus cycle. Artifact lists use one row per document, with producer and size columns when width allows. Full metadata and version references remain inspectable.
+
+[Actual Ratatui captures](screenshots/README.md) show the current code at explicit cell dimensions. Earlier [design drawings](mockups/README.md) are visual direction rather than terminal screenshots. Text snapshots guard the default 80×24 result and artifact list against accidental return to the older layout.

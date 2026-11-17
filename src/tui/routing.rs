@@ -86,7 +86,7 @@ impl App {
             }
             return Ok(false);
         }
-        if !typing && !self.blocking_surface() {
+        if !typing && (!self.blocking_surface() || self.artifact_browser.is_some() && self.approval.is_none() && self.diagnostic.is_none() && self.context_detail.is_none() && self.usage_detail.is_none()) {
             if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
                 let actions = self.shell_actions();
                 if !actions.is_empty() {

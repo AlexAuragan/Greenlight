@@ -216,3 +216,5 @@ The [compact layout/navigation revision](docs/33-compact-layout-and-navigation.m
 Start with the [consolidated UI implementation plan](docs/34-ui-implementation-plan.md) for the current design references, agreed choices and first implementation slice.
 
 The first compact TUI slice is implemented; see [current controls and remaining scope](docs/11-tui.md). Older static studies remain design references for later slices.
+
+Review [actual Ratatui screen captures](docs/screenshots/README.md) for the implemented result/artifact presentation at 80×24 and 120×36. These replace proportional mockups as the visual review reference for those surfaces.

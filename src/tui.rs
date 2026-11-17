@@ -81,6 +81,7 @@ struct App {
     edits: edits::Edits,
     result_open: bool,
     result_text: String,
+    result_overview: Option<result::Overview>,
     result_key: Option<(String,String,i64)>,
     sessions: Vec<Session>,
     session_index: usize,
@@ -153,6 +154,7 @@ impl App {
             edits: Default::default(),
             result_open: false,
             result_text: String::new(),
+            result_overview: None,
             result_key: None,
             sessions: Vec::new(),
             session_index: 0,
@@ -298,7 +300,8 @@ impl App {
                     self.result_open=true;self.detail_scroll=0;self.result_key=Some(key);
                 }
                 self.result_text=result::summary(store,&session,&history);
-            } else {self.result_open=false;self.result_key=None;}
+                self.result_overview=Some(result::overview(&session,&history));
+            } else {self.result_open=false;self.result_key=None;self.result_overview=None;}
             let show_all = self.show_all;
             let generation=(session.id.clone(),session.active_branch.clone(),history.last().map(|event|event.0));
             if self.activity_generation.as_ref()!=Some(&generation) {
@@ -427,7 +430,7 @@ impl App {
         if !matches!(&completion, Err(TryRecvError::Empty)) {
             self.notice = match completion {
                 Ok(result) => match result {
-                Ok(()) => "Run ended · s result · 3 edits / revert · 2 artifacts · H activity".into(),
+                Ok(()) => "Workflow finished. Review the result and recorded evidence.".into(),
                 Err(error) => format!("Runner error: {error}"),
                 },
                 Err(_) => "Worker disconnected; pending approval expired. Inspect history and use /recover before resuming.".into(),
@@ -549,9 +552,10 @@ fn move_index(current: usize, delta: isize, len: usize) -> usize {
 }
 
 fn border(title: &'static str, focused: bool) -> Block<'static> {
-    let color = if focused { theme::FOCUS } else { theme::MUTED };
+    let color = if focused { theme::FOCUS } else { theme::BORDER };
     Block::default()
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title(title)
         .border_style(Style::default().fg(color))
 }
@@ -581,6 +585,7 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
         store.session(id).with_context(|| format!("unknown session {id}"))?;
     }
     let mut app = App::new(initial_session);
+    app.shell.project=root.file_name().map(|name|name.to_string_lossy().into_owned()).unwrap_or_else(||"project".into());
     app.refresh(&store)?;
     if let Err(error) = store.ensure_no_pending_writes() {
         app.notice = format!("Recovery required: {error:#}");
@@ -644,3 +649,7 @@ mod tests;
 #[cfg(test)]
 #[path="tui_edits_tests.rs"]
 mod edits_tests;
+
+#[cfg(test)]
+#[path = "tui_presentation_tests.rs"]
+mod presentation_tests;

@@ -262,7 +262,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     app.refresh(&store).unwrap();
     assert_eq!(store.session(&session.id).unwrap().status, "completed");
     assert!(app.diagnostic.is_none());
-    assert!(screen(&app).contains("COMPLETED"));
+    assert!(screen(&app).contains("Finished"));
     let history = store.history(&store.session(&session.id).unwrap()).unwrap();
     assert!(history.iter().any(
         |(_, _, k, d)| k == "user.instruction" && d == "Add the missing verification evidence"
@@ -402,7 +402,7 @@ fn workspace_cards_expose_context_and_exact_blocker_at_80x24() {
     app.refresh(&store).unwrap();
     key(&mut app,&store,root.path(),KeyCode::Esc);
     let rendered=screen(&app);
-    assert!(rendered.contains("Repair the parser"));
+    assert!(!rendered.contains("Repair the parser"));
     assert!(rendered.contains("Parser tests failed"));
     key(&mut app,&store,root.path(),KeyCode::Char('c'));
     assert!(app.context_detail.as_ref().unwrap().contains("Repair parsing"));

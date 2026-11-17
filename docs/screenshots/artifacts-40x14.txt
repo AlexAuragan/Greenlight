@@ -1,0 +1,13 @@
+Greenlight / bar…  ● Finished · evaluate
+
+ Activity    Artifacts   Edits
+           Sessions    Details  Help h
+Artifacts · 12 saved
+
+▸ baseline.md
+  baseline_draft_notes.md
+  benchmark.md
+  benchmark_measurement_notes.md
+╭───────────╮ ╭──────────╮ ╭──────╮
+│   Open    │ │ Versions │ │ More │
+╰───────────╯ ╰──────────╯ ╰──────╯

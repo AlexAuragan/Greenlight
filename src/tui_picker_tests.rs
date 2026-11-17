@@ -93,7 +93,7 @@ fn new_session_form_starts_worker_without_draft_loss_and_keeps_approvals() {
     key(&mut app, root.path(), &store, KeyCode::Enter);
     assert!(app.new_session.is_none());
     assert!(app.runner.is_some());
-    assert!(screen(&app).contains("STARTING"));
+    assert!(screen(&app).contains("starting"));
     assert_eq!(app.session().unwrap().goal, "Repair café");
     assert_eq!(app.session().unwrap().status, "ready");
     assert!(app.composer.is_empty());
@@ -265,7 +265,7 @@ fn new_goal_starts_real_http_stream_before_action_execution_and_records_usage() 
     }
     let rendered = screen(&app);
     assert!(rendered.contains("action: finish"));
-    assert!(rendered.contains("RUNNING"));
+    assert!(rendered.contains("running"));
     let history = store.history(app.session().unwrap()).unwrap();
     assert!(!history.iter().any(|(_, _, kind, _)| matches!(
         kind.as_str(),

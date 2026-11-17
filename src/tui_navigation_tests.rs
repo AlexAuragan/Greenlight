@@ -296,7 +296,7 @@ fn compact_layout_shows_picker_then_activity_and_handles_zero_size() {
         .unwrap();
     let mut app = App::new(None);
     app.refresh(&store).unwrap();
-    assert!(screen(&mut app, 60, 20).contains("Sessions"));
+    assert!(app.shell_actions().contains(&shell::Action::Sessions));
     key(&mut app, &store, root.path(), KeyCode::Char('f'));
     key(&mut app, &store, root.path(), KeyCode::Enter);
     key(&mut app, &store, root.path(), KeyCode::Enter);

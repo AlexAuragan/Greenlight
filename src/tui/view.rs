@@ -3,20 +3,52 @@ use super::*;
 
 pub(super) fn draw(frame: &mut Frame, app: &App) {
     app.begin_frame();
+    frame.render_widget(
+        Block::default().style(Style::default().fg(theme::TEXT).bg(theme::BACKGROUND)),
+        frame.area(),
+    );
     draw_workspace(frame, app);
-    if (app.help || app.shell.more) && (frame.area().width<4 || frame.area().height<4) {app.shell.hits.borrow_mut().clear();return;}
+    if (app.help || app.shell.more) && (frame.area().width < 4 || frame.area().height < 4) {
+        app.shell.hits.borrow_mut().clear();
+        return;
+    }
     if app.shell.more && !app.help {
         app.shell.hits.borrow_mut().clear();
-        let actions=app.more_actions();
-        let area=frame.area();
-        let width=area.width.saturating_sub(4).min(38);
-        let height=(actions.len() as u16+3).min(area.height.saturating_sub(2));
-        let popup=ratatui::layout::Rect::new((area.width-width)/2,(area.height-height)/2,width,height);
-        frame.render_widget(ratatui::widgets::Clear,popup);
-        frame.render_widget(border(" Actions · Esc closes ",true),popup);
-        let start=app.shell.menu_index.saturating_sub(height.saturating_sub(3) as usize);
-        for (row,(index,action)) in actions.into_iter().enumerate().skip(start).take(height.saturating_sub(2) as usize).enumerate() {
-            shell::button(frame,app,ratatui::layout::Rect::new(popup.x+1,popup.y+1+row as u16,width.saturating_sub(2),1),action,index==app.shell.menu_index);
+        let actions = app.more_actions();
+        let area = frame.area();
+        let width = area.width.saturating_sub(4).min(38);
+        let height = (actions.len() as u16 + 3).min(area.height.saturating_sub(2));
+        let popup = ratatui::layout::Rect::new(
+            (area.width - width) / 2,
+            (area.height - height) / 2,
+            width,
+            height,
+        );
+        frame.render_widget(ratatui::widgets::Clear, popup);
+        frame.render_widget(border(" Actions · Esc closes ", true), popup);
+        let start = app
+            .shell
+            .menu_index
+            .saturating_sub(height.saturating_sub(3) as usize);
+        for (row, (index, action)) in actions
+            .into_iter()
+            .enumerate()
+            .skip(start)
+            .take(height.saturating_sub(2) as usize)
+            .enumerate()
+        {
+            shell::button(
+                frame,
+                app,
+                ratatui::layout::Rect::new(
+                    popup.x + 1,
+                    popup.y + 1 + row as u16,
+                    width.saturating_sub(2),
+                    1,
+                ),
+                action,
+                index == app.shell.menu_index,
+            );
         }
     }
     if app.help {
@@ -24,15 +56,48 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         let area = frame.area();
         let width = area.width.saturating_sub(4).min(90);
         let height = area.height.saturating_sub(2).min(22);
-        let popup = ratatui::layout::Rect::new((area.width-width)/2,(area.height-height)/2,width,height);
-        frame.render_widget(ratatui::widgets::Clear,popup);
-        let regions = Layout::vertical([Constraint::Min(1),Constraint::Length(2)]).split(popup);
-        let context = format!("Keyboard help · {} · mouse {}\n\n{}", if app.approval.is_some(){"Approval pending; decisions disabled"}else if app.view==View::Edits{"Recorded edits"}else{"Workspace"},if app.shell.mouse{"on"}else{"off"},HELP);
-        draw_scrolled(frame,app,Paragraph::new(context).wrap(Wrap{trim:false}).block(border(" Help · Esc returns ",true)),regions[0]);
-        let mut x=regions[1].x;
-        for (index,action) in [shell::Action::Close,shell::Action::Mouse].into_iter().enumerate() {
-            let width=(action.label().len() as u16+3).min(regions[1].right().saturating_sub(x));
-            shell::button(frame,app,ratatui::layout::Rect::new(x,regions[1].y,width,1),action,app.shell.help_actions && app.shell.help_action_index==index);x+=width;
+        let popup = ratatui::layout::Rect::new(
+            (area.width - width) / 2,
+            (area.height - height) / 2,
+            width,
+            height,
+        );
+        frame.render_widget(ratatui::widgets::Clear, popup);
+        let regions = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(popup);
+        let context = format!(
+            "Keyboard help · {} · mouse {}\n\n{}",
+            if app.approval.is_some() {
+                "Approval pending; decisions disabled"
+            } else if app.view == View::Edits {
+                "Recorded edits"
+            } else {
+                "Workspace"
+            },
+            if app.shell.mouse { "on" } else { "off" },
+            HELP
+        );
+        draw_scrolled(
+            frame,
+            app,
+            Paragraph::new(context)
+                .wrap(Wrap { trim: false })
+                .block(border(" Help · Esc returns ", true)),
+            regions[0],
+        );
+        let mut x = regions[1].x;
+        for (index, action) in [shell::Action::Close, shell::Action::Mouse]
+            .into_iter()
+            .enumerate()
+        {
+            let width = (action.label().len() as u16 + 3).min(regions[1].right().saturating_sub(x));
+            shell::button(
+                frame,
+                app,
+                ratatui::layout::Rect::new(x, regions[1].y, width, 1),
+                action,
+                app.shell.help_actions && app.shell.help_action_index == index,
+            );
+            x += width;
         }
     }
 }
@@ -51,10 +116,11 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     let outer = Layout::vertical([
         Constraint::Length(4),
         Constraint::Min(3),
-        Constraint::Length(if app.composer_active() {4} else {0}),
-        Constraint::Length(3),
-    ]).split(area);
-    let (workflow, raw_status, step) = match app.session() {
+        Constraint::Length(if app.composer_active() { 4 } else { 0 }),
+        Constraint::Length(4),
+    ])
+    .split(area);
+    let (_workflow, raw_status, step) = match app.session() {
         Some(session) => (
             session.workflow.as_str(),
             session.status.as_str(),
@@ -80,19 +146,73 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     } else {
         raw_status.to_uppercase()
     };
-    let goal = workspace
-        .map(|w| w.goal.as_str())
-        .or_else(|| app.session().map(|s| s.goal.as_str()))
-        .unwrap_or("Choose a session");
-    let state_color=match status.as_str() {"RUNNING"|"STARTING"=>theme::FOCUS,"BLOCKED"|"INTERRUPTED"=>theme::ATTENTION,_=>theme::MUTED};
-    frame.render_widget(Paragraph::new(vec![
-        Line::from(vec![Span::styled(format!("Greenlight · {}",inline_display(workflow)),Style::default().add_modifier(Modifier::BOLD)),Span::styled(format!(" · {status} · {}",inline_display(step)),Style::default().fg(state_color))]),
-        Line::from(inline_display(goal)),
-    ]),outer[0]);
-    let mut x=outer[0].x;
-    for (action,view) in [(shell::Action::Activity,View::Conversation),(shell::Action::Artifacts,View::Artifacts),(shell::Action::Edits,View::Edits)] {
-        let width=action.label().len() as u16+4;
-        shell::button(frame,app,ratatui::layout::Rect::new(x,outer[0].y+2,width,1),action,app.view==view);x+=width;
+    let state_color = match status.as_str() {
+        "RUNNING" | "STARTING" => theme::FOCUS,
+        "BLOCKED" | "INTERRUPTED" => theme::ATTENTION,
+        _ => theme::MUTED,
+    };
+    let state = if raw_status == "completed" {
+        format!("● Finished · {}", inline_display(step))
+    } else {
+        format!("● {} · {}", status.to_lowercase(), inline_display(step))
+    };
+    let state_width = unicode_width::UnicodeWidthStr::width(state.as_str()) as u16;
+    let title = format!("Greenlight / {}", inline_display(&app.shell.project));
+    let left_width = outer[0].width.saturating_sub(state_width + 2);
+    frame.render_widget(
+        Paragraph::new(fit(&title, left_width as usize))
+            .style(Style::default().add_modifier(Modifier::BOLD)),
+        ratatui::layout::Rect::new(outer[0].x, outer[0].y, left_width, 1),
+    );
+    frame.render_widget(
+        Paragraph::new(state).style(Style::default().fg(state_color)),
+        ratatui::layout::Rect::new(
+            outer[0].right().saturating_sub(state_width),
+            outer[0].y,
+            state_width.min(outer[0].width),
+            1,
+        ),
+    );
+    let mut x = outer[0].x;
+    for (action, view) in [
+        (shell::Action::Activity, View::Conversation),
+        (shell::Action::Artifacts, View::Artifacts),
+        (shell::Action::Edits, View::Edits),
+    ] {
+        let width = action.label().len() as u16 + 3;
+        shell::button(
+            frame,
+            app,
+            ratatui::layout::Rect::new(x, outer[0].y + 2, width, 1),
+            action,
+            app.view == view,
+        );
+        x += width;
+    }
+    let header_actions = app.header_actions();
+    let total = header_actions
+        .iter()
+        .map(|a| a.label().len() as u16 + 3)
+        .sum::<u16>();
+    let footer_len = app.footer_actions().len();
+    {
+        let header_y = if total + x < outer[0].right() {
+            outer[0].y + 2
+        } else {
+            outer[0].y + 3
+        };
+        x = outer[0].right().saturating_sub(total);
+        for (index, action) in header_actions.into_iter().enumerate() {
+            let width = action.label().len() as u16 + 3;
+            shell::button(
+                frame,
+                app,
+                ratatui::layout::Rect::new(x, header_y, width, 1),
+                action,
+                app.shell.actions_focus && app.shell.action_index == footer_len + index,
+            );
+            x += width;
+        }
     }
 
     let overlay = app.edits.pending.is_some()
@@ -110,16 +230,21 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         || !app.restart_choices.is_empty();
     let show_sessions = app.shell.sessions || app.focus == Focus::Sessions;
     let widths = if !show_sessions || overlay {
-        [Constraint::Length(0),Constraint::Percentage(100)]
+        [Constraint::Length(0), Constraint::Percentage(100)]
     } else if compact {
-        [Constraint::Percentage(100),Constraint::Length(0)]
+        [Constraint::Percentage(100), Constraint::Length(0)]
     } else {
-        [Constraint::Length(30),Constraint::Min(1)]
+        [Constraint::Length(30), Constraint::Min(1)]
     };
     let columns = Layout::horizontal(widths).split(outer[1]);
 
     let sessions = app.sessions.iter().map(|session| {
-        ListItem::new(format!("{}\n{} · {}", inline_display(&session.goal),inline_display(&session.status),inline_display(&session.current_step)))
+        ListItem::new(format!(
+            "{}\n{} · {}",
+            inline_display(&session.goal),
+            inline_display(&session.status),
+            inline_display(&session.current_step)
+        ))
     });
     let sessions_list = List::new(sessions)
         .block(
@@ -143,13 +268,24 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     }
     frame.render_stateful_widget(sessions_list, columns[0], &mut session_state);
     for index in session_state.offset()..app.sessions.len() {
-        let y=columns[0].y+1+((index-session_state.offset())*2) as u16;
-        if y>=columns[0].bottom().saturating_sub(1){break}
-        app.shell.hit(ratatui::layout::Rect::new(columns[0].x,y,columns[0].width,2.min(columns[0].bottom().saturating_sub(1)-y)),shell::Action::Session(index));
+        let y = columns[0].y + 1 + ((index - session_state.offset()) * 2) as u16;
+        if y >= columns[0].bottom().saturating_sub(1) {
+            break;
+        }
+        app.shell.hit(
+            ratatui::layout::Rect::new(
+                columns[0].x,
+                y,
+                columns[0].width,
+                2.min(columns[0].bottom().saturating_sub(1) - y),
+            ),
+            shell::Action::Session(index),
+        );
     }
 
-
-    if overlay {app.shell.hits.borrow_mut().clear();}
+    if overlay {
+        app.shell.hits.borrow_mut().clear();
+    }
     if let Some(prompt) = &app.approval {
         approval::draw(frame, app, prompt, columns[1]);
     } else if let Some(browser) = &app.artifact_browser {
@@ -163,8 +299,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             ListItem::new(format!(
                 "{}\n{}",
                 inline_display(&format!(
-                    "#{} · {}{}",
-                    v.event_id,
+                    "{}{}",
                     v.step,
                     if app.session().is_some_and(|s| s.active_branch != v.branch) {
                         " · inherited"
@@ -181,17 +316,12 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             List::new(versions)
                 .highlight_symbol("▶ ")
                 .highlight_style(Style::default().fg(Color::Cyan))
-                .block(border(" Versions · newest first ", !browser.reading)),
+                .block(border(" Saved versions ", !browser.reading)),
             panes[0],
             &mut selected,
         );
         let current = browser.versions.get(browser.index);
-        let title = format!(
-            " #{} · {:?} · {} · Enter read/list ",
-            current.map(|v| v.event_id).unwrap_or(0),
-            browser.mode,
-            inline_display(&browser.name)
-        );
+        let title = format!(" {} · {:?} ", inline_display(&browser.name), browser.mode);
         let source = browser.error.as_deref().unwrap_or(&browser.text);
         let markdown = browser.error.is_none()
             && browser.mode == crate::artifact_history::Mode::Content
@@ -212,13 +342,17 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                 headers: Vec::new(),
             },
             Block::default()
-                .borders(Borders::ALL)
                 .title(title)
-                .border_style(Style::default().fg(if browser.error.is_some() {
-                    Color::Red
-                } else {
-                    Color::Cyan
-                })),
+                .padding(ratatui::widgets::Padding::uniform(1))
+                .style(
+                    Style::default()
+                        .bg(theme::PANEL)
+                        .fg(if browser.error.is_some() {
+                            theme::ERROR
+                        } else {
+                            theme::TEXT
+                        }),
+                ),
             panes[1],
         );
     } else if app.activity_filtering {
@@ -337,60 +471,85 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     } else if app.edits.pending.is_some() || app.view == View::Edits {
         edits::draw(frame, app, columns[1]);
     } else if app.result_open && app.view == View::Conversation {
-        draw_scrolled(
-            frame,
-            app,
-            Paragraph::new(crate::markdown::render(&safe_display(&app.result_text)))
-                .wrap(Wrap { trim: false })
-                .block(border(
-                    " Workflow result · s result · 3 edits · h activity ",
-                    true,
-                )),
-            columns[1],
-        );
+        result::draw(frame, app, columns[1]);
     } else if app.session().is_none() {
         frame.render_widget(Paragraph::new(if app.session_query.is_empty() {
             "No sessions selected.\n\nChoose New session to select a workflow, enter a goal and start.\nSessions opens project history; Help explains the current controls."
         } else {"No sessions match this search.\n\nUse f to change the search, or clear it with Esc in the search field."}).wrap(Wrap{trim:false}).block(border(" Project workspace ",false)),columns[1]);
     } else if app.view == View::Artifacts {
-        let panes = Layout::horizontal(if app.focus==Focus::Detail || app.inspector_open {
-            if columns[1].width>=100 {[Constraint::Percentage(38),Constraint::Percentage(62)]}else{[Constraint::Length(0),Constraint::Min(1)]}
-        }else{[Constraint::Min(1),Constraint::Length(0)]}).split(columns[1]);
+        let panes = Layout::horizontal(if app.focus == Focus::Detail || app.inspector_open {
+            if columns[1].width >= 100 {
+                [Constraint::Percentage(38), Constraint::Percentage(62)]
+            } else {
+                [Constraint::Length(0), Constraint::Min(1)]
+            }
+        } else {
+            [Constraint::Min(1), Constraint::Length(0)]
+        })
+        .split(columns[1]);
+        let heading = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(panes[0]);
+        frame.render_widget(
+            Paragraph::new(format!("Artifacts · {} saved", app.artifacts.len()))
+                .style(Style::default().add_modifier(Modifier::BOLD)),
+            heading[0],
+        );
+        let list_area = heading[1];
+        let name_width = list_area
+            .width
+            .saturating_sub(if list_area.width >= 60 { 31 } else { 3 })
+            as usize;
         let items = app.artifacts.iter().map(|artifact| {
-            ListItem::new(format!(
-                "{}\n  step: {}  ·  {} bytes",
-                inline_display(&artifact.name),
-                inline_display(&artifact.step),
-                artifact.content.len()
-            ))
+            let name = fit(&artifact.name, name_width);
+            let padding = " ".repeat(
+                name_width.saturating_sub(unicode_width::UnicodeWidthStr::width(name.as_str())),
+            );
+            let mut spans = vec![Span::styled(
+                format!("{name}{padding}"),
+                Style::default().fg(theme::TEXT),
+            )];
+            if list_area.width >= 60 {
+                spans.push(Span::styled(
+                    format!(
+                        "  {:16} {:>9}",
+                        fit(&artifact.step, 16),
+                        format!("{} B", artifact.content.len())
+                    ),
+                    Style::default().fg(theme::MUTED),
+                ));
+            }
+            ListItem::new(Line::from(spans))
         });
         let artifacts = List::new(items)
-            .block(
-                border(" Artifacts · v versions ", app.focus == Focus::Artifacts)
-                    .title(format!(" {} saved ", app.artifacts.len())),
-            )
-            .highlight_symbol("▶ ")
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            );
+            .highlight_symbol("▸ ")
+            .highlight_style(Style::default().bg(theme::PANEL));
         let mut state = ListState::default();
         if !app.artifacts.is_empty() {
             state.select(Some(app.artifact_index));
         }
-        frame.render_stateful_widget(artifacts, panes[0], &mut state);
+        frame.render_stateful_widget(artifacts, list_area, &mut state);
+        if app.artifacts.is_empty() {
+            frame.render_widget(
+                Paragraph::new("No artifacts yet.\nSaved workflow documents appear here.")
+                    .style(Style::default().fg(theme::MUTED))
+                    .wrap(Wrap { trim: false }),
+                list_area,
+            );
+        }
         for index in state.offset()..app.artifacts.len() {
-            let y=panes[0].y+1+((index-state.offset())*2) as u16;
-            if y>=panes[0].bottom().saturating_sub(1){break}
-            app.shell.hit(ratatui::layout::Rect::new(panes[0].x,y,panes[0].width,2.min(panes[0].bottom().saturating_sub(1)-y)),shell::Action::Artifact(app.artifacts[index].event_id));
+            let y = list_area.y + (index - state.offset()) as u16;
+            if y >= list_area.bottom() {
+                break;
+            }
+            app.shell.hit(
+                ratatui::layout::Rect::new(list_area.x, y, list_area.width, 1),
+                shell::Action::Artifact(app.artifacts[index].event_id),
+            );
         }
 
         let title = if app.render_markdown {
-            " Artifact · Markdown · Enter returns · m raw "
+            " Document · Markdown "
         } else {
-            " Artifact · Raw text · Enter returns · m Markdown "
+            " Document · Raw text "
         };
         if let Some(artifact) = app.artifact() {
             let headers = vec![
@@ -427,7 +586,9 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                     markdown: app.render_markdown,
                     headers,
                 },
-                border(title, app.focus == Focus::Detail),
+                Block::default()
+                    .style(Style::default().bg(theme::PANEL))
+                    .padding(ratatui::widgets::Padding::uniform(1)),
                 panes[1],
             );
         } else {
@@ -440,8 +601,15 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             .filter(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
             .and_then(|r| r.live.as_ref());
         if let Some(live) = live.filter(|_| app.shell.preview) {
-            let panels = Layout::vertical([Constraint::Min(3), Constraint::Length(if app.shell.expanded {columns[1].height.saturating_sub(3)} else {5.min(columns[1].height.saturating_sub(4))})])
-                .split(columns[1]);
+            let panels = Layout::vertical([
+                Constraint::Min(3),
+                Constraint::Length(if app.shell.expanded {
+                    columns[1].height.saturating_sub(3)
+                } else {
+                    5.min(columns[1].height.saturating_sub(4))
+                }),
+            ])
+            .split(columns[1]);
             activity::draw(frame, app, workspace, panels[0]);
             let live = live.lock().unwrap();
             let status = if live.state.is_empty() {
@@ -505,16 +673,30 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         app.composer_active(),
     );
 
-    let actions=app.shell_actions();
-    let mut x=outer[3].x;let mut y=outer[3].y;
-    for (index,action) in actions.into_iter().enumerate() {
-        let width=action.label().len() as u16+3;
-        if x+width>outer[3].right(){x=outer[3].x;y+=1;}
-        if y>=outer[3].y+2 {break;}
-        shell::button(frame,app,ratatui::layout::Rect::new(x,y,width.min(outer[3].width),1),action,app.shell.actions_focus && app.shell.action_index==index);x+=width;
+    let actions = app.footer_actions();
+    let count = actions.len().max(1) as u16;
+    let mut x = outer[3].x;
+    for (index, action) in actions.into_iter().enumerate() {
+        let preferred = action.label().len() as u16 + 4;
+        let remaining = outer[3].right().saturating_sub(x);
+        let remaining_count = count.saturating_sub(index as u16);
+        let width = preferred
+            .min(remaining / remaining_count)
+            .max(1)
+            .min(remaining);
+        shell::button(
+            frame,
+            app,
+            ratatui::layout::Rect::new(x, outer[3].y, width, 3),
+            action,
+            app.shell.actions_focus && app.shell.action_index == index,
+        );
+        x += width + 1;
     }
-    frame.render_widget(Paragraph::new(inline_display(&app.notice)).style(Style::default().fg(theme::MUTED)),ratatui::layout::Rect::new(outer[3].x,outer[3].y+2,outer[3].width,1));
-
+    frame.render_widget(
+        Paragraph::new(inline_display(&app.notice)).style(Style::default().fg(theme::MUTED)),
+        ratatui::layout::Rect::new(outer[3].x, outer[3].y + 3, outer[3].width, 1),
+    );
 }
 
 fn input_panel(
@@ -540,5 +722,36 @@ fn input_panel(
             .wrap(Wrap { trim: false }),
         panels[0],
     );
-    editor.draw(frame, text, "Type here…", panels[1], !app.help && !app.shell.actions_focus);
+    editor.draw(
+        frame,
+        text,
+        "Type here…",
+        panels[1],
+        !app.help && !app.shell.actions_focus,
+    );
+}
+
+/// Fit terminal-cell text without splitting Unicode graphemes.
+pub(super) fn fit(text: &str, width: usize) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
+    let text = inline_display(text);
+    if UnicodeWidthStr::width(text.as_str()) <= width {
+        return text;
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for grapheme in text.graphemes(true) {
+        let cells = UnicodeWidthStr::width(grapheme);
+        if used + cells >= width {
+            break;
+        }
+        out.push_str(grapheme);
+        used += cells;
+    }
+    out.push('…');
+    out
 }

@@ -107,3 +107,5 @@ Merely arriving at this screen never runs a summarizer, retries a step or invoke
 ## 7. Next design pass
 
 Review this Result hierarchy, then cover blocked/error/interrupted states, session creation and composition. Detailed Edits/revert surfaces also need their own pass before implementation. Application code, permission policy and runtime behavior remain unchanged by these assets.
+
+Implementation follow-up: the compact evidence-scoped overview and exact-report action are now rendered in Ratatui. See [actual cell-grid captures](screenshots/README.md); the drawings above remain historical visual studies.

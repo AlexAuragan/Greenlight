@@ -6,6 +6,12 @@ use std::cell::RefCell;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    Report,
+    ResultEvidence,
+    ReviewEdits,
+    Versions,
+    Provenance,
+    Compare,
     Sessions,
     Compose,
     Details,
@@ -36,6 +42,12 @@ pub(super) enum Action {
 impl Action {
     pub(super) fn label(self) -> &'static str {
         match self {
+            Self::Report => "Read final report",
+            Self::ResultEvidence => "Full result",
+            Self::ReviewEdits => "Review edits",
+            Self::Versions => "Versions",
+            Self::Provenance => "Version details",
+            Self::Compare => "Compare previous",
             Self::Sessions => "Sessions",
             Self::Compose => "Compose",
             Self::Details => "Details",
@@ -66,6 +78,7 @@ pub(super) struct Hit {
     action: Action,
 }
 pub(super) struct Shell {
+    pub project: String,
     pub sessions: bool,
     pub more: bool,
     pub menu_index: usize,
@@ -87,6 +100,7 @@ impl Default for Shell {
         Self {
             more: false,
             menu_index: 0,
+            project: "project".into(),
             sessions: false,
             mouse: true,
             preview: true,
@@ -175,6 +189,16 @@ impl App {
         self.focus == Focus::Compose && !self.blocking_surface()
     }
     pub(super) fn more_actions(&self) -> Vec<Action> {
+        if self.artifact_browser.is_some() {
+            return vec![
+                Action::Versions,
+                Action::Provenance,
+                Action::Compare,
+                Action::Copy,
+                Action::Editor,
+            ];
+        }
+
         let mut actions = vec![
             Action::Activity,
             Action::Artifacts,
@@ -191,30 +215,104 @@ impl App {
         if self.runner.is_some() || self.manager_job.is_some() {
             actions.push(Action::Stop);
         }
+        if self.result_open && self.view == View::Conversation {
+            actions.insert(0, Action::ResultEvidence);
+        }
+        if self.view == View::Artifacts && self.artifact().is_some() {
+            actions.extend([Action::Versions, Action::Provenance, Action::Compare]);
+        }
+        actions.extend([Action::Sessions, Action::Details, Action::Help]);
         actions.extend([Action::Preview, Action::Expand]);
         actions
     }
-    pub(super) fn shell_actions(&self) -> Vec<Action> {
+    pub(super) fn header_actions(&self) -> Vec<Action> {
+        if self.blocking_surface() {
+            vec![Action::Help]
+        } else {
+            vec![Action::Sessions, Action::Details, Action::Help]
+        }
+    }
+    pub(super) fn footer_actions(&self) -> Vec<Action> {
         if self.help {
             return vec![Action::Close, Action::Mouse];
         }
         if self.approval.is_some() {
             return vec![Action::Help];
         }
+        if self.artifact_browser.is_some() {
+            return vec![Action::Versions, Action::Provenance, Action::Close];
+        }
         if self.blocking_surface() {
             return vec![Action::Help, Action::Close];
         }
         if self.session().is_none() {
-            return vec![Action::New, Action::Sessions, Action::Help, Action::More];
+            return vec![Action::New, Action::More];
         }
-        vec![
-            Action::Open,
-            Action::Sessions,
-            Action::Compose,
-            Action::Details,
-            Action::Help,
-            Action::More,
-        ]
+        if self.result_open && self.view == View::Conversation {
+            return vec![
+                if self
+                    .result_overview
+                    .as_ref()
+                    .is_some_and(|r| r.report.is_some())
+                {
+                    Action::Report
+                } else {
+                    Action::ResultEvidence
+                },
+                Action::ReviewEdits,
+                Action::More,
+            ];
+        }
+        if self.view == View::Artifacts {
+            if self.artifact().is_none() {
+                return vec![Action::Activity, Action::More];
+            }
+            return vec![
+                if self.focus == Focus::Detail {
+                    Action::Close
+                } else {
+                    Action::Open
+                },
+                Action::Versions,
+                Action::More,
+            ];
+        }
+        vec![Action::Open, Action::Compose, Action::More]
+    }
+    pub(super) fn shell_actions(&self) -> Vec<Action> {
+        let mut actions = self.footer_actions();
+        if !self.blocking_surface() {
+            actions.extend(self.header_actions());
+        }
+        actions
+    }
+    pub(super) fn open_artifact_mode(
+        &mut self,
+        store: &Store,
+        mode: crate::artifact_history::Mode,
+    ) -> Result<()> {
+        let session = self.session().cloned().context("No selected session")?;
+        if self.artifact_browser.is_none() {
+            let artifact = self.artifact().context("No selected artifact")?;
+            let mut browser =
+                crate::artifact_history::Browser::open(store, &session, &artifact.name)?;
+            browser.index = browser
+                .versions
+                .iter()
+                .position(|v| v.event_id == artifact.event_id)
+                .context("Selected artifact version unavailable")?;
+            browser.load(store, &session);
+            self.artifact_browser = Some(browser);
+        }
+        let browser = self.artifact_browser.as_mut().unwrap();
+        if browser.session != session.id || browser.branch != session.active_branch {
+            bail!("Artifact session/branch changed")
+        }
+        browser.mode = mode;
+        browser.reading = mode != crate::artifact_history::Mode::Content;
+        browser.load(store, &session);
+        self.detail_scroll = 0;
+        Ok(())
     }
     pub(super) fn activate(&mut self, action: Action, root: &Path, store: &Store) -> Result<bool> {
         use Action::*;
@@ -226,6 +324,43 @@ impl App {
             self.shell.more = false;
         }
         let code = match action {
+            ResultEvidence => {
+                self.context_detail = Some(self.result_text.clone());
+                self.detail_scroll = 0;
+                return Ok(false);
+            }
+            Report => {
+                let (name, id) = self
+                    .result_overview
+                    .as_ref()
+                    .and_then(|r| r.report.clone())
+                    .context("No final report recorded")?;
+                let session = self.session().context("No selected session")?;
+                let mut browser = crate::artifact_history::Browser::open(store, session, &name)?;
+                browser.index = browser
+                    .versions
+                    .iter()
+                    .position(|v| v.event_id == id)
+                    .context("Final report version no longer visible")?;
+                browser.reading = true;
+                browser.load(store, session);
+                self.artifact_browser = Some(browser);
+                self.detail_scroll = 0;
+                return Ok(false);
+            }
+            ReviewEdits => KeyCode::Char('3'),
+            Versions => {
+                self.open_artifact_mode(store, crate::artifact_history::Mode::Content)?;
+                return Ok(false);
+            }
+            Provenance => {
+                self.open_artifact_mode(store, crate::artifact_history::Mode::Provenance)?;
+                return Ok(false);
+            }
+            Compare => {
+                self.open_artifact_mode(store, crate::artifact_history::Mode::Diff)?;
+                return Ok(false);
+            }
             Sessions => {
                 self.shell.sessions = !self.shell.sessions;
                 self.focus = if self.shell.sessions {
@@ -442,14 +577,57 @@ impl App {
     }
 }
 pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, focused: bool) {
-    frame.render_widget(
-        Paragraph::new(format!("[{}]", action.label())).style(if focused {
-            Style::default().fg(Color::Black).bg(theme::FOCUS)
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let primary = matches!(action, Action::Report | Action::New | Action::Open);
+    let filled = focused || primary && area.height >= 3;
+    let base = Style::default()
+        .fg(if filled {
+            theme::BACKGROUND
         } else {
-            Style::default().fg(theme::FOCUS)
-        }),
-        area,
-    );
+            theme::TEXT
+        })
+        .bg(if filled { theme::FOCUS } else { theme::PANEL });
+    let available = area
+        .width
+        .saturating_sub(if area.height >= 3 { 4 } else { 0 }) as usize;
+    let label = if action.label().len() > available {
+        match action {
+            Action::Report => "Report",
+            Action::ReviewEdits => "Edits",
+            Action::Open => "Open",
+            Action::Close => "Back",
+            Action::Mouse => "Mouse",
+            _ => action.label(),
+        }
+    } else {
+        action.label()
+    };
+    let label = super::view::fit(label, available);
+    let mut paragraph = Paragraph::new(label)
+        .alignment(ratatui::layout::Alignment::Center)
+        .style(base);
+    if area.height >= 3 {
+        paragraph = paragraph.block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(if focused || primary {
+                    theme::FOCUS
+                } else {
+                    theme::BORDER
+                })),
+        );
+    } else if focused || primary {
+        paragraph = paragraph.style(
+            Style::default()
+                .fg(theme::FOCUS)
+                .bg(theme::BACKGROUND)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    frame.render_widget(paragraph, area);
     app.shell.hit(area, action);
 }
 pub(super) fn set_mouse(enabled: bool) -> Result<()> {
@@ -752,7 +930,11 @@ mod tests {
         key(&mut app, root.path(), &store, KeyCode::BackTab);
         assert!(app.shell.actions_focus);
         assert!(app.runner.is_none());
-        assert_eq!(app.shell_actions()[app.shell.action_index], Action::More);
+        app.shell.action_index = app
+            .shell_actions()
+            .iter()
+            .position(|a| *a == Action::More)
+            .unwrap();
         key(&mut app, root.path(), &store, KeyCode::Enter);
         assert!(app.shell.more);
         key(&mut app, root.path(), &store, KeyCode::Tab);
