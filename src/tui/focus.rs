@@ -7,6 +7,7 @@ impl App {
             return;
         }
         self.remember_reading();
+        self.attention_return = false;
         self.view = view;
         if view != View::Conversation {
             self.result_open = false;
@@ -30,16 +31,38 @@ impl App {
             self.focus_before_compose = self.focus;
         }
         if !self.compose.explicit && self.composer.is_empty() {
-            let mode=if self.manager_enabled || !self.can_resume_message() {compose::Mode::Manager}else{compose::Mode::Step};
-            self.compose.mode=mode;self.sync_draft();
+            let mode = if self.manager_enabled || !self.can_resume_message() {
+                compose::Mode::Manager
+            } else {
+                compose::Mode::Step
+            };
+            self.compose.mode = mode;
+            self.sync_draft();
         }
         self.focus = Focus::Compose;
     }
     pub(super) fn focus_left(&mut self) {
         self.focus = match self.focus {
-            Focus::Sessions => { self.shell.sessions=false; self.main_focus() },
-            Focus::Detail => { self.inspector_open = false; self.main_focus() },
-            Focus::Events | Focus::Artifacts => { self.shell.sessions = !self.shell.sessions; if self.shell.sessions {Focus::Sessions} else {self.main_focus()} },
+            Focus::Sessions => {
+                self.shell.sessions = false;
+                self.main_focus()
+            }
+            Focus::Detail => {
+                self.inspector_open = false;
+                if self.attention_return {
+                    self.blocker_card = self.attention.is_some();
+                    self.attention_return = false;
+                }
+                self.main_focus()
+            }
+            Focus::Events | Focus::Artifacts => {
+                self.shell.sessions = !self.shell.sessions;
+                if self.shell.sessions {
+                    Focus::Sessions
+                } else {
+                    self.main_focus()
+                }
+            }
             other => other,
         };
     }
@@ -54,15 +77,21 @@ impl App {
     }
     pub(super) fn sync_draft(&mut self) {
         let selected=self.session().map(|s|s.id.clone());
-        let branch=self.session().map(|s|s.active_branch.clone());
-        let scope=(selected.clone(),branch,self.compose.mode);
-        if scope!=self.compose.scope {
-            if scope.0!=self.compose.scope.0 || scope.1!=self.compose.scope.1 {self.compose.explicit=false;}
-            self.drafts.insert(self.compose.scope.clone(),std::mem::take(&mut self.composer));
-            self.composer=self.drafts.remove(&scope).unwrap_or_default();
-            self.compose.scope=scope;self.composer_editor.reset();
+        let branch = self.session().map(|s| s.active_branch.clone());
+        let scope = (selected.clone(), branch, self.compose.mode);
+        if scope != self.compose.scope {
+            if scope.0 != self.compose.scope.0 || scope.1 != self.compose.scope.1 {
+                self.compose.explicit = false;
+            }
+            self.drafts.insert(
+                self.compose.scope.clone(),
+                std::mem::take(&mut self.composer),
+            );
+            self.composer = self.drafts.remove(&scope).unwrap_or_default();
+            self.compose.scope = scope;
+            self.composer_editor.reset();
         }
-        self.composer_session=selected;
+        self.composer_session = selected;
     }
     pub(super) fn open_help(&mut self) {
         self.shell.help_scroll = self.detail_scroll;

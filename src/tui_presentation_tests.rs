@@ -416,3 +416,129 @@ fn creation_and_recipient_editors_render_real_context_and_actions() {
         0
     );
 }
+
+#[test]
+fn attention_states_render_causes_and_recovery_effects_without_raw_ids() {
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut session = store
+        .create("fix-bug", "Investigate startup latency", "investigate")
+        .unwrap();
+    store
+        .event(&session, Some("investigate"), "step.started", "")
+        .unwrap();
+    store.event(&session,Some("investigate"),"step.blocked","The required host-service measurement was unavailable. Supply logs or revise the approach before continuing.").unwrap();
+    session.status = "blocked".into();
+    store.save(&session).unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.shell.project = "bar-project".into();
+    app.refresh(&store).unwrap();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "attention-blocked"));
+        assert!(output.contains("Needs attention"));
+        assert!(!output.contains("event #"));
+        if w >= 80 {
+            assert!(output.contains("host-service measurement"));
+            assert!(output.contains("Give instructions"));
+        }
+    }
+    let failure = crate::provider_failure::Failure::http(
+        401,
+        &serde_json::json!({"error":{"message":"fixture-secret-not-for-default-ui"}}),
+        None,
+    );
+    store.event(&session,Some("investigate"),"provider.failure",&serde_json::json!({"call_id":"fixture-call","purpose":"coding","request_number":1,"failure":failure}).to_string()).unwrap();
+    store
+        .event(
+            &session,
+            Some("investigate"),
+            "step.blocked",
+            "Model request failed.",
+        )
+        .unwrap();
+    app.refresh(&store).unwrap();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "attention-provider"));
+        assert!(!output.contains("fixture-secret"));
+        if w >= 80 {
+            assert!(output.contains("credentials rejected"));
+            assert!(output
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains("HTTP 401"));
+        }
+    }
+    app.activate(shell::Action::InspectAttention, root.path(), &store)
+        .unwrap();
+    assert_eq!(app.focus, Focus::Detail);
+    app.on_key(
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(app.attention_visible());
+    app.activate(shell::Action::FullDiagnostic, root.path(), &store)
+        .unwrap();
+    screen(&mut app, 80, 24, "attention-evidence");
+    app.attention_history();
+    let owner = store.claim_execution(&session.id, None).unwrap();
+    app.refresh(&store).unwrap();
+    assert_eq!(
+        app.attention.as_ref().unwrap().kind,
+        attention::Kind::Observing
+    );
+    let output = text(&screen(&mut app, 80, 24, "attention-observing"));
+    assert!(output.contains("Observing another process"));
+    assert!(!app.footer_actions().contains(&shell::Action::RecoverOwner));
+    drop(owner);
+    app.refresh(&store).unwrap();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "attention-owner"));
+        if w >= 80 {
+            assert!(output.contains("Recover owner"));
+            assert!(output
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains("No work is resumed"));
+        }
+    }
+    app.activate(shell::Action::RecoverOwner, root.path(), &store)
+        .unwrap();
+    screen(&mut app, 80, 24, "attention-recovered");
+    assert!(app.runner.is_none());
+    assert_eq!(store.session(&session.id).unwrap().status, "blocked");
+    let mut workspace = app.workspace.clone().unwrap();
+    workspace.primary = crate::workspace_view::PrimaryAction::RecoverWrites;
+    app.attention = attention::project(
+        &session,
+        &workspace,
+        &store.history(&session).unwrap(),
+        false,
+        &[],
+    );
+    app.workspace = Some(workspace);
+    app.blocker_card = true;
+    app.clear_diagnostic();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "attention-write"));
+        if w >= 80 {
+            assert!(output.contains("reconciliation"));
+            assert!(output.contains("Recovery guidance"));
+            assert!(!app
+                .footer_actions()
+                .contains(&shell::Action::GiveInstructions));
+        }
+    }
+    assert_eq!(
+        store
+            .usage_report(&session, crate::usage::Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        0
+    );
+}

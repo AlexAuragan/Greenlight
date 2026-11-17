@@ -115,3 +115,10 @@ Before implementing, verify:
 - Observation, session switching, resize, Help layering, input focus and mouse freshness retain the existing authority boundaries.
 
 No new model calls, recovery mechanisms, permission scopes or runtime changes are introduced. Next design passes: session creation and composition, then detailed Edits/revert review.
+
+
+## Attention and recovery slice — 2026-11-17
+
+Implemented concise cause/impact/next-action screens for blocked steps, typed provider failures, retry waits, interrupted ownership, unfinished native writes and external-owner observation. Explicit actions open exact evidence, full diagnostics, step instructions or read-only manager questions. Owner recovery retains the backend lock guard and never resumes; write recovery is guidance only. Partial restore failures warn that some files may already have changed. Manager failures and stale coding failures do not mislabel the current step. Full diagnostics retain complete evidence while default previews are bounded.
+
+Verification: 305 tests passed, one existing test ignored; 106 TUI tests passed. Actual Ratatui captures at 80×24, 120×36 and 40×14 are indexed in [screenshots](screenshots/README.md). This completes the attention/recovery presentation slice, not the remaining run-details, checkpoint or Edits Keep-review work.

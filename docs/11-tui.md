@@ -15,7 +15,7 @@ The compact header shows the project and labeled state/current step. The full go
 
 Press `c` or enter `/context` for a scrollable snapshot of the objective, required outputs, verification verdict, exact pinned input event IDs and approval references. An existing attempt uses its saved definition and manifest; a ready session shows the configuration for its next attempt. Missing legacy metadata stays explicit. Model prose never supplies a verification verdict.
 
-Blocked sessions show a reason/evidence card after any diagnostic is dismissed. `e` opens its exact event, `H` returns to activity, `b` reopens the card, `2` opens artifacts, `i` composes resume instructions, and `r` opens the guarded restart flow. These controls never automatically retry. A live external owner is observation-only; interrupted ownership needs `/recover`, and unfinished native writes need CLI `recover-writes`. Context and evidence remain scrollable with arrows or `j/k`; Escape closes context.
+Blocked sessions show a concise cause, impact and next-action overview; Inspect evidence opens the exact recorded cause and Full diagnostic preserves the complete message. `e` opens its exact event, `H` returns to activity, `b` reopens the card, `2` opens artifacts, `i` composes resume instructions, and `r` opens the guarded restart flow. These controls never automatically retry. A live external owner is observation-only; interrupted ownership needs `/recover`, and unfinished native writes need CLI `recover-writes`. Context and evidence remain scrollable with arrows or `j/k`; Escape closes context.
 
 Activity uses concise rows; Enter or a row click opens the selected event's evidence in the available pane, and Enter/Left/Escape returns to the list. Sidebar entries lead with the session goal. The session picker supports search and workflow creation as described below.
 
@@ -72,7 +72,9 @@ Edits to that snapshot are **not imported** into stored artifacts, history, proj
 
 ## Failure diagnostics
 
-Worker failures/disconnects, blocked-step reasons, malformed known structured events, missing artifact bodies and partial restores appear in a red attention panel. Up/Down or j/k scroll the complete message; Escape dismisses it without changing execution state. Polling preserves diagnostic scroll position and does not repeatedly reopen an acknowledged unchanged error. Raw event evidence remains available; unknown event types remain readable rather than being rejected. These panels do not interpret model prose as a verified outcome.
+Worker failures/disconnects, blocked-step reasons, malformed known structured events, missing artifact bodies and partial restores open a concise attention overview. Full diagnostic opens a scrollable complete message; Up/Down or j/k scroll it and Escape dismisses it without changing execution state. Typed provider records supply category-specific guidance; model prose never determines the failure category. Polling preserves diagnostic scroll position and does not repeatedly reopen an acknowledged unchanged error. Raw event evidence remains available; unknown event types remain readable rather than being rejected. These panels do not interpret model prose as a verified outcome.
+
+Recover owner rechecks the live lock, expires unanswered approvals and leaves saved grants intact; it never resumes execution. Unfinished native writes expose CLI recovery guidance without executing reconciliation. An externally owned session is observation-only. Known local retry waits show a waiting state without a fabricated countdown.
 
 Restore failures include files changed versus files journaled. A failed restart does not fork, and a restore-then-fork failure is explicitly distinguished. Inspect workspace/history before retrying; a partial restore is not automatically rolled back. Artifact read failures preserve history access.
 

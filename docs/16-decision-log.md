@@ -257,3 +257,10 @@ The user requests visible `[1]`/`[2]`/`[3]` view labels and clarifies that Sessi
 ## 2026-11-17 — Creation and explicit-recipient composer UI implemented
 
 The user continues the UI pass after shortcut/focus review. Creation receives workflow roadmaps, a full goal editor and Start/Back/Clear/Cancel controls; cancelling retains the memory-only goal. Step, manager and command messages have explicit UI modes with separate session/branch-scoped drafts. Step instructions are passed verbatim through the guarded worker path even with manager routing enabled; slash-prefixed message content is literal. Control commands are entered separately through navigation `/`. Sending rechecks target/owner/write prerequisites and retains drafts on refusal; manager questions are saved before inference and never execute routes. More exposes saved manager exchanges and same-scope instruction restoration. Actual Ratatui captures plus local fixture-provider/PTY tests cover the new surfaces.
+
+
+## Attention and recovery slice — 2026-11-17
+
+Implemented concise cause/impact/next-action screens for blocked steps, typed provider failures, retry waits, interrupted ownership, unfinished native writes and external-owner observation. Explicit actions open exact evidence, full diagnostics, step instructions or read-only manager questions. Owner recovery retains the backend lock guard and never resumes; write recovery is guidance only. Partial restore failures warn that some files may already have changed. Manager failures and stale coding failures do not mislabel the current step. Full diagnostics retain complete evidence while default previews are bounded.
+
+Verification: 305 tests passed, one existing test ignored; 106 TUI tests passed. Actual Ratatui captures at 80×24, 120×36 and 40×14 are indexed in [screenshots](screenshots/README.md). This completes the attention/recovery presentation slice, not the remaining run-details, checkpoint or Edits Keep-review work.

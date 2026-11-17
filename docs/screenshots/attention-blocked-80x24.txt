@@ -1,0 +1,24 @@
+Greenlight / bar-project                                 ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+ Needs attention
+
+  Step needs attention
+  The required host-service measurement was unavailable. Supply logs or revise
+  the approach before continuing.
+
+ What this means
+ Execution is stopped; recorded work remains available.
+
+ Next
+ Review the evidence before continuing.
+
+
+
+
+
+╭──────────────────╮ ╭───────────────────╮ ╭──────╮
+│ Inspect evidence │ │ Give instructions │ │ More │
+╰──────────────────╯ ╰───────────────────╯ ╰──────╯
+Workflow needs attention. Review the evidence before continuing.

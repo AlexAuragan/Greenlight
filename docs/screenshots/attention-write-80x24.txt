@@ -1,0 +1,24 @@
+Greenlight / bar-project                                 ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+ Needs attention
+
+  An interrupted native write needs reconciliation
+  The workspace has unresolved native-write records. Do not assume the
+  intended file change was applied or reverted.
+
+ What this means
+ Resume and restart remain unavailable until write recovery is resolved.
+
+ Next
+ Open recovery guidance for the supported CLI recover-writes flow.
+
+
+
+
+
+╭───────────────────╮ ╭───────────────────╮ ╭──────╮
+│ Recovery guidance │ │ Recorded activity │ │ More │
+╰───────────────────╯ ╰───────────────────╯ ╰──────╯
+Owner recovery check finished. No work resumed; review recorded state and unfini

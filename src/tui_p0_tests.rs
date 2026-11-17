@@ -62,8 +62,10 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
         ));
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
-    app.runner = Some(Runner { live:None, cancel_retry:None,
-            session_id: None,
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: None,
         prompts,
         answers,
         finished,
@@ -78,8 +80,10 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
     let (_pt, prompts) = mpsc::channel();
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner { live:None, cancel_retry:None,
-            session_id: None,
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: None,
         prompts,
         answers,
         finished,
@@ -173,7 +177,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
         fs::read_to_string(root.path().join("result.txt")).unwrap(),
         "implemented"
     );
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert!(app
         .diagnostic
         .as_ref()
@@ -221,13 +225,16 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     let (pt, prompts) = mpsc::channel();
     let (answers, old_answers) = mpsc::channel();
     let (ft, finished) = mpsc::channel();
-    pt.send(ApprovalPrompt { command: None,
+    pt.send(ApprovalPrompt {
+        command: None,
         content: "Unanswered checkpoint".into(),
         mode: ApprovalMode::Human,
     })
     .unwrap();
-    app.runner = Some(Runner { live:None, cancel_retry:None,
-            session_id: None,
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: None,
         prompts,
         answers,
         finished,
@@ -239,7 +246,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     drop(ft);
     app.tick();
     assert!(app.approval.is_none() && app.runner.is_none());
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert!(old_answers.try_recv().is_err());
     key(&mut app, &store, root.path(), KeyCode::Esc);
     app.composer = "/recover".into();
@@ -301,7 +308,7 @@ fn malformed_events_and_missing_artifacts_remain_inspectable() {
         .unwrap();
     let mut app = App::new(Some(&session.id));
     app.refresh(&store).unwrap();
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert!(app
         .events
         .iter()
@@ -370,7 +377,7 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
     app.confirm_restart(root.path(), &store);
     let message = app.diagnostic.as_ref().unwrap();
     assert!(message.contains("2 file(s) changed (1 journaled)"));
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert_eq!(
         store.session(&session.id).unwrap().active_branch,
         session.active_branch
@@ -392,23 +399,44 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
 
 #[test]
 fn workspace_cards_expose_context_and_exact_blocker_at_80x24() {
-    let root=tempfile::tempdir().unwrap();
-    let store=Store::open(root.path()).unwrap();
-    let mut session=store.create("missing","Repair the parser","repair").unwrap();
-    store.begin_attempt(&session,"repair","id: repair\nprompt: Repair parsing\n","fixture").unwrap();
-    let evidence=store.event(&session,Some("repair"),"step.blocked","Parser tests failed").unwrap();
-    session.status="blocked".into();store.save(&session).unwrap();
-    let mut app=App::new(Some(&session.id));
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut session = store
+        .create("missing", "Repair the parser", "repair")
+        .unwrap();
+    store
+        .begin_attempt(
+            &session,
+            "repair",
+            "id: repair\nprompt: Repair parsing\n",
+            "fixture",
+        )
+        .unwrap();
+    let evidence = store
+        .event(
+            &session,
+            Some("repair"),
+            "step.blocked",
+            "Parser tests failed",
+        )
+        .unwrap();
+    session.status = "blocked".into();
+    store.save(&session).unwrap();
+    let mut app = App::new(Some(&session.id));
     app.refresh(&store).unwrap();
-    key(&mut app,&store,root.path(),KeyCode::Esc);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
     let rendered=screen(&app);
     assert!(!rendered.contains("Repair the parser"));
     assert!(rendered.contains("Parser tests failed"));
-    key(&mut app,&store,root.path(),KeyCode::Char('c'));
-    assert!(app.context_detail.as_ref().unwrap().contains("Repair parsing"));
-    app.detail_scroll=2;
+    key(&mut app, &store, root.path(), KeyCode::Char('c'));
+    assert!(app
+        .context_detail
+        .as_ref()
+        .unwrap()
+        .contains("Repair parsing"));
+    app.detail_scroll = 2;
     app.refresh(&store).unwrap();
-    assert_eq!(app.detail_scroll,2);
+    assert_eq!(app.detail_scroll, 2);
     key(&mut app,&store,root.path(),KeyCode::Esc);
     key(&mut app,&store,root.path(),KeyCode::Char('e'));
     assert_eq!(app.events[app.event_index].id,evidence);
@@ -426,13 +454,26 @@ fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
     let other=store.create("demo","Other goal","work").unwrap();
     let mut app=App::new(Some(&other.id));
     app.refresh(&store).unwrap();
-    let (sender,prompts)=mpsc::channel();
-    let (answers,_received)=mpsc::channel();
-    let (_finished,finished)=mpsc::channel();
-    app.runner=Some(Runner{live:None,cancel_retry:None,session_id:Some(owner.id.clone()),prompts,answers,finished});
-    sender.send(ApprovalPrompt{ command: None,content:"Owner permission".into(),mode:ApprovalMode::Human}).unwrap();
+    let (sender, prompts) = mpsc::channel();
+    let (answers, _received) = mpsc::channel();
+    let (_finished, finished) = mpsc::channel();
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: Some(owner.id.clone()),
+        prompts,
+        answers,
+        finished,
+    });
+    sender
+        .send(ApprovalPrompt {
+            command: None,
+            content: "Owner permission".into(),
+            mode: ApprovalMode::Human,
+        })
+        .unwrap();
     app.tick();
-    assert_eq!(app.session().unwrap().id,owner.id);
+    assert_eq!(app.session().unwrap().id, owner.id);
     assert!(app.workspace.is_none());
     app.refresh(&store).unwrap();
     assert_eq!(app.workspace.as_ref().unwrap().goal,"Owner goal");

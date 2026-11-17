@@ -1,0 +1,24 @@
+Greenlight / bar-project                                 ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+ Needs attention
+
+  Owner recovered; workflow remains stopped
+  Owner lock was available. Previous worker's unanswered approvals expire;
+  saved grants are unchanged. No work was resumed.
+
+ What this means
+ Execution is stopped; recorded work remains available.
+
+ Next
+ Review the evidence, then provide instructions when ready.
+
+
+
+
+
+╭──────────────────╮ ╭───────────────────╮ ╭──────╮
+│ Inspect evidence │ │ Give instructions │ │ More │
+╰──────────────────╯ ╰───────────────────╯ ╰──────╯
+Owner recovery check finished. No work resumed; review recorded state and unfini

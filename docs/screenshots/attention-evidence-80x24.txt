@@ -1,0 +1,24 @@
+Greenlight / bar-project                                 ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+
+ Full diagnostic
+
+ Provider credentials rejected
+
+ API credentials are missing, invalid or expired. Check the configured API-key
+ environment variable and replace/reload the key if needed. (HTTP 401)
+
+ Recorded event #4 · investigate · provider.failure
+ {"call_id":"fixture-call","failure":{"billing_uncertain":false,"kind":"credent
+ ials","retry_after_seconds":null,"retryable":false,"status":401},"purpose":"co
+ ding","request_number":1}
+
+
+
+
+╭───────────╮ ╭──────╮
+│ Close Esc │ │ Copy │
+╰───────────╯ ╰──────╯
+Workflow needs attention. Review the evidence before continuing.

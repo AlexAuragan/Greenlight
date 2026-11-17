@@ -1,0 +1,14 @@
+Greenlight / b…  ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+ Needs attention
+
+  An interrupted native write needs r…
+  The workspace has unresolved
+  native-write records. Do not assume
+  the intended file change was applied
+╭───────────╮ ╭───────────╮ ╭──────╮
+│ Recovery  │ │ Activity  │ │ More │
+╰───────────╯ ╰───────────╯ ╰──────╯
+Owner recovery check finished. No work r

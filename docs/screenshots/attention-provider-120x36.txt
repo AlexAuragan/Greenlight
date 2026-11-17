@@ -1,0 +1,36 @@
+Greenlight / bar-project                                                                         ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                                                         [h] Help
+
+ Needs attention
+
+  Provider credentials rejected
+  API credentials are missing, invalid or expired. Check the configured API-key environment variable and
+  replace/reload the key if needed. (HTTP 401)
+
+ What this means
+ The step is blocked. No automatic retry is currently active.
+
+ Next
+ Resolve the provider issue, then resume explicitly when ready.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+╭──────────────────╮ ╭───────────────────╮ ╭──────╮
+│ Inspect evidence │ │ Give instructions │ │ More │
+╰──────────────────╯ ╰───────────────────╯ ╰──────╯
+Workflow needs attention. Review the evidence before continuing.

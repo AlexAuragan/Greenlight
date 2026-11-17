@@ -155,6 +155,13 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         .is_some_and(|w| w.primary == crate::workspace_view::PrimaryAction::RecoverOwner)
     {
         "INTERRUPTED".into()
+    } else if workspace.is_some_and(|w| w.primary == crate::workspace_view::PrimaryAction::Observe)
+        && !app
+            .runner
+            .as_ref()
+            .is_some_and(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
+    {
+        "OBSERVING".into()
     } else {
         raw_status.to_uppercase()
     };
@@ -397,19 +404,39 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             columns[1],
         );
     } else if let Some(message) = &app.diagnostic {
-        draw_scrolled(
-            frame,
-            app,
-            Paragraph::new(crate::markdown::render(message))
-                .wrap(Wrap { trim: false })
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" ATTENTION — Esc closes; arrows scroll ")
-                        .border_style(Style::default().fg(Color::Red)),
-                ),
-            columns[1],
-        );
+        if app.diagnostic_detail {
+            reader::draw_document(
+                frame,
+                app,
+                reader::Document {
+                    tag: format!("diagnostic:{}", app.diagnostic_revision),
+                    source: message,
+                    markdown: false,
+                    headers: vec![
+                        Line::styled(
+                            "Full diagnostic",
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ),
+                        Line::default(),
+                    ],
+                },
+                Block::default()
+                    .padding(ratatui::widgets::Padding::uniform(1))
+                    .style(Style::default().bg(theme::PANEL)),
+                columns[1],
+            );
+        } else {
+            attention::draw(
+                frame,
+                app,
+                columns[1],
+                if app.diagnostic_attention {
+                    app.attention.as_ref()
+                } else {
+                    None
+                },
+            );
+        }
     } else if let Some(message) = &app.usage_detail {
         draw_scrolled(
             frame,
@@ -455,6 +482,8 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                 .wrap(Wrap { trim: false }),
             columns[1],
         );
+    } else if app.attention_visible() {
+        attention::draw(frame, app, columns[1], app.attention.as_ref());
     } else if app.edits.pending.is_some() || app.view == View::Edits {
         edits::draw(frame, app, columns[1]);
     } else if app.result_open && app.view == View::Conversation {

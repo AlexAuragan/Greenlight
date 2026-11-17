@@ -1,0 +1,14 @@
+Greenlight / b…  ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+ Needs attention
+
+  Provider credentials rejected
+  API credentials are missing, invalid
+  or expired. Check the configured
+  API-key environment variable and
+╭───────────╮ ╭───────────╮ ╭──────╮
+│ Evidence  │ │  Compose  │ │ More │
+╰───────────╯ ╰───────────╯ ╰──────╯
+Workflow needs attention. Review the evi

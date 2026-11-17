@@ -18,6 +18,19 @@ Each source cell's text, foreground, background and bold flag is copied to the i
 | Manager question | [PNG](compose-manager-80x24.png) | [PNG](compose-manager-120x36.png) | [PNG](compose-manager-40x14.png) |
 | Step instructions | [PNG](compose-step-80x24.png) | [PNG](compose-step-120x36.png) | [PNG](compose-step-40x14.png) |
 
+
+Attention/recovery captures use recorded fixture failures and real rendering; no provider request is made.
+
+| State | 80×24 | 120×36 | 40×14 |
+| --- | --- | --- | --- |
+| Blocked | [PNG](attention-blocked-80x24.png) | [PNG](attention-blocked-120x36.png) | [PNG](attention-blocked-40x14.png) |
+| Provider | [PNG](attention-provider-80x24.png) | [PNG](attention-provider-120x36.png) | [PNG](attention-provider-40x14.png) |
+| Owner | [PNG](attention-owner-80x24.png) | [PNG](attention-owner-120x36.png) | [PNG](attention-owner-40x14.png) |
+| Write | [PNG](attention-write-80x24.png) | [PNG](attention-write-120x36.png) | [PNG](attention-write-40x14.png) |
+| Observing | [PNG](attention-observing-80x24.png) | — | — |
+| Recovered | [PNG](attention-recovered-80x24.png) | — | — |
+| Evidence | [PNG](attention-evidence-80x24.png) | — | — |
+
 Regenerate from the repository root:
 
 ```bash

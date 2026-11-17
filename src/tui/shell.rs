@@ -4,8 +4,17 @@ use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
 use std::cell::RefCell;
 
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    InspectAttention,
+    FullDiagnostic,
+    RecordedActivity,
+    GiveInstructions,
+    AskManager,
+    RecoverOwner,
+    WriteGuidance,
+    RestartReview,
     StopManager,
     SendStep,
     SendQuestion,
@@ -56,6 +65,14 @@ pub(super) enum Action {
 impl Action {
     pub(super) fn label(self) -> &'static str {
         match self {
+            Self::InspectAttention => "Inspect evidence",
+            Self::FullDiagnostic => "Full diagnostic",
+            Self::RecordedActivity => "Recorded activity",
+            Self::GiveInstructions => "Give instructions",
+            Self::AskManager => "Ask manager",
+            Self::RecoverOwner => "Recover owner",
+            Self::WriteGuidance => "Recovery guidance",
+            Self::RestartReview => "Restart review",
             Self::StopManager => "Stop manager retries",
             Self::SendStep => "Send & resume",
             Self::SendQuestion => "Send question",
@@ -218,6 +235,20 @@ impl App {
         self.focus == Focus::Compose && !self.blocking_surface()
     }
     pub(super) fn more_actions(&self) -> Vec<Action> {
+        if self.diagnostic.is_some() || self.attention_visible() {
+            let mut actions = vec![
+                Action::RecordedActivity,
+                Action::AskManager,
+                Action::FullDiagnostic,
+            ];
+            if (self.diagnostic.is_none() || self.diagnostic_attention)
+                && self.attention.as_ref().is_some_and(|s| s.resumable)
+            {
+                actions.push(Action::RestartReview);
+            }
+            return actions;
+        }
+
         if self.artifact_browser.is_some() {
             return vec![
                 Action::Versions,
@@ -325,11 +356,25 @@ impl App {
         if self.artifact_browser.is_some() {
             return vec![Action::Versions, Action::Provenance, Action::Close];
         }
+        if self.diagnostic.is_some() {
+            if self.diagnostic_detail {
+                return vec![Action::Close, Action::Copy];
+            }
+            if self.diagnostic_attention {
+                if let Some(state) = &self.attention {
+                    return state.actions();
+                }
+            }
+            return vec![Action::FullDiagnostic, Action::Close];
+        }
         if self.blocking_surface() {
             return vec![Action::Help, Action::Close];
         }
         if self.session().is_none() {
             return vec![Action::New, Action::More];
+        }
+        if self.attention_visible() {
+            return self.attention.as_ref().unwrap().actions();
         }
         if self.result_open && self.view == View::Conversation {
             return vec![
@@ -364,7 +409,7 @@ impl App {
     }
     pub(super) fn shell_actions(&self) -> Vec<Action> {
         let mut actions = self.footer_actions();
-        if !self.blocking_surface() || self.new_session.is_some() {
+        if !self.blocking_surface() || self.new_session.is_some() || self.diagnostic.is_some() {
             actions.extend(self.header_actions());
         }
         actions
@@ -420,6 +465,71 @@ impl App {
             self.shell.more = false;
         }
         let code = match action {
+            InspectAttention => {
+                self.inspect_attention();
+                return Ok(false);
+            }
+            FullDiagnostic => {
+                if self.diagnostic_attention
+                    || self.diagnostic.is_none() && self.attention_visible()
+                {
+                    if let Some(state) = &self.attention {
+                        let record = state
+                            .evidence
+                            .and_then(|id| self.activity_rows.iter().find(|e| e.id == id));
+                        self.diagnostic_revision = self.diagnostic_revision.wrapping_add(1);
+                        self.diagnostic = Some(format!(
+                            "{}\n\n{}\n\n{}",
+                            state.title,
+                            state.reason,
+                            record
+                                .map(|e| format!(
+                                    "Recorded event #{} · {} · {}\n{}",
+                                    e.id, e.step, e.kind, e.data
+                                ))
+                                .unwrap_or_else(|| state.impact.to_owned())
+                        ));
+                    }
+                }
+                if self.diagnostic.is_some() {
+                    self.diagnostic_detail = true;
+                    self.detail_scroll = 0;
+                } else {
+                    self.inspect_attention();
+                }
+                return Ok(false);
+            }
+            RecordedActivity => {
+                self.attention_history();
+                return Ok(false);
+            }
+            GiveInstructions => {
+                self.clear_diagnostic();
+                self.set_message_mode(compose::Mode::Step);
+                self.focus_composer();
+                return Ok(false);
+            }
+            AskManager => {
+                self.clear_diagnostic();
+                self.set_message_mode(compose::Mode::Manager);
+                self.focus_composer();
+                return Ok(false);
+            }
+            RecoverOwner => {
+                self.recover_owner_action(store)?;
+                return Ok(false);
+            }
+            WriteGuidance => {
+                self.clear_diagnostic();
+                self.context_detail=Some(format!("Native-write recovery\n\nProject: {}\n\nFrom this project, run:\n  greenlight recover-writes\n\nThis reconciles recorded write intents with current disk contents; it does not overwrite source files. Read the CLI result before resuming. Recovery can refuse drift or an active native-write lock.\n\nOwner recovery (/recover) is a separate operation and never resumes work.",root.display()));
+                self.detail_scroll = 0;
+                return Ok(false);
+            }
+            RestartReview => {
+                self.clear_diagnostic();
+                self.open_restart(root, store);
+                return Ok(false);
+            }
             SendStep | SendQuestion | SendCommand => {
                 let expected = match action {
                     SendStep => compose::Mode::Step,
@@ -593,6 +703,7 @@ impl App {
             }
             Decision(c) => KeyCode::Char(c),
             Event(id) => {
+                self.attention_return = false;
                 if let Some(i) = self.events.iter().position(|e| e.id == id) {
                     self.event_index = i;
                     self.focus = Focus::Detail;
@@ -770,6 +881,9 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
         Action::Report
             | Action::New
             | Action::Open
+            | Action::InspectAttention
+            | Action::RecoverOwner
+            | Action::WriteGuidance
             | Action::SendStep
             | Action::SendQuestion
             | Action::SendCommand
@@ -804,6 +918,12 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::ClearGoal => "Clear",
             Action::Continue => "Next",
             Action::Help => "Help",
+            Action::InspectAttention => "Evidence",
+            Action::FullDiagnostic => "Details",
+            Action::RecordedActivity => "Activity",
+            Action::GiveInstructions => "Compose",
+            Action::RecoverOwner => "Recover",
+            Action::WriteGuidance => "Recovery",
             Action::Report => "Report",
             Action::ReviewEdits => "Edits",
             Action::Open => "Open",

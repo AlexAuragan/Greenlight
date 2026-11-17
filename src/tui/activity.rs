@@ -1,8 +1,10 @@
 //! Recorded activity presentation and evidence inspection.
 use super::*;
 
+
 impl App {
     pub(super) fn inspect_blocker(&mut self) {
+        self.attention_return = true;
         if let Some(id) = self
             .workspace
             .as_ref()
@@ -260,15 +262,29 @@ pub(super) fn draw(
     workspace: Option<&crate::workspace_view::SessionWorkspace>,
     area: ratatui::layout::Rect,
 ) {
-    if (app.inspector_open || app.focus==Focus::Detail) && area.width>=100 && !app.blocker_card {
-        let panes=Layout::horizontal([Constraint::Percentage(48),Constraint::Percentage(52)]).split(area);
-        draw_content(frame,app,workspace,panes[0],false);
-        draw_content(frame,app,workspace,panes[1],true);
+    if (app.inspector_open || app.focus == Focus::Detail) && area.width >= 100 && !app.blocker_card
+    {
+        let panes = Layout::horizontal([Constraint::Percentage(48), Constraint::Percentage(52)])
+            .split(area);
+        draw_content(frame, app, workspace, panes[0], false);
+        draw_content(frame, app, workspace, panes[1], true);
     } else {
-        draw_content(frame,app,workspace,area,app.focus==Focus::Detail || app.inspector_open);
+        draw_content(
+            frame,
+            app,
+            workspace,
+            area,
+            app.focus == Focus::Detail || app.inspector_open,
+        );
     }
 }
-fn draw_content(frame:&mut Frame,app:&App,workspace:Option<&crate::workspace_view::SessionWorkspace>,area:ratatui::layout::Rect,show_detail:bool) {
+fn draw_content(
+    frame: &mut Frame,
+    app: &App,
+    workspace: Option<&crate::workspace_view::SessionWorkspace>,
+    area: ratatui::layout::Rect,
+    show_detail: bool,
+) {
     if app.blocker_card
         && workspace.is_some_and(|w| {
             w.blocker.is_some()
@@ -368,7 +384,16 @@ fn draw_content(frame:&mut Frame,app:&App,workspace:Option<&crate::workspace_vie
                 );
                 let summary = Line::styled(
                     inline_display(&format!("  {} · {}", event.step, card.summary)),
-                    Style::default().fg(if matches!(event.kind.as_str(), "user.message" | "manager.message" | "session.started") {theme::USER} else {theme::MUTED}),
+                    Style::default().fg(
+                        if matches!(
+                            event.kind.as_str(),
+                            "user.message" | "manager.message" | "session.started"
+                        ) {
+                            theme::USER
+                        } else {
+                            theme::MUTED
+                        },
+                    ),
                 );
                 ListItem::new(if compact {
                     vec![title]
@@ -408,11 +433,21 @@ fn draw_content(frame:&mut Frame,app:&App,workspace:Option<&crate::workspace_vie
                 selected.select(Some(app.event_index));
             }
             frame.render_stateful_widget(list, right[1], &mut selected);
-            let row_height=if compact || app.show_all {1}else{2};
+            let row_height = if compact || app.show_all { 1 } else { 2 };
             for index in selected.offset()..app.events.len() {
-                let y=area.y+1+((index-selected.offset())*row_height) as u16;
-                if y>=area.bottom().saturating_sub(1){break}
-                app.shell.hit(ratatui::layout::Rect::new(area.x,y,area.width,(row_height as u16).min(area.bottom().saturating_sub(1)-y)),shell::Action::Event(app.events[index].id));
+                let y = area.y + 1 + ((index - selected.offset()) * row_height) as u16;
+                if y >= area.bottom().saturating_sub(1) {
+                    break;
+                }
+                app.shell.hit(
+                    ratatui::layout::Rect::new(
+                        area.x,
+                        y,
+                        area.width,
+                        (row_height as u16).min(area.bottom().saturating_sub(1) - y),
+                    ),
+                    shell::Action::Event(app.events[index].id),
+                );
             }
         }
     }
