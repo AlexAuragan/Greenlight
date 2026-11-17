@@ -1,0 +1,13 @@
+Greenlight / bar-…  ● blocked · baseline
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+Usage · this session
+All branches · 1 recorded dispatch(es),
+including failures/retries
+
+Input tokens: 145271 · provider-reported
+Cached input: 103168 · provider-reported
+╭──────╮ ╭─────────────╮ ╭─────────────╮
+│ Back │ │  Requests   │ │ Accounting  │
+╰──────╯ ╰─────────────╯ ╰─────────────╯

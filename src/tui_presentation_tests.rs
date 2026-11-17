@@ -542,3 +542,70 @@ fn attention_states_render_causes_and_recovery_effects_without_raw_ids() {
         0
     );
 }
+
+#[test]
+fn run_details_and_usage_render_scoped_summaries_and_exact_request_evidence() {
+    let root=tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store=Store::open(root.path()).unwrap();
+    let mut session=store.create("optimize-performance","Investigate the startup delay and establish a measured improvement.","baseline").unwrap();
+    let definition="type: agent\nprompt: Measure startup before optimizing\noutputs:\n  required: []\n";
+    store.begin_attempt(&session,"baseline",definition,"fixture-requested").unwrap();
+    store.begin_attempt(&session,"baseline",definition,"fixture-requested").unwrap();
+    session.status="blocked".into();store.save(&session).unwrap();
+    let mut call=crate::usage::Call::new(&session,"baseline","agent","fixture-requested","fixture",crate::usage::ModelMetadata::default(),&[]);
+    store.begin_model_call(&session,&mut call).unwrap();
+    call.response_model=Some("fixture-returned".into());
+    call.status="response-received".into();
+    call.counts=serde_json::from_value(serde_json::json!({
+        "input":{"value":145271,"source":"provider"},
+        "cached_input":{"value":103168,"source":"provider"},
+        "output":{"value":10536,"source":"provider"},
+        "notes":["Pricing metadata missing; counts do not establish a bill."]
+    })).unwrap();
+    store.finish_model_call(&session,&call).unwrap();
+    let before=store.history(&session).unwrap().len();
+    let mut app=App::new(Some(&session.id));app.shell.project="bar-project".into();app.refresh(&store).unwrap();
+    app.open_run_details(details::Page::Run,&store);
+    for (w,h) in [(80,24),(120,36),(40,14)] {
+        let output=text(&screen(&mut app,w,h,"run-details"));
+        assert!(output.contains("Run details"));
+        assert!(output.contains("Goal"));
+        assert!(!output.contains(&session.id));
+        assert!(!output.contains(&call.id));
+        if w>=80 { assert!(output.contains("Technical details"));assert!(output.contains("Roadmap")); }
+    }
+    assert_eq!(app.details.text.matches("baseline (").count(),1);
+    app.activate(shell::Action::Technical,root.path(),&store).unwrap();
+    screen(&mut app,80,24,"run-technical");
+    assert!(app.details.text.contains("fixture-requested"));
+    assert!(app.details.text.contains("fixture-returned"));
+    assert!(app.details.text.contains("Exact recorded definition"));
+    app.activate(shell::Action::DetailsBack,root.path(),&store).unwrap();
+    app.activate(shell::Action::Usage,root.path(),&store).unwrap();
+    for (w,h) in [(80,24),(120,36),(40,14)] {
+        let output=text(&screen(&mut app,w,h,"usage-summary"));
+        assert!(output.contains("Usage · this session"));
+        if w>=80 {
+            assert!(output.contains("145271"));assert!(output.contains("103168"));assert!(output.contains("10536"));
+            assert!(output.contains("Estimated cost: unavailable"));assert!(output.contains("0 of 1 requests"));
+        }
+        assert!(!output.contains(&call.id));
+    }
+    app.activate(shell::Action::Requests,root.path(),&store).unwrap();
+    screen(&mut app,80,24,"usage-requests");
+    app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert_eq!(app.details.page,Some(details::Page::Request));
+    assert_eq!(app.details.selected.as_deref(),Some(call.id.as_str()));
+    screen(&mut app,80,24,"usage-request");
+    assert!(app.export_snapshot().unwrap().text.contains(&call.id));
+    assert_eq!(store.history(&session).unwrap().len(),before);
+    assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,1);
+    assert!(app.runner.is_none());assert!(app.approval.is_none());
+    app.details.close();
+    let other=store.create("fix-bug","Investigate another issue","investigate").unwrap();
+    app.requested_session=Some(other.id);app.refresh(&store).unwrap();
+    app.open_run_details(details::Page::Usage,&store);
+    screen(&mut app,80,24,"usage-empty");
+    assert!(app.details.text.contains("No recorded requests"));
+}

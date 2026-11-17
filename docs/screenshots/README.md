@@ -1,6 +1,6 @@
 # Actual Ratatui render captures
 
-These PNG/SVG/text files come from the application's `view::draw` through Ratatui's `TestBackend`, with fictional completed-run fixtures. They are **actual implementation renders**, not the proportional drawings in [mockups](../mockups/README.md).
+These PNG/SVG/text files come from the application's `view::draw` through Ratatui's `TestBackend`, with fictional run, failure and accounting fixtures. They are **actual implementation renders**, not the proportional drawings in [mockups](../mockups/README.md).
 
 Each source cell's text, foreground, background and bold flag is copied to the image at its original grid position. The image renderer does not reposition widgets or add UI elements. PNG/SVG font rasterization can differ from your terminal; the `.txt` files show the exact character grid. These captures do not demonstrate interaction or substitute for PTY tests.
 
@@ -30,6 +30,18 @@ Attention/recovery captures use recorded fixture failures and real rendering; no
 | Observing | [PNG](attention-observing-80x24.png) | — | — |
 | Recovered | [PNG](attention-recovered-80x24.png) | — | — |
 | Evidence | [PNG](attention-evidence-80x24.png) | — | — |
+
+
+Run/usage captures use the existing ledger with fixture data; these screens do not dispatch requests or reprice historical calls.
+
+| View | 80×24 | 120×36 | 40×14 |
+| --- | --- | --- | --- |
+| Run overview | [PNG](run-details-80x24.png) | [PNG](run-details-120x36.png) | [PNG](run-details-40x14.png) |
+| Usage summary | [PNG](usage-summary-80x24.png) | [PNG](usage-summary-120x36.png) | [PNG](usage-summary-40x14.png) |
+| Technical details | [PNG](run-technical-80x24.png) | — | — |
+| Recorded requests | [PNG](usage-requests-80x24.png) | — | — |
+| Exact request | [PNG](usage-request-80x24.png) | — | — |
+| No recorded usage | [PNG](usage-empty-80x24.png) | — | — |
 
 Regenerate from the repository root:
 

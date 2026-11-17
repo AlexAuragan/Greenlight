@@ -11,7 +11,7 @@ cargo run -- --root /path/to/project tui SESSION_ID
 
 ## Session workspace
 
-The compact header shows the project and labeled state/current step. The full goal, workflow and attempt metadata/roadmap are under Details (`c`). The stepper there is an overview: loops can revisit steps and unvisited branches stay pending. It does not imply a linear execution plan. Long workflows window around the current step.
+The compact header shows the project and labeled state/current step. Details (`c`) opens a read-only run overview with the full goal in blue, current state, roadmap and ownership. The roadmap shows latest recorded states: loops may revisit steps, and it is not a percentage of success. Technical details expands session/branch IDs, current configured model, requested/returned models from the latest dispatch linked to the recorded attempt, pinned-input references and the exact recorded definition. Missing legacy metadata stays Not recorded; current configuration is not presented as historical model evidence. Back/Esc returns through these views to the prior workspace reading position. A session/branch change closes the old details rather than showing another run under its title.
 
 Press `c` or enter `/context` for a scrollable snapshot of the objective, required outputs, verification verdict, exact pinned input event IDs and approval references. An existing attempt uses its saved definition and manifest; a ready session shows the configuration for its next attempt. Missing legacy metadata stays explicit. Model prose never supplies a verification verdict.
 
@@ -86,7 +86,9 @@ Eligible rate-limit rejections or connection failures can retry with at most thr
 
 ## Token usage
 
-The footer reports input/cached-input/output token totals for recorded requests across the selected session’s branches. `~` marks estimates and `?` marks incomplete counts. Enter `/usage` in the composer for live-refreshed counts and estimated cost subtotals by model/attempt; arrows scroll and Escape closes the view. Unknown rates or cache hits do not become zero charges. Use CLI `usage SESSION_ID --json` for per-request provenance. Historical calls before the ledger was introduced are not reconstructed.
+Usage is available from Run details, More, or `/usage` in Commands mode. Its live summary covers all recorded dispatches for the selected session across all branches, including failures and retries. Input, cached input and output retain provider-reported/estimated/mixed/unknown labels. Cached input is a subset of input, not added again. Missing counts/rates remain unknown; cost is unavailable or a Partial estimate with coverage, and currency subtotals remain separate. No recorded requests does not establish that the session was free. Historical calls before the ledger are not backfilled.
+
+Request details opens a list: arrows/j/k, Home/End and page keys select; Enter/click opens that exact dispatch. Selection uses request identity across refresh; a missing record is shown as unavailable rather than substituted. Individual details include requested/returned models, status, count sources, cache-creation/reasoning data, captured pricing metadata and technical identity. Full accounting retains per-model/attempt summaries and historical pricing-source/date notes. Back/Esc returns through nested views. C copies the current full text snapshot; request and full-accounting views also expose Copy. Browsing makes no model request, refreshes no prices and writes no history. CLI `usage SESSION_ID --json` remains available for the full ledger.
 
 ## Artifacts tab
 

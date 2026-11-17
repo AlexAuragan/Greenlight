@@ -289,13 +289,13 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     assert!(usage.totals.input.estimated > 0);
     app.composer = "/usage".into();
     app.submit(root.path(), &store);
-    assert!(screen(&app).contains("Usage — session spending"));
-    assert!(app.usage_detail.as_ref().unwrap().contains("unknown"));
+    assert!(screen(&app).contains("Usage · this session"));
+    assert!(app.details.text.contains("unknown") || app.details.text.contains("Unknown"));
     key(&mut app, &store, root.path(), KeyCode::Down);
     app.refresh(&store).unwrap();
     assert_eq!(app.detail_scroll, 1);
     key(&mut app, &store, root.path(), KeyCode::Esc);
-    assert!(app.usage_detail.is_none());
+    assert!(app.details.page.is_none());
 }
 
 #[test]
@@ -429,11 +429,7 @@ fn workspace_cards_expose_context_and_exact_blocker_at_80x24() {
     assert!(!rendered.contains("Repair the parser"));
     assert!(rendered.contains("Parser tests failed"));
     key(&mut app, &store, root.path(), KeyCode::Char('c'));
-    assert!(app
-        .context_detail
-        .as_ref()
-        .unwrap()
-        .contains("Repair parsing"));
+    assert!(app.details.text.contains("Repair the parser"));
     app.detail_scroll = 2;
     app.refresh(&store).unwrap();
     assert_eq!(app.detail_scroll, 2);

@@ -20,6 +20,7 @@ mod activity;
 mod approval;
 mod attention;
 mod compose;
+mod details;
 mod editor;
 mod edits;
 mod exports;
@@ -123,8 +124,8 @@ struct App {
     attention_return: bool,
     diagnostic_key: Option<(String, String)>,
     artifact_diagnostic_key: Option<(String, String)>,
+    details: details::Details,
     usage_line: String,
-    usage_detail: Option<String>,
     usage_error: Option<String>,
     workspace: Option<crate::workspace_view::SessionWorkspace>,
     workspace_error: Option<String>,
@@ -206,8 +207,8 @@ impl App {
             attention_return: false,
             diagnostic_key: None,
             artifact_diagnostic_key: None,
+            details: details::Details::default(),
             usage_line: "Usage: no recorded model requests".into(),
-            usage_detail: None,
             usage_error: None,
             workspace: None,
             workspace_error: None,
@@ -266,9 +267,9 @@ impl App {
 
     fn refresh(&mut self, store: &Store) -> Result<()> {
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
-            self.manager_enabled = crate::config::load_config(root)
-                .map(|c| c.manager.enabled)
-                .unwrap_or(false);
+            let config = crate::config::load_config(root);
+            self.details.configured_model = config.as_ref().ok().map(|c|c.provider.model.clone());
+            self.manager_enabled = config.map(|c| c.manager.enabled).unwrap_or(false);
         }
         self.remember_reading();
         let old_session = self.session().map(|s| s.id.clone());
@@ -367,7 +368,8 @@ impl App {
                 );
                 if self.result_key.as_ref() != Some(&key) {
                     self.result_open = true;
-                    self.detail_scroll = 0;
+                    if self.details.page.is_none() { self.detail_scroll = 0; }
+                    else { self.details.return_scroll = 0; }
                     self.result_key = Some(key);
                 }
                 self.result_text = result::summary(store, &session, &history);
@@ -420,17 +422,16 @@ impl App {
             self.filter_activity();
             if session_changed {
                 self.diagnostic = None;
-                self.usage_detail = None;
+                self.details.close();
             }
             match usage {
                 Ok(report) => {
                     self.usage_line = report.totals.compact();
                     self.usage_error = None;
-                    if self.usage_detail.is_some() {
-                        self.usage_detail = Some(report.display());
-                    }
+                    self.details.report = Some(report);
                 }
                 Err(error) => {
+                    self.details.report = None;
                     self.usage_line = "Usage unavailable — inspect accounting records".into();
                     let message = format!("Usage accounting could not be read: {error:#}");
                     if self.usage_error.as_ref() != Some(&message) {
@@ -501,15 +502,17 @@ impl App {
             self.activity_generation = None;
             self.artifacts.clear();
             self.diagnostic = None;
-            self.usage_detail = None;
             self.usage_error = None;
             self.usage_line = "Usage: no session selected".into();
+            self.details.close();
+            self.details.report = None;
             self.workspace = None;
             self.workspace_error = None;
             self.workspace_session = None;
             self.blocker_card = false;
             self.context_detail = None;
         }
+        self.refresh_run_details(store);
         if self.view == View::Edits && self.edits.pending.is_none() {
             self.refresh_edits(store);
         }
@@ -544,7 +547,7 @@ impl App {
             && self.view == View::Conversation
             && self.diagnostic.is_none()
             && self.approval.is_none()
-            && self.usage_detail.is_none()
+            && self.details.page.is_none()
             && self.context_detail.is_none()
             && !self.help
             && !self.blocker_card
@@ -697,15 +700,7 @@ impl App {
             return;
         }
         if instruction == "/usage" {
-            if let Some(session) = self.session() {
-                match store.usage_report(session, crate::usage::Scope::Session) {
-                    Ok(report) => {
-                        self.usage_detail = Some(report.display());
-                        self.detail_scroll = 0;
-                    }
-                    Err(error) => self.raise_diagnostic(format!("Usage unavailable: {error:#}")),
-                }
-            }
+            self.open_run_details(details::Page::Usage, store);
             self.composer.clear();
             return;
         }

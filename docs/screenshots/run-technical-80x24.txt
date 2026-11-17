@@ -1,0 +1,23 @@
+Greenlight / bar-project                                    ● blocked · baseline
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+Technical details · selected session / active branch
+
+Session: b8d68c93-a72e-4036-a702-a9ec8e8418a2
+Branch: 867668fe-2b8c-47a8-a9e1-283cc696b99c
+State: blocked
+Step: baseline
+Execution: No active execution owner recorded.
+State directory: /tmp/.tmpnRyAB4/.greenlight/state
+
+Configured model (current project configuration):
+deepseek-ai/DeepSeek-V4-Flash-0731
+Latest request in recorded attempt: e8606579-5a3f-41e5-8002-7adcbe6c68f0
+Requested model: fixture-requested
+Returned model: fixture-returned
+
+Recorded context
+╭──────╮ ╭───────╮ ╭──────╮
+│ Back │ │ Usage │ │ Copy │
+╰──────╯ ╰───────╯ ╰──────╯

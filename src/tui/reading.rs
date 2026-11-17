@@ -43,11 +43,10 @@ pub(super) struct Reading {
 }
 impl App {
     pub(super) fn reading_overlay(&self) -> bool {
-        self.shell.more || self.approval.is_some()
+        self.details.page.is_some() || self.shell.more || self.approval.is_some()
             || self.edits.pending.is_some()
             || (self.result_open && self.view == View::Conversation)
             || self.diagnostic.is_some()
-            || self.usage_detail.is_some()
             || self.context_detail.is_some()
             || self.help
             || self.searching

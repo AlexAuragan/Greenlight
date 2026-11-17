@@ -93,3 +93,10 @@ These six PNG/SVG studies are fictional proportional drawings, not screenshots, 
 Source-based checks should cover session discovery errors versus empty/no-match states; candidate versus active session; active-worker ownership; changed checkpoint inputs; missing/legacy verification references; mixed/unknown usage and partial pricing; long goals/roadmaps; Help and mouse-off escape paths. Do not add model calls for browsing these surfaces.
 
 The major audited surface families now have focused design coverage. Minor/error variants still need an implementation acceptance matrix and concrete terminal tests; this is not a claim that every existing code path has a final wireframe. Next: consolidate approved decisions, explicitly unresolved details and a small implementation slice for review before changing the app.
+
+
+## Run details and usage implementation — 2026-11-17
+
+Run details now separates the full goal, current state, roadmap and ownership from Technical details. Technical details labels current configuration separately from requested/returned models linked to a recorded attempt, exposes exact recorded definitions and retains unknown legacy metadata. Usage presents session-wide ledger counts with source/unknown labels, separate currency subtotals, partial-cost coverage and uncertain-response guidance. Request selection is identity-based across refresh; missing requests stay unavailable. Full accounting retains existing model/attempt and pricing-snapshot provenance. Back, keyboard/mouse traversal, Help and copy snapshots remain read-only; scope changes close the previous run's panel.
+
+Actual [Ratatui captures](screenshots/README.md) cover 80×24, 120×36 and 40×14. Verification: 311 full-suite tests passed, one existing test ignored; 112 TUI tests passed; offline build and Clippy completed (five existing test-code warnings). The local fixture-provider PTY check covers run/usage/request browsing, nested Back/Help and unchanged request/history counts. No paid model calls. Session-picker refinements, richer checkpoints, Edits file cycling/Keep tracking and the final consistency pass remain separate work.

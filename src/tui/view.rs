@@ -68,6 +68,8 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             "Keyboard help · {} · mouse {}\n\n{}",
             if app.approval.is_some() {
                 "Approval pending; decisions disabled"
+            } else if app.details.page.is_some() {
+                "Run details / usage; read-only"
             } else if app.view == View::Edits {
                 "Recorded edits"
             } else {
@@ -234,7 +236,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         }
     }
 
-    let overlay = app.edits.pending.is_some()
+    let overlay = app.details.page.is_some() || app.edits.pending.is_some()
         || (app.result_open && app.view == View::Conversation)
         || app.activity_filtering
         || app.artifact_browser.is_some()
@@ -243,7 +245,6 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         || app.searching
         || app.help
         || app.diagnostic.is_some()
-        || app.usage_detail.is_some()
         || app.context_detail.is_some()
         || app.restart_plan.is_some()
         || !app.restart_choices.is_empty();
@@ -437,15 +438,8 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                 },
             );
         }
-    } else if let Some(message) = &app.usage_detail {
-        draw_scrolled(
-            frame,
-            app,
-            Paragraph::new(crate::markdown::render(message))
-                .wrap(Wrap { trim: false })
-                .block(border(" Usage — session spending · Esc closes ", true)),
-            columns[1],
-        );
+    } else if app.details.page.is_some() {
+        details::draw(frame, app, columns[1]);
     } else if let Some(message) = &app.context_detail {
         draw_scrolled(
             frame,

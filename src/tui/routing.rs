@@ -123,15 +123,14 @@ impl App {
         }
         if !typing
             && (!self.blocking_surface()
+                || self.details.page.is_some() && self.approval.is_none() && self.diagnostic.is_none()
                 || self.diagnostic.is_some()
                     && self.approval.is_none()
                     && self.context_detail.is_none()
-                    && self.usage_detail.is_none()
                 || self.artifact_browser.is_some()
                     && self.approval.is_none()
                     && self.diagnostic.is_none()
-                    && self.context_detail.is_none()
-                    && self.usage_detail.is_none())
+                    && self.context_detail.is_none())
         {
             if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
                 let actions = self.shell_actions();
@@ -383,6 +382,31 @@ impl App {
             }
             return Ok(false);
         }
+        if self.details.page.is_some() && self.approval.is_none() && self.diagnostic.is_none() {
+            match key.code {
+                KeyCode::Esc => self.back_run_details(store),
+                KeyCode::Char('C') => self.start_copy(),
+                KeyCode::Char('E') => self.request_editor(),
+                KeyCode::Down | KeyCode::Char('j') if self.details.page == Some(details::Page::Requests) => self.move_usage_request(1, store),
+                KeyCode::Up | KeyCode::Char('k') if self.details.page == Some(details::Page::Requests) => self.move_usage_request(-1, store),
+                KeyCode::PageDown if self.details.page == Some(details::Page::Requests) => self.move_usage_request(8, store),
+                KeyCode::PageUp if self.details.page == Some(details::Page::Requests) => self.move_usage_request(-8, store),
+                KeyCode::Home if self.details.page == Some(details::Page::Requests) => self.move_usage_request(isize::MIN, store),
+                KeyCode::End if self.details.page == Some(details::Page::Requests) => self.move_usage_request(isize::MAX, store),
+                KeyCode::Enter if self.details.page == Some(details::Page::Requests) => {
+                    if self.details.selected_call().is_some() { self.open_run_details(details::Page::Request, store); }
+                }
+                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::PageDown => self.scroll_detail(8),
+                KeyCode::PageUp => self.scroll_detail(-8),
+                KeyCode::Home => self.detail_scroll = 0,
+                KeyCode::End => self.detail_scroll = u16::MAX,
+                KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => return Ok(true),
+                _ => {}
+            }
+            return Ok(false);
+        }
         if self.result_open
             && self.view == View::Conversation
             && self.focus != Focus::Compose
@@ -390,7 +414,6 @@ impl App {
             && self.new_session.is_none()
             && self.diagnostic.is_none()
             && self.context_detail.is_none()
-            && self.usage_detail.is_none()
             && self.restart_plan.is_none()
             && self.restart_choices.is_empty()
         {
@@ -436,7 +459,6 @@ impl App {
         }
         let scrolling = self.approval.is_some()
             || self.diagnostic.is_some()
-            || self.usage_detail.is_some()
             || self.context_detail.is_some()
             || self.restart_plan.is_some()
             || self.focus == Focus::Detail
@@ -511,7 +533,7 @@ impl App {
                                 self.requested_session = Some(session.id.clone());
                                 self.diagnostic = None;
                                 self.context_detail = None;
-                                self.usage_detail = None;
+                                self.details.close();
                                 self.refresh(store)?;
                                 self.focus = Focus::Events;
                                 self.runner = Some(tui_actions::resume(
@@ -573,12 +595,12 @@ impl App {
             return Ok(false);
         }
 
-        if self.diagnostic.is_some() || self.usage_detail.is_some() || self.context_detail.is_some()
+        if self.diagnostic.is_some() || self.context_detail.is_some()
         {
             match key.code {
                 KeyCode::Esc => {
                     self.clear_diagnostic();
-                    self.usage_detail = None;
+                    self.details.close();
                     self.context_detail = None;
                     self.detail_scroll = 0;
                 }
@@ -681,31 +703,7 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char('c') => {
-                self.context_detail = Some(
-                    self.workspace
-                        .as_ref()
-                        .map(|w| {
-                            format!(
-                                "{}\n{}\n\nLatest recorded step states (loops may revisit):\n{}",
-                                w.context(),
-                                w.stepper(
-                                    self.session()
-                                        .map(|s| s.current_step.as_str())
-                                        .unwrap_or(""),
-                                    100
-                                ),
-                                w.step_summary()
-                            )
-                        })
-                        .unwrap_or_else(|| {
-                            self.workspace_error
-                                .clone()
-                                .unwrap_or_else(|| "No session selected".into())
-                        }),
-                );
-                self.detail_scroll = 0;
-            }
+            KeyCode::Char('c') => self.open_run_details(details::Page::Run, store),
             KeyCode::Char('o') if self.view == View::Conversation => {
                 self.open_card_artifact(store)?
             }

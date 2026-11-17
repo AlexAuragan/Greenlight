@@ -51,6 +51,12 @@ pub(super) enum Action {
     Editor,
     Filter,
     Usage,
+    Technical,
+    Requests,
+    OpenRequest,
+    UsageAccounting,
+    DetailsBack,
+    UsageRequest(usize),
     Follow,
     Stop,
     Preview,
@@ -108,6 +114,12 @@ impl Action {
             Self::Editor => "Editor",
             Self::Filter => "Filter",
             Self::Usage => "Usage",
+            Self::Technical => "Technical details",
+            Self::Requests => "Request details",
+            Self::OpenRequest => "Open request",
+            Self::UsageAccounting => "Full accounting",
+            Self::DetailsBack => "Back",
+            Self::UsageRequest(_) => "Request",
             Self::Follow => "Follow latest",
             Self::Stop => "Stop requests",
             Self::Preview => "Toggle preview",
@@ -185,7 +197,7 @@ impl App {
             self.result_open,
             self.diagnostic.is_some(),
             self.context_detail.is_some(),
-            self.usage_detail.is_some(),
+            self.details.page.is_some(),
             self.edits.pending.is_some(),
             self.restart_plan.is_some(),
             self.new_session.is_some(),
@@ -195,7 +207,8 @@ impl App {
         ) + &format!(
             ":{}:{}:{:?}",
             self.shell.more, self.shell.menu_index, self.shell.actions_focus
-        ) + &format!(":{:?}", self.compose.mode)
+        ) + &format!(":{:?}:{:?}:{:?}", self.details.page, self.details.selected, self.details.page.and(self.details.report.as_ref()).map(|r| r.calls.iter().map(|c|c.id.as_str()).collect::<Vec<_>>()))
+            + &format!(":{:?}", self.compose.mode)
             + &format!(
                 ":{:?}",
                 self.sessions
@@ -217,7 +230,8 @@ impl App {
         *self.shell.stamp.borrow_mut() = self.shell_stamp();
     }
     pub(super) fn blocking_surface(&self) -> bool {
-        self.help
+        self.details.page.is_some()
+            || self.help
             || self.approval.is_some()
             || self.shell.more
             || self.searching
@@ -225,7 +239,6 @@ impl App {
             || self.new_session.is_some()
             || self.diagnostic.is_some()
             || self.context_detail.is_some()
-            || self.usage_detail.is_some()
             || self.restart_plan.is_some()
             || !self.restart_choices.is_empty()
             || self.edits.pending.is_some()
@@ -367,6 +380,7 @@ impl App {
             }
             return vec![Action::FullDiagnostic, Action::Close];
         }
+        if self.details.page.is_some() { return self.details.actions(); }
         if self.blocking_surface() {
             return vec![Action::Help, Action::Close];
         }
@@ -409,7 +423,7 @@ impl App {
     }
     pub(super) fn shell_actions(&self) -> Vec<Action> {
         let mut actions = self.footer_actions();
-        if !self.blocking_surface() || self.new_session.is_some() || self.diagnostic.is_some() {
+        if !self.blocking_surface() || self.new_session.is_some() || self.diagnostic.is_some() || self.details.page.is_some() {
             actions.extend(self.header_actions());
         }
         actions
@@ -674,9 +688,24 @@ impl App {
             Editor => KeyCode::Char('E'),
             Filter => KeyCode::Char('F'),
             Usage => {
-                let draft = std::mem::replace(&mut self.composer, "/usage".into());
-                self.submit(root, store);
-                self.composer = draft;
+                self.open_run_details(details::Page::Usage, store);
+                return Ok(false);
+            }
+            Technical => { self.open_run_details(details::Page::Technical, store); return Ok(false); }
+            Requests => { self.open_run_details(details::Page::Requests, store); return Ok(false); }
+            UsageAccounting => { self.open_run_details(details::Page::Accounting, store); return Ok(false); }
+            DetailsBack => { self.back_run_details(store); return Ok(false); }
+            OpenRequest => {
+                if self.details.selected_call().is_some() { self.open_run_details(details::Page::Request, store); }
+                return Ok(false);
+            }
+            UsageRequest(index) => {
+                if self.details.page == Some(details::Page::Requests) {
+                    if let Some(call) = self.details.report.as_ref().and_then(|r|r.calls.get(index)) {
+                        self.details.selected = Some(call.id.clone());
+                        self.open_run_details(details::Page::Request, store);
+                    }
+                }
                 return Ok(false);
             }
             Follow => KeyCode::End,
@@ -920,6 +949,10 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::Help => "Help",
             Action::InspectAttention => "Evidence",
             Action::FullDiagnostic => "Details",
+            Action::Technical => "Technical",
+            Action::Requests => "Requests",
+            Action::OpenRequest => "Open",
+            Action::UsageAccounting => "Accounting",
             Action::RecordedActivity => "Activity",
             Action::GiveInstructions => "Compose",
             Action::RecoverOwner => "Recover",

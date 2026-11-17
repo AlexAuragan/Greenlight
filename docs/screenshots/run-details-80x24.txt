@@ -1,0 +1,23 @@
+Greenlight / bar-project                                    ● blocked · baseline
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+Run details · this session / active branch
+
+Goal
+Investigate the startup delay and establish a measured improvement.
+
+Workflow and current state
+optimize-performance · blocked · baseline
+
+Roadmap · latest states, not a success percentage
+! baseline (Blocked) → · optimize (Pending) → · benchmark (Pending) → · evaluate
+(Pending)
+Loops may revisit steps.
+
+Execution and evidence
+No active execution owner recorded.
+
+╭──────╮ ╭───────╮ ╭───────────────────╮
+│ Back │ │ Usage │ │ Technical details │
+╰──────╯ ╰───────╯ ╰───────────────────╯

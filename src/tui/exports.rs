@@ -17,8 +17,8 @@ impl App {
             ("keyboard help".into(), HELP.into())
         } else if let Some(text) = &self.diagnostic {
             ("diagnostic".into(), text.clone())
-        } else if let Some(text) = &self.usage_detail {
-            ("usage report".into(), text.clone())
+        } else if let Some(page) = self.details.page {
+            (format!("{page:?} · selected session/branch snapshot"), self.details.text.clone())
         } else if let Some(text) = &self.context_detail {
             ("attempt context".into(), text.clone())
         } else if let Some(browser) = &self.artifact_browser {

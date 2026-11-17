@@ -16,7 +16,7 @@ greenlight refresh-pricing                         # refresh supported provider 
 greenlight models --pricing                        # provider model list with resolved metadata
 ```
 
-The TUI footer shows token totals (`~` estimated; `?` incomplete). Use `/usage` for a scrollable session spending report; arrows scroll and Escape closes it. Accounting records remain in full history but are hidden from the default conversation. Missing historical data is not backfilled.
+The TUI footer shows token totals (`~` estimated; `?` incomplete). Use More → Usage, Run details → Usage, or `/usage` in Commands mode for a session summary with count sources and pricing coverage. Request details opens the recorded dispatch list; Enter/click opens exact request evidence. Full accounting retains model/attempt subtotals and captured pricing-source/date notes. Back/Esc returns through the nested views. Accounting records remain in full history but are hidden from the default conversation. Missing historical data is not backfilled.
 
 ## Account for every model request
 
