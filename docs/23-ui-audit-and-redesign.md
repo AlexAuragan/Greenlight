@@ -720,3 +720,5 @@ The user-selected [Edits review amendment](29-edits-and-revert-design.md) adds A
 The [supporting-surface review](32-navigation-checkpoints-details-and-help-design.md) covers empty home, session navigation, human checkpoints, run details/usage and contextual Help. Major families now have focused design coverage; minor variants and real-terminal checks remain.
 
 The user-selected [compact navigation revision](33-compact-layout-and-navigation.md) retains `h` Help, arrows/`j/k`/Tab navigation and removes required function-key shortcuts. It supersedes earlier loose spacing/F6 proposals.
+
+The [implementation handoff](34-ui-implementation-plan.md) consolidates the screen studies and defines a compact workspace/interaction-foundation slice with explicit acceptance checks. This audit remains historical inventory and research.

@@ -1,6 +1,6 @@
 # Compact layout and navigation revision
 
-**Status:** design only, 2026-11-17, Europe/Paris. User-selected direction: make the UI more compact; retain arrows, `j/k` and Tab; avoid function-key shortcuts. In follow-up the user explicitly keeps **`h` for Help**, instead of assigning it to move left. Exact spacing and detailed focus transitions below are proposals for implementation review.
+**Status:** design only. The user approved this denser visual direction in follow-up. Dated 2026-11-17, Europe/Paris. User-selected direction: make the UI more compact; retain arrows, `j/k` and Tab; avoid function-key shortcuts. In follow-up the user explicitly keeps **`h` for Help**, instead of assigning it to move left. Exact spacing and detailed focus transitions below are proposals for implementation review.
 
 This supersedes the F6 proposal in [Edits review](29-edits-and-revert-design.md) and the old [Help study](32-navigation-checkpoints-details-and-help-design.md). Application controls are unchanged.
 
@@ -51,3 +51,5 @@ The revised drawings use 1000×620 illustrative canvases versus the earlier 1200
 Earlier PNG/SVG assets remain historical studies. Their function-key text and loose spacing are superseded by this revision; do not implement those older hints. Apply these shared rules when implementing each surface rather than treating every old drawing as an exact pixel specification.
 
 Later checks: every action reachable without function keys; forward/backward Tab cycles; file review ↔ actions; no accidental activation on Enter transfer; arrows and `j/k`; editor literal letters; Help return and expiry; resize; long paths/commands; mouse and keyboard focus equivalence. No model calls or code changes in this design pass.
+
+The [consolidated implementation plan](34-ui-implementation-plan.md) separates agreed direction from detailed proposals and defines the first code slice.

@@ -212,3 +212,5 @@ The [artifact reader/history design](docs/31-artifact-reader-and-history-design.
 The [navigation, checkpoints, details and Help design](docs/32-navigation-checkpoints-details-and-help-design.md) completes focused proposals for the major screen families, with six additional static studies.
 
 The [compact layout/navigation revision](docs/33-compact-layout-and-navigation.md) keeps h Help and arrows/j/k/Tab navigation without function-key shortcuts.
+
+Start with the [consolidated UI implementation plan](docs/34-ui-implementation-plan.md) for the current design references, agreed choices and first implementation slice.

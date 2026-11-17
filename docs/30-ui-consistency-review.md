@@ -63,3 +63,7 @@ The [navigation/checkpoints/details/Help proposal](32-navigation-checkpoints-det
 ## 6. Compactness and no-function-key revision
 
 The user requests denser screens and rejects function-key shortcuts. In explicit follow-up they retain `h` for Help and select arrows plus `j/k` for navigation. The [compact navigation revision](33-compact-layout-and-navigation.md) supersedes the F6 proposal: Edits Tab cycles files, Enter focuses actions without activating one, Esc returns. Older static studies are historical where their spacing or F6 text differs.
+
+## 7. Implementation handoff
+
+The [consolidated plan](34-ui-implementation-plan.md) is the current index of settled choices, proposed details, first-slice scope and acceptance evidence. It records design coverage without claiming runtime implementation or terminal validation.

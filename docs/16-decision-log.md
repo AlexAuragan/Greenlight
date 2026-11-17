@@ -233,3 +233,7 @@ The user requests continued design work. The [supporting-surface review](32-navi
 ## 2026-11-17 — Denser layouts and no function keys
 
 The user requests a more compact UI with arrows, j/k and Tab and rejects function-key shortcuts. Asked about the h conflict, they explicitly retain h for Help rather than h/j/k/l navigation. The [compact revision](33-compact-layout-and-navigation.md) replaces the proposed F6 escape with Enter to focus Edits actions (without activation), Esc to return, and local Tab routing. Two new static studies demonstrate denser Help and file review. Older studies remain historical; no runtime input/layout changes.
+
+## 2026-11-17 — Compact direction approved; implementation handoff drafted
+
+The user approves the denser direction and requests continuation. The [consolidated implementation plan](34-ui-implementation-plan.md) separates explicitly selected choices from detailed proposals and defines a first compact-workspace/theme/action/focus/Help/mouse/paste slice with acceptance evidence. Later slices retain independent Keep-review storage, explicit composer routing and existing approval/restore/accounting contracts. This turn consolidates planning only; no runtime changes, model calls or future-test claims.
