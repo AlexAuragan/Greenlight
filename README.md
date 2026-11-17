@@ -100,6 +100,10 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - DeepInfra/OpenAI-compatible chat-completions transport and model listing.
 - Read-only, network-disabled sandboxed shell; project read/journaled native write tools; optional Brave web search and Discord notifications.
 
+## UI design review
+
+The [2026-11-17 screen audit and redesign draft](docs/23-ui-audit-and-redesign.md) inventories the current screens and proposes a clearer layout, semantic colors, popups, buttons and contextual actions. It is for joint review before UI implementation.
+
 ## Roadmap / TODO
 
 > **Status (2026-11-13):** this checklist tracks **remaining** work, not all ideas ever discussed. The TUI, workspace manifests, Markdown preview and Greenlight rename landed in PRs #6–#9. For rationale and proposed designs see [the dated TUI UX analysis](docs/12-tui-ux-analysis.md); for settled decisions see [the decision log](docs/16-decision-log.md), and for a repeatable manual exercise see [the smoke-test guide](docs/17-smoke-test.md). The current executable behavior is described in the specialized docs and Rust sources.
