@@ -8,6 +8,22 @@
 
 This is a source-based inventory of the current application, informed by the user's real-session screenshots. It is not a claim that every state has been visually exercised in every terminal. Proposed controls and wireframes below are not implemented screens. This review updates the visual/interaction direction in the [earlier dated UX research](12-tui-ux-analysis.md); it does not replace execution, approval or restore contracts. [Current TUI behavior](11-tui.md) remains the operational reference until changes land.
 
+## Review decisions — 2026-11-17
+
+User edits from commit `ef9672a` and the subsequent layout discussion establish the choices below. These are **design decisions**, not implemented keybindings or application behavior.
+
+| Topic | Agreed direction | Still open |
+| --- | --- | --- |
+| Help key | Lowercase `h` opens Help in navigation; keep `?` as an alias | Uppercase `H` is the user's suggested replacement for the existing Activity/history binding; final remapping remains to review |
+| Session navigation | Collapsible sidebar, **hidden by default**, opened through a visible Sessions control | Pinning and persistence across application launches have not been decided |
+| Activity/file details | **Enter or click explicitly opens details**; use an inspector when width permits and a full-width reader on small terminals | Whether an already-open inspector follows later selection changes remains to review |
+| Composer | **Open on demand** through a visible Compose action; closing preserves the draft | Recipient/mode presentation and precise sizing remain to review; existing drafts are memory-only, not durably saved |
+| Semantic colors | Blue user input, cyan focus/active controls, neutral model body, green recorded positive outcomes, amber attention, red errors/destructive actions | Exact shades, optional attribution accents and theme fallbacks remain to validate |
+| Mouse | **Enabled by default** for clicks/scrolling, with complete keyboard operation and a discoverable way to disable capture | Hit regions, terminal text-selection interaction and supported-terminal behavior require implementation/testing |
+| Help over approvals | `h` opens read-only Help above the pending decision; decision keys are disabled while Help is open; Esc closes Help and returns to the approval | Exact Help content, focus restoration and request-expiry presentation remain to design/test |
+
+List browsing should therefore remain quiet while details are closed. The normal workspace does not reserve space for the sidebar, inspector or composer until the person opens them. The other recommendations below remain proposals unless explicitly marked settled.
+
 ## Review map
 
 For a first pass, read sections 1, 4, 5 and 10. Sections 2 and 7 are the detailed checklists for our screen-by-screen discussion; section 3 is the researched toolkit.
@@ -91,7 +107,7 @@ These are logical surfaces, not independent application windows. Several share t
 | S21 — Exact step context | Saved attempt definition/input references or next-run context, outputs and verification details | Check what the agent was instructed to do and what evidence it received | Technical inspector; normal step purpose remains short in the workspace |
 | S22 — Usage report | Session counts/costs with estimates/unknowns and per-request detail | Understand cost, cache usage and unavailable pricing | Optional compact usage badge opens a report; do not fill every workspace footer with counters |
 | S23 — Manager context preview / manager exchanges | `/manager-context` shows bounded evidence; `/manager` filters saved manager messages/results | Ask about status, inspect what was shared, read an answer without resuming coding | Separate **Ask manager** mode and labeled read-only exchanges; keep executing forwards explicitly unavailable |
-| S24 — Keyboard help | Long scrollable help text replacing main content | Discover actions for this context, then return without losing focus | `H` proposal: focused popup with **This screen / Navigation / All actions**, instead of the full manual at once |
+| S24 — Keyboard help | Long scrollable help text replacing main content | Discover actions for this context, then return without losing focus | `h` (user-selected key): proposed focused popup with **This screen / Navigation / All actions**, instead of the full manual at once |
 
 ### 2.3 Decisions, confirmations and temporary surfaces
 
@@ -147,7 +163,7 @@ Ratatui primarily **draws cells into terminal rectangles**. It does not automati
 | Modal decision dialog | Same drawing primitives as a popup | Modality, action validity, expiry and input capture are application behavior | **Add deliberately** for approvals/confirmations; full-screen review when evidence is long |
 | Drawer / inspector | Render a side/bottom rectangle; no special window API needed | Avoid shrinking the primary reader below a useful width | **Add** on wide layouts, use full-screen detail on narrow ones |
 | Full-screen reader / page | A widget can occupy the whole content area | Requires clear title, Back action and saved selection | **Use** for long artifacts, logs, diffs and review evidence |
-| Buttons | No built-in `Button` in the pinned core widget list; official custom-widget recipe demonstrates one | Need enabled/focused/pressed state, activation rules and optional mouse hit-testing | **Add a small shared action-button component**; a component library is optional, not required |
+| Buttons | No built-in `Button` in the pinned core widget list; official custom-widget recipe demonstrates one | Need enabled/focused/pressed state, activation rules and mouse hit-testing for the agreed default-on interaction | **Add a small shared action-button component**; a component library is optional, not required |
 | Menus / command palette | Compose an input and list in a popup; third-party options exist | Filtering, command validity and input-mode conflicts remain ours | **Add a small More menu** first; evaluate searchable palette if discoverability still needs it |
 | Inline expandable sections | Compose normal widgets and store expanded/collapsed state | Expansion must not reset the surrounding document or selection | **Use** for metadata and secondary details; not for the critical scope of an approval |
 | Scrollbar / scroll position | Core `Scrollbar` and state | Does not provide scrolling behavior automatically; wrapped offsets still matter | **Add** to long readers and modals; indicate that more evidence exists |
@@ -169,7 +185,7 @@ The current event loop processes `Event::Key`; it does not implement mouse activ
 
 For real buttons, keyboard and mouse must produce the **same typed action** after the same eligibility checks. Hit regions must come from the current rendered layout, with stale regions discarded after resize/modal changes. A click begun on one request must not activate a different request that appeared before release. Non-destructive focused buttons can use Enter. Approval, grant, revert and restart confirmation retain explicit decision activation; **do not make Enter authorize them as an incidental visual change**.
 
-Recommend keyboard-complete buttons first, with optional mouse support designed alongside them and its default discussed explicitly. Mouse capture can affect ordinary terminal selection/copy behavior; provide a discoverable way to disable it. Do not claim a button is clickable until that path exists.
+**Settled:** the redesigned UI enables mouse clicks and scrolling by default, retains complete keyboard operation, and provides a discoverable way to disable mouse capture. Mouse capture can affect ordinary terminal selection/copy behavior; expose the toggle through Help/More rather than requiring a settings editor. Hit-testing and keyboard actions share the same eligibility checks. This is a design decision, not behavior already present in the current key-only event loop; do not claim a button is clickable until that path exists.
 
 Relative effort is not uniform: painting a popup or styled action is small; reliable focus restoration, modal precedence, resizing and stale-action prevention are the substantial work. Mouse interaction adds event/hit-region testing. Images and structured dashboards add terminal/data contracts. These are relative design costs, not delivery-time estimates.
 
@@ -184,12 +200,28 @@ No dependency is required just to add an overlay, drawer or action row. A small 
 Keep one session workspace and the three familiar sections: **Activity, Artifacts, Edits**. Let Activity be a state-aware overview rather than a raw-event-first page. A completed result can be its landing content without adding another permanent tab.
 
 - **Compact identity/header:** project/session title, one status badge, current step. Keep the full goal readable through a Goal/Details action. Put model identifiers, attempt UUIDs and branch IDs behind Details.
-- **Optional session navigation:** show the sidebar when switching/browsing multiple sessions or when pinned. For one selected session, a visible session switcher can replace a permanently allocated sidebar.
+- **Session navigation — settled:** a collapsible sidebar is hidden by default. A visible Sessions control opens it for switching/browsing. Do not automatically allocate a permanent sidebar just because multiple sessions exist; pinning/persistence can be reviewed separately.
 - **Main content:** one primary task. Running overview, blocker resolution, report reading, or source-edit review—not all four simultaneously.
-- **One optional inspector:** selected evidence beside the list only when there is useful width. On a narrow terminal, open a full content reader and preserve the exact Back target.
-- **Composer when messaging is meaningful:** collapsed to a clear action when idle; expanded on Compose. Hide or deactivate it visibly during a decision/form. Never show two apparently active text-entry areas.
+- **Inspector opening — settled:** Enter or click explicitly opens the selected activity/file details. Use an inspector beside the list when width permits, or a full-width reader on a small terminal. Preserve the exact Back target; selecting rows while details are closed does not open a preview.
+- **Composer visibility — settled:** open on demand through a visible Compose action. Closing it preserves the memory-only draft and returns its space to the content. Recipient/mode remains explicit; a decision/form owns its own inputs, with no second apparently active editor underneath.
 - **Contextual action dock:** a short row of actions for the current focus/state. Help is available without copying its contents into every border/title.
 - **Temporary feedback:** a small receipt for minor success; persistent notices for stops, errors and incomplete operations.
+
+### 4.1.1 First layout pass after review
+
+The agreed **visibility/opening behavior** is illustrated below. Labels, three-tab navigation and exact sizing are still proposals, not additional accepted decisions.
+
+```text
+ Greenlight / project          Working · baseline       [Sessions] [Help h]
+ Activity   Artifacts   Edits
+
+ Main task content
+   Current state, meaningful activity or selected report/file list
+
+ [Open selected]   [Compose]   [More actions]
+```
+
+At rest, the sidebar, details and composer do not occupy separate permanent panes. Sessions reveals navigation; Open/Enter/click opens details; Compose opens the editor and restores its draft. Closing one returns the space to the main task. This layout does not change what a message can actually do during a live workflow, and it does not allow a composer behind a pending decision to receive input.
 
 ### 4.2 Disclosure levels
 
@@ -202,7 +234,7 @@ Keep one session workspace and the three familiar sections: **Activity, Artifact
 
 Do not move **critical decision information** down this ladder: the operation, target, permission scope, affected file count, destructive consequence and stale/conflict warnings stay visible before a decision. Hide verbosity, not consequences.
 
-Selection alone should not repeatedly open an intrusive modal. Arrowing through a list may update a small preview; **Open/Enter/click** expands the item. Focusing a pane should make its available actions clear, not turn every focus change into another window.
+**Settled:** navigation changes the selected row while details remain closed. **Open/Enter/click** explicitly opens the item; simple browsing does not trigger an automatic preview. Focusing a pane makes its available actions clear. The behavior of an already-open inspector during subsequent selection changes is still open.
 
 ### 4.3 Surface choices
 
@@ -219,7 +251,7 @@ A painted overlay and its input owner must always agree. One top interactive sur
 
 Proposed priority is an active decision/recovery surface above ordinary inspection, then contextual help for that surface. New minor notices cannot cover a command or confirmation button. No click-through, background button activation or approval based on a stale selected session is acceptable.
 
-`H` inside a decision is an explicit design choice to review: recommendation is read-only contextual help above it, with decision keys disabled until Help closes. Escape would close Help first, **not silently deny the underlying request**; the pending decision would then own input again. Current behavior disables help during approvals, so this is a proposed input-policy change requiring dedicated tests and agreement, not an already-supported shortcut. Avoid unbounded nested windows; one decision plus one read-only help/reader layer is enough initially.
+**Settled:** `h` opens read-only contextual Help above a pending approval. Decision keys are disabled while Help owns input. Escape closes Help first, **not silently denying the underlying request**; the still-valid pending approval then owns input again. If the request expired or its worker disappeared while Help was open, show that fact instead of restoring actionable stale choices. Current behavior disables help during approvals, so this agreed design still requires implementation and dedicated tests. Avoid unbounded nested windows; one decision plus one read-only help/reader layer is enough initially.
 
 ### 4.5 Width and height, not just “desktop versus mobile”
 
@@ -238,7 +270,7 @@ Allocate by minimum readable content widths and evidence height. A fixed percent
 
 ### 5.1 Proposed semantic theme
 
-This is a proposed fixed guideline, not colors already implemented. Use named roles across the app so a later light/high-contrast theme changes the palette without changing semantics. The current green user input would change to blue, leaving green for recorded positive outcomes.
+**The semantic role mapping is settled; exact RGB shades below remain examples, not an implemented/final palette.** Use named roles across the app so a later light/high-contrast theme changes the palette without changing semantics. User input changes from the current green to blue, leaving green for recorded positive outcomes. Neutral model body, cyan focus, amber attention and red errors/destructive emphasis complete the agreed mapping; optional attribution accents remain proposed.
 
 Example dark theme background: `#111827`; raised/selected surface: `#1F2937`.
 
@@ -335,7 +367,7 @@ Immediate direct-key decisions remain compatible with button presentation. Selec
 
 ### 6.3 Help and keybinding proposal
 
-Recommend ** `h`** for Help in navigation, retaining `?` as an alias initially.`h` currently means activity/history, and should be bound to something else like uppercase `H`. During text entry letters remain text; provide a visible Help action accessible through navigation. The treatment of `h` over approvals is the explicit layer-policy decision in section 4.4.
+**User-selected direction:** lowercase **`h`** for Help in navigation, retaining `?` as an alias initially. In the current application, `h` still means activity/history; that action must be remapped before the new Help binding is implemented. Uppercase `H` is the user-suggested replacement, pending the keybinding review. During text entry letters remain text; provide a visible Help action accessible through navigation. Help over approvals follows the agreed read-only overlay/input-isolation contract in section 4.4.
 
 Help should start with **This screen**: focus, eligible actions, what Enter/Escape do, how to return. A Navigation section explains movement. All actions is searchable or grouped by task, with descriptions rather than just letters. Advanced key combinations and CLI alternatives belong here, not on the always-visible footer.
 
@@ -367,13 +399,13 @@ This is the component review checklist for our discussion. “Recommended” mea
 | E06 — Workflow stepper | Long route plus header metadata consumes height | Short observed route/current step | Expanded attempts/loops in workflow details; no guessed percentage |
 | E07 — Next-action sentence | Competes with footer and repeated shortcut hints | Put the supported action beside the state | Detailed prerequisites/help on demand; reason for disabled recovery is not optional |
 | E08 — Primary tabs | Three familiar sections are useful; manual labels contain extra help | Keep Activity / Artifacts / Edits, clear active/focused treatment | All keyboard aliases in Help; no proliferation of tabs for every dialog |
-| E09 — Session sidebar | Four-row entries repeat the entire header | Optional sidebar, compact rows, attention counts | Full timestamps/workflow/step in selected-session detail; session switcher remains visible when collapsed |
+| E09 — Session sidebar | Four-row entries repeat the entire header | **Settled:** collapsible and hidden by default; visible Sessions control; compact rows and attention counts remain proposed | Full timestamps/workflow/step in selected-session detail; session switcher remains visible when collapsed |
 | E10 — Session selector/search | Replaces content and creates no-results confusion | Search inside switcher/sidebar, clear filter chip | Distinguish no sessions from no matches; offer Clear filter or New session appropriately |
 | E11 — Empty state | “No events/start elsewhere” or empty boxes are not useful direction | One sentence explaining emptiness and one working action | Preserve exact underlying error if empty is really unreadable/corrupt data |
 | E12 — Workflow picker | Minimal context for what a workflow will do | Title, short purpose and supported start action | Read full workflow, required outputs or validation failure on demand |
 | E13 — New-session goal editor | Main composer is still drawn below the form | Single focused form/editor and visible Start/Cancel | Workflow summary can expand; other-session draft stays untouched |
 | E14 — User input | Green text conflicts with success meaning | Blue user role, real caret, clear input boundary | Keep grapheme-aware edits/wrapping; do not make navigation keys consume text |
-| E15 — Composer | Recipient/effect can be ambiguous or unusable in current state | Visible Instructions / Ask manager mode and explicit submit label | No phantom running-step delivery; disabled reason and draft-retained receipt |
+| E15 — Composer | Recipient/effect can be ambiguous or unusable in current state | **Settled:** open on demand and retain drafts when closed; visible recipient/mode and submit label remain proposed | No phantom running-step delivery; disabled reason and draft-retained receipt |
 | E16 — Step context box | Always present and repeats objective/outputs/verdict | One short current-purpose line where it helps | Output names, pinned inputs and full definition under Step details |
 | E17 — Activity card title | Record number precedes human meaning | Human action/outcome first; small source/role attribution | Event ID and raw kind under Details; preserve exact tool correlations |
 | E18 — Activity summary | Gray body can make useful content hard to read | Normal content contrast; mute only metadata | Longer output expands rather than being squeezed into a clipped sentence |
@@ -382,7 +414,7 @@ This is the component review checklist for our discussion. “Recommended” mea
 | E21 — Live stream | A permanent half-pane exposes raw YAML and competes with activity | Small live preview during generation, user-collapsible and expandable | Full stream on request; keep “drafting / not executed” label. Do not regress to unexplained silence after Start |
 | E22 — Follow/paused state | Hidden in long pane titles | Small visible Paused/Following control beside activity | Keep selected item and scroll until explicit Follow latest |
 | E23 — Activity filter/count | Repeated footer instructions and record counts | Filter chip + compact search; count only when useful | Metadata-only search scope disclosed in Help; no claim of full payload search |
-| E24 — Inspector/evidence view | Enter swaps the whole list away | Drawer on wide layouts; full reader with Back on narrow layouts | Exact evidence stays accessible without changing workflow state |
+| E24 — Inspector/evidence view | Enter swaps the whole list away | **Settled:** explicit Enter/click opening; inspector when width permits and full reader on small terminals | Exact evidence stays accessible without changing workflow state |
 | E25 — Artifact list | Many draft/availability notes compete with final required outputs | Mark required/final/current documents; readable filename and source step | Bytes, immutable record IDs and ancestry detail on demand; grouping must not discard extra artifacts |
 | E26 — Document reader | Permanent split and border text reduce reading width | Expandable/full-width reader with scrollbar and simple title | Raw toggle/versions/provenance in clear controls; retain sanitization and preview limits |
 | E27 — Version/provenance controls | `v`, `p`, `d`, `m`, `o` depend on context without strong affordances | Labeled Versions / Provenance / Compare controls | Exact approval/consumer version references remain available; source-edit diff stays a different concept |
@@ -482,7 +514,7 @@ Use an elapsed duration only when a real start time is available. An animation p
    tool: shell
    ...
 
- [Inspect selected]   [Follow latest]   [Stop requests]   [More]
+ [Inspect selected]   [Compose]   [Stop requests]   [More]
 ```
 
 If an inspector is opened on a wide screen, it replaces some main-content width, not the optional session switcher plus an already narrow third reader. If the person is reading older evidence, new activity does not pull them back to this view.
@@ -570,24 +602,24 @@ This is where full shortcut explanations belong. Brief task-relevant button labe
 
 ## 10. Decisions to discuss before implementation
 
-The following defaults are recommendations for our review, not approvals to implement them. We can work through them in order using the screen/component IDs above.
+Rows marked **Settled** reflect explicit user choices recorded at the top of this document. The remaining defaults are recommendations for review. These design decisions do not authorize UI implementation yet; we can continue using the screen/component IDs above.
 
 | Decision | Recommended starting point | Alternative / tradeoff to discuss |
 | --- | --- | --- |
-| D01 — Main frame | Optional session sidebar, three stable sections, one main task and optional inspector | Always-pinned sidebar improves multiple-session browsing but wastes single-session width |
+| D01 — Main frame | **Settled:** collapsible sidebar, hidden by default; composer opens on demand. Three sections and remaining frame details are proposed | Open/closed preference persistence, header density and exact action placement still need review |
 | D02 — Default content | State-aware Activity overview; preserve explicit artifact/edit readers | Rename Activity to Overview, or add a permanent Result tab; both add migration/navigation questions |
-| D03 — Details | Drawer when width permits; full reader otherwise | Always split panes is simpler but repeats the current cramped layout |
-| D04 — Help key and presentation | Uppercase H popup, current-context page first; retain ? alias | Keep ? only, or change h; lowercase h currently opens activity, so it cannot change silently |
-| D05 — Help during decisions | Read-only Help above the decision, with decision keys disabled until returning | Keep current approval exclusivity and provide expanded inline help instead; less focus-stack complexity |
-| D06 — Input/color roles | User blue, focus cyan, neutral agent body, green scoped positives, amber attention, red errors/destructive emphasis | Keep green input but then choose a different success scheme; avoid one color meaning both typing and verified outcome |
-| D07 — Mouse | Optional, keyboard-complete interaction; decide enablement before claiming click support | Enable by default for familiar buttons, accepting terminal text-selection tradeoffs |
+| D03 — Details | **Settled:** Enter/click opens an inspector when width permits, full-width reader on small terminals | Behavior after opening, including following selection and preserving multiple reader positions, remains to review |
+| D04 — Help key and presentation | **Settled:** lowercase h for Help, ? alias; read-only Help can open over approvals as D05 specifies | Uppercase H is the suggested Activity/history replacement; exact contextual Help layout and final remapping remain to review |
+| D05 — Help during decisions | **Settled:** read-only Help above the pending approval; decision keys disabled; Esc returns to the approval without denying it | Validate focus restoration, held keys and expired requests; Help must not reactivate stale decisions |
+| D06 — Input/color roles | **Settled:** user blue, focus cyan, neutral model body, green recorded positive outcomes, amber attention, red errors/destructive emphasis | Exact RGB shades, attribution accents, selected backgrounds and terminal fallbacks still require validation |
+| D07 — Mouse | **Settled:** mouse enabled by default; complete keyboard controls; discoverable mouse-capture toggle | Implement/test shared action dispatch, current hit regions, resize/modal transitions and text-selection fallback |
 | D08 — Live model draft | Small preview while generating, collapsible/expandable by user | Entirely hidden behind View stream is quieter but risks recreating “nothing happened”; permanent half-screen stream is too noisy |
 | D09 — Finished-run behavior | Open result when following live; show a quiet View result notice if already reading something else | Always auto-open result is simpler but interrupts review |
 | D10 — Visual motif | One compact lamp + word; optional traffic-light prototype for comparison | Literal three-lamp graphic may be memorable but consumes space and has ambiguous running/success semantics |
 | D11 — Component approach | Small local theme/overlay/button/action layer; reuse existing engine and reader | Evaluate a component library if it removes complexity without competing for focus/approval ownership |
 | D12 — Scope of the first visual revision | Information hierarchy, theme, Help/decisions, action dock and reading surfaces | Charts, file trees, images, settings editor and animations remain later options, not prerequisites |
 
-**Suggested first discussion:** D01–D03 (what stays on screen), D06 (what colors mean), then D04/D05/D07 (how people act). Once these are agreed, review the component table in section 7 and choose representative screens for a visual prototype. Do not begin by rewriting all screens or adopting a whole new UI framework.
+**Review progress:** sidebar visibility, explicit detail opening, on-demand composition, Help key, semantic color roles, mouse default and Help-over-approval behavior are settled above. Next review the concrete running, approval, finished-result and edit-review layouts: header density, action placement, reader return behavior and composer modes. The remaining component proposals and implementation sequence are still open. Do not begin by rewriting all screens or adopting a whole new UI framework.
 
 ## 11. Acceptance criteria and possible delivery order
 
@@ -612,7 +644,7 @@ This is a proposed validation plan for future implementation. It is **not eviden
 
 Use Ratatui `TestBackend` for layout/content and **explicit cell-style assertions** for the palette; plain-text snapshots cannot catch a warning rendered in the wrong color. Keep key/focus tests tied to actual action eligibility. Existing reader, navigation, picker, approval, result and edits tests provide a base.
 
-Complement snapshots with a small number of real PTY scenarios: goal submission, reading while output arrives, an approval interrupting a reader, optional Help above an approval, editor return, finished measurement-unavailable report, selected-file/all-file revert with a manual conflict, and recovery after worker loss. Add mouse tests if mouse is chosen. Use a local scripted provider—no paid inference is necessary to verify a visual redesign.
+Complement snapshots with a small number of real PTY scenarios: goal submission, reading while output arrives, an approval interrupting a reader, read-only Help above an approval, editor return, finished measurement-unavailable report, selected-file/all-file revert with a manual conflict, and recovery after worker loss. Add mouse tests for the agreed default-on interaction and mouse-off fallback. Use a local scripted provider—no paid inference is necessary to verify a visual redesign.
 
 Check overlay geometry, cursor visibility, disabled reasons, click-through prevention, current request/session binding and selection restoration after resize. A screenshot that looks good once is not sufficient evidence for input routing or safe action activation.
 
@@ -621,7 +653,7 @@ Check overlay geometry, cursor visibility, disabled reasons, click-through preve
 1. **Visual baseline:** agree the theme, compact header, state labels and what moves into Details. Prototype running, approval, completed-unverified and edit review side by side.
 2. **Interaction foundation:** one action model and overlay/focus contract; contextual Help, state-aware dock and shared button states. Make keyboard behavior coherent before adding more places to click.
 3. **Reader hierarchy:** optional sidebar, inspector/full reader, scroll affordances and state preservation. Keep existing background document preparation and exact version references.
-4. **Decision/feedback surfaces:** apply the hierarchy to approvals, persistent grants, restart/revert and diagnostics. Verify action lifecycle and ownership before expanding optional mouse support.
+4. **Decision/feedback surfaces:** apply the hierarchy to approvals, persistent grants, restart/revert and diagnostics. Verify action lifecycle and ownership alongside the agreed default-on mouse interaction and its keyboard/mouse-off paths.
 5. **Remaining refinements:** search/empty/form states, usage/manager presentation and small status/progress graphics. Evaluate charts or extra component dependencies only against observed need and available data.
 
 No phase here authorizes durable ask-user questions, executing manager routes, wider command grants, broader filesystem rollback, new model roles or automatic model-generated summaries. Those remain separate product/backend work. UI actions must expose actual capabilities, not imply them into existence.
