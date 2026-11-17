@@ -13,6 +13,10 @@ Each source cell's text, foreground, background and bold flag is copied to the i
 | Result after restore | [PNG](result-restored-80x24.png) · [text](result-restored-80x24.txt) | — | — |
 | Tab focus: report action | [PNG](focus-report-80x24.png) · [text](focus-report-80x24.txt) | — | — |
 | Tab focus: header Sessions | [PNG](focus-sessions-80x24.png) · [text](focus-sessions-80x24.txt) | — | — |
+| Workflow selection | [PNG](create-workflow-80x24.png) | [PNG](create-workflow-120x36.png) | [PNG](create-workflow-40x14.png) |
+| Goal editor | [PNG](create-goal-80x24.png) | [PNG](create-goal-120x36.png) | [PNG](create-goal-40x14.png) |
+| Manager question | [PNG](compose-manager-80x24.png) | [PNG](compose-manager-120x36.png) | [PNG](compose-manager-40x14.png) |
+| Step instructions | [PNG](compose-step-80x24.png) | [PNG](compose-step-120x36.png) | [PNG](compose-step-40x14.png) |
 
 Regenerate from the repository root:
 

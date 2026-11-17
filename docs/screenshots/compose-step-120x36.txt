@@ -1,0 +1,35 @@
+Greenlight / bar-project                                                                            ● blocked · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits                                            [f] Sessions    [c] Details  [h] Help
+
+optimize-performance · blocked · step evaluate
+
+Your instructions target this workflow step.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Resume step with instructions
+ To: workflow step · optimize-performance / evaluate
+ Send & resume starts this step; tool approvals remain separate.
+ Here are the host logs I measured manually.
+ Startup took 30.1 seconds.
+
+
+
+
+ Enter sends · Alt+Enter newline · Esc keeps draft
+╭───────────────╮ ╭──────────────────╮ ╭───────────╮
+│ Send & resume │ │ Change recipient │ │ Close Esc │
+╰───────────────╯ ╰──────────────────╯ ╰───────────╯

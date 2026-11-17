@@ -165,13 +165,11 @@ fn artifacts_are_single_rows_with_contextual_actions_and_explicit_reading() {
             assert!(output.contains("Versions"));
         }
         assert!(!output.contains("Saved evidence"));
-        if (w, h) == (80, 24) {
-            if std::env::var_os("GREENLIGHT_UPDATE_CAPTURE_BASELINES").is_none() {
-                assert_eq!(
-                    output,
-                    include_str!("../docs/screenshots/artifacts-80x24.txt")
-                );
-            }
+        if (w, h) == (80, 24) && std::env::var_os("GREENLIGHT_UPDATE_CAPTURE_BASELINES").is_none() {
+            assert_eq!(
+                output,
+                include_str!("../docs/screenshots/artifacts-80x24.txt")
+            );
         }
     }
     app.activate(shell::Action::Open, root.path(), &store)
@@ -339,4 +337,82 @@ fn every_tab_stop_has_one_visible_focus_marker_and_fill() {
         );
         app.shell.more = false;
     }
+}
+
+#[test]
+fn creation_and_recipient_editors_render_real_context_and_actions() {
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut app = App::new(None);
+    app.shell.project = "bar-project".into();
+    app.refresh(&store).unwrap();
+    app.new_form(root.path()).unwrap();
+    app.new_session.as_mut().unwrap().cursor = app
+        .new_session
+        .as_ref()
+        .unwrap()
+        .workflows
+        .iter()
+        .position(|w| w.id == "optimize-performance")
+        .unwrap();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "create-workflow"));
+        assert!(output.contains("Choose workflow"));
+        assert!(output.contains("Continue") || w == 40);
+    }
+    app.activate(shell::Action::Continue, root.path(), &store)
+        .unwrap();
+    app.new_session.as_mut().unwrap().goal = Some(
+        "Investigate the bar's startup delay.\nI can supply host logs and rerun measurements."
+            .into(),
+    );
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "create-goal"));
+        assert!(output.contains("Describe the goal"));
+        if w >= 80 {
+            assert!(output.contains("Start workflow"));
+            assert!(output.contains("Clear draft"));
+            assert!(output.contains("supply host logs"));
+        }
+    }
+    assert!(store.list().unwrap().is_empty());
+    assert!(app.runner.is_none());
+    assert!(app.manager_job.is_none());
+    let (_root, store, mut session, mut app, _) = fixture();
+    app.set_message_mode(compose::Mode::Manager);
+    app.focus_composer();
+    app.composer = "Where are we, and what is still unverified?".into();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "compose-manager"));
+        assert!(output.contains("Ask manager"));
+        if w >= 80 {
+            assert!(output.contains("Send question"));
+            assert!(output.contains("Read-only"));
+        }
+    }
+    session.status = "blocked".into();
+    store.save(&session).unwrap();
+    app.refresh(&store).unwrap();
+    app.set_message_mode(compose::Mode::Step);
+    app.focus_composer();
+    app.composer = "Here are the host logs I measured manually.\nStartup took 30.1 seconds.".into();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "compose-step"));
+        assert!(output.contains("Resume step"));
+        if w >= 80 {
+            assert!(output.contains("Send & resume"));
+            assert!(output.contains("host logs"));
+        }
+    }
+    assert!(app.runner.is_none());
+    assert!(app.manager_job.is_none());
+    assert_eq!(
+        store
+            .usage_report(&session, crate::usage::Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        0
+    );
 }

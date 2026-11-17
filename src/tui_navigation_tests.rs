@@ -165,6 +165,7 @@ fn help_is_scrollable_and_does_not_consume_or_execute_the_message_draft() {
     key(&mut app, &store, root.path(), KeyCode::Char('?'));
     assert_eq!(app.composer, "Unsent instructions?");
     assert!(!app.help);
+    app.set_message_mode(compose::Mode::Command);
     app.composer = "/help".into();
     key(&mut app, &store, root.path(), KeyCode::Enter);
     assert!(app.help);

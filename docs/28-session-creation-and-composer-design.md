@@ -105,3 +105,5 @@ On small terminals use a full-width creation/editor view with readable target, f
 Later implementation checks should cover invalid/missing workflows, revalidation after file changes, blank goals, duplicate Start, create-success/start-failure, delayed provider feedback, Unicode/wrapped caret movement, multiline paste, draft mode/session changes, stale ownership and pending writes, manager errors/size limits, and keyboard/mouse action equivalence. Opening/closing any editor must make no model calls.
 
 No application code, runtime keys, message routing or persistence changes in this pass. Next: detailed Edits/revert design and a final cross-screen consistency review before implementation planning.
+
+Implementation follow-up: workflow/goal creation, Back/Cancel draft retention, explicit recipient modes and branch/recipient-scoped message drafts are implemented. Control commands use a separate editor. See [current TUI controls](11-tui.md) and [actual Ratatui captures](screenshots/README.md); broader proposed mechanics above remain design history rather than blanket implementation claims.

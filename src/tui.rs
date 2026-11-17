@@ -17,6 +17,7 @@ use ratatui::{
     Frame,
 };
 mod activity;
+mod compose;
 mod shell;
 mod theme;
 mod edits;
@@ -79,6 +80,7 @@ struct App {
     shell: shell::Shell,
     inspector_open: bool,
     edits: edits::Edits,
+    compose: compose::Composer,
     result_open: bool,
     result_text: String,
     result_overview: Option<result::Overview>,
@@ -127,7 +129,7 @@ struct App {
     session_total: usize,
     session_activity: crate::session_picker::Activity,
     new_session: Option<crate::session_picker::NewSession>,
-    drafts: HashMap<Option<String>, String>,
+    drafts: HashMap<compose::Scope, String>,
     composer_session: Option<String>,
     follow_activity: bool,
     help: bool,
@@ -152,6 +154,7 @@ impl App {
             shell: Default::default(),
             inspector_open: false,
             edits: Default::default(),
+            compose: Default::default(),
             result_open: false,
             result_text: String::new(),
             result_overview: None,
@@ -509,33 +512,8 @@ impl App {
             return;
         }
         if instruction!="/resume" && self.manager_enabled {self.start_manager(root,store,original);return;}
-        if self.runner.is_some() {
-            self.notice = "An agent is already running. Wait for it to finish.".into();
-            return;
-        }
-        if let Err(error) = store.ensure_no_pending_writes() {
-            self.notice = format!("Cannot resume: {error:#}");
-            return;
-        }
-        let Some(selected) = self.session() else {
-            self.notice = "No session selected.".into();
-            return;
-        };
-        let session = match store.session(&selected.id) {
-            Ok(session) => session,
-            Err(error) => { self.notice = format!("Cannot load session: {error:#}"); return; }
-        };
-        if !matches!(session.status.as_str(), "blocked" | "ready") {
-            self.notice = format!("Session is {}; only ready or blocked sessions can resume. If its worker died, use /recover.", session.status);
-            return;
-        }
-        let input = if instruction == "/resume" { "" } else { &instruction };
-        self.runner = Some(tui_actions::resume(
-            root.to_path_buf(), session.id, input.to_owned(),
-        ));
-        self.composer.clear();
-        self.notice = "Running agent. Incoming approvals will appear here.".into();
-        self.focus = self.main_focus();
+        let input=if instruction=="/resume" {String::new()}else{instruction};
+        self.resume_instruction(root,store,input);
     }
 
 

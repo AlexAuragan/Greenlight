@@ -6,6 +6,20 @@ use std::cell::RefCell;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    StopManager,
+    SendStep,
+    SendQuestion,
+    SendCommand,
+    Commands,
+    ManagerReplies,
+    Recipient,
+    Cancel,
+    Continue,
+    StartWorkflow,
+    ClearGoal,
+    BackWorkflow,
+    RestoreInstruction,
+    Workflow(usize),
     Report,
     ResultEvidence,
     ReviewEdits,
@@ -42,6 +56,19 @@ pub(super) enum Action {
 impl Action {
     pub(super) fn label(self) -> &'static str {
         match self {
+            Self::StopManager => "Stop manager retries",
+            Self::SendStep => "Send & resume",
+            Self::SendQuestion => "Send question",
+            Self::SendCommand => "Run command",
+            Self::Commands => "Commands",
+            Self::ManagerReplies => "Manager replies",
+            Self::Recipient => "Change recipient",
+            Self::Cancel => "Cancel",
+            Self::Continue => "Continue",
+            Self::StartWorkflow => "Start workflow",
+            Self::ClearGoal => "Clear draft",
+            Self::BackWorkflow => "Back",
+            Self::RestoreInstruction => "Restore instructions",
             Self::Report => "Read final report",
             Self::ResultEvidence => "Full result",
             Self::ReviewEdits => "Review edits",
@@ -151,20 +178,22 @@ impl App {
         ) + &format!(
             ":{}:{}:{:?}",
             self.shell.more, self.shell.menu_index, self.shell.actions_focus
-        ) + &format!(
-            ":{:?}",
-            self.sessions
-                .iter()
-                .map(|s| s.id.as_str())
-                .collect::<Vec<_>>()
-        ) + &format!(
-            ":{:?}",
-            self.edits
-                .files
-                .iter()
-                .map(|f| (&f.path, f.writes))
-                .collect::<Vec<_>>()
-        )
+        ) + &format!(":{:?}", self.compose.mode)
+            + &format!(
+                ":{:?}",
+                self.sessions
+                    .iter()
+                    .map(|s| s.id.as_str())
+                    .collect::<Vec<_>>()
+            )
+            + &format!(
+                ":{:?}",
+                self.edits
+                    .files
+                    .iter()
+                    .map(|f| (&f.path, f.writes))
+                    .collect::<Vec<_>>()
+            )
     }
     pub(super) fn begin_frame(&self) {
         self.shell.hits.borrow_mut().clear();
@@ -221,6 +250,17 @@ impl App {
         if self.view == View::Artifacts && self.artifact().is_some() {
             actions.extend([Action::Versions, Action::Provenance, Action::Compare]);
         }
+        if self
+            .compose
+            .last_instruction
+            .as_ref()
+            .is_some_and(|(scope, _)| *scope == self.compose.scope)
+        {
+            actions.push(Action::RestoreInstruction);
+        }
+        if self.session().is_some() {
+            actions.push(Action::ManagerReplies);
+        }
         actions.extend([Action::Sessions, Action::Details, Action::Help]);
         actions.extend([Action::Preview, Action::Expand]);
         actions
@@ -238,6 +278,49 @@ impl App {
         }
         if self.approval.is_some() {
             return vec![Action::Help];
+        }
+        if self.new_session.is_some() {
+            return if self.new_session.as_ref().is_some_and(|f| f.goal.is_some()) {
+                vec![
+                    Action::StartWorkflow,
+                    Action::BackWorkflow,
+                    Action::ClearGoal,
+                    Action::Cancel,
+                ]
+            } else {
+                if self
+                    .new_session
+                    .as_ref()
+                    .and_then(|f| f.workflows.get(f.cursor))
+                    .is_some_and(|w| w.error.is_none())
+                {
+                    vec![Action::Continue, Action::Cancel]
+                } else {
+                    vec![Action::Cancel]
+                }
+            };
+        }
+        if self.composer_active() {
+            if self.compose.mode == compose::Mode::Manager && self.manager_job.is_some() {
+                return vec![Action::StopManager, Action::Recipient, Action::Close];
+            }
+            if self.compose.mode == compose::Mode::Step && !self.can_resume_message() {
+                return vec![Action::Recipient, Action::Commands, Action::Close];
+            }
+            let send = match self.compose.mode {
+                compose::Mode::Step => Action::SendStep,
+                compose::Mode::Manager => Action::SendQuestion,
+                compose::Mode::Command => Action::SendCommand,
+            };
+            return vec![
+                send,
+                if self.compose.mode == compose::Mode::Manager && !self.can_resume_message() {
+                    Action::Commands
+                } else {
+                    Action::Recipient
+                },
+                Action::Close,
+            ];
         }
         if self.artifact_browser.is_some() {
             return vec![Action::Versions, Action::Provenance, Action::Close];
@@ -281,7 +364,7 @@ impl App {
     }
     pub(super) fn shell_actions(&self) -> Vec<Action> {
         let mut actions = self.footer_actions();
-        if !self.blocking_surface() {
+        if !self.blocking_surface() || self.new_session.is_some() {
             actions.extend(self.header_actions());
         }
         actions
@@ -317,13 +400,96 @@ impl App {
     pub(super) fn activate(&mut self, action: Action, root: &Path, store: &Store) -> Result<bool> {
         use Action::*;
         self.shell.actions_focus = false;
-        if self.composer_active() && !matches!(action, Help | Mouse | Caret(_, _) | Close) {
+        if self.composer_active()
+            && !matches!(
+                action,
+                Help | Mouse
+                    | Caret(_, _)
+                    | Close
+                    | SendStep
+                    | SendQuestion
+                    | SendCommand
+                    | Recipient
+                    | RestoreInstruction
+                    | Commands
+            )
+        {
             self.focus = self.focus_before_compose;
         }
         if !matches!(action, Help | Close | Mouse) {
             self.shell.more = false;
         }
         let code = match action {
+            SendStep | SendQuestion | SendCommand => {
+                let expected = match action {
+                    SendStep => compose::Mode::Step,
+                    SendQuestion => compose::Mode::Manager,
+                    _ => compose::Mode::Command,
+                };
+                if self.compose.mode != expected || self.focus != Focus::Compose {
+                    bail!("Message target changed; review the recipient before sending")
+                }
+                self.send_message(root, store);
+                return Ok(false);
+            }
+            StopManager => {
+                self.cancel_manager();
+                return Ok(false);
+            }
+            Commands => {
+                self.set_message_mode(compose::Mode::Command);
+                self.focus_composer();
+                if self.composer.is_empty() {
+                    self.composer.push('/');
+                }
+                return Ok(false);
+            }
+            ManagerReplies => {
+                self.result_open = false;
+                self.view = View::Conversation;
+                self.activity_query = "manager.".into();
+                self.filter_activity();
+                self.commit_activity_filter();
+                self.focus = Focus::Events;
+                self.follow_activity = false;
+                return Ok(false);
+            }
+            Recipient => {
+                self.choose_recipient();
+                return Ok(false);
+            }
+            RestoreInstruction => {
+                self.restore_instruction();
+                return Ok(false);
+            }
+            Continue | StartWorkflow => KeyCode::Enter,
+            Cancel => KeyCode::Esc,
+            ClearGoal => {
+                self.compose.creation_goal.clear();
+                if let Some(form) = &mut self.new_session {
+                    form.goal = Some(String::new());
+                    form.error = None;
+                }
+                self.goal_editor.reset();
+                return Ok(false);
+            }
+            BackWorkflow => {
+                self.remember_creation();
+                if let Some(form) = &mut self.new_session {
+                    form.goal = None;
+                    form.error = None;
+                }
+                return Ok(false);
+            }
+            Workflow(index) => {
+                if let Some(form) = &mut self.new_session {
+                    if index < form.workflows.len() {
+                        form.cursor = index;
+                        form.error = None;
+                    }
+                }
+                return Ok(false);
+            }
             ResultEvidence => {
                 self.context_detail = Some(self.result_text.clone());
                 self.detail_scroll = 0;
@@ -498,8 +664,9 @@ impl App {
                         .paste(&mut self.activity_query, &text, false, 256);
                     self.filter_activity();
                 } else if self.composer_active() {
+                    let limit = self.message_limit();
                     self.composer_editor
-                        .paste(&mut self.composer, &text, true, 8192)
+                        .paste(&mut self.composer, &text, true, limit)
                 }
                 Ok(false)
             }
@@ -598,7 +765,17 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let primary = matches!(action, Action::Report | Action::New | Action::Open);
+    let primary = matches!(
+        action,
+        Action::Report
+            | Action::New
+            | Action::Open
+            | Action::SendStep
+            | Action::SendQuestion
+            | Action::SendCommand
+            | Action::Continue
+            | Action::StartWorkflow
+    );
     // Primary action emphasis is independent from keyboard focus.
     let keyboard_focus = focused;
     let base = if keyboard_focus {
@@ -620,6 +797,13 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
     }) as usize;
     let label = if action.label().len() > available {
         match action {
+            Action::SendStep | Action::SendQuestion => "Send",
+            Action::SendCommand => "Run",
+            Action::Recipient => "To",
+            Action::StartWorkflow => "Start",
+            Action::ClearGoal => "Clear",
+            Action::Continue => "Next",
+            Action::Help => "Help",
             Action::Report => "Report",
             Action::ReviewEdits => "Edits",
             Action::Open => "Open",

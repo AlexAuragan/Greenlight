@@ -1,0 +1,23 @@
+Greenlight / bar-project                                              ● idle · -
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+ New session · Choose workflow
+
+   Plan, approve, implement and review a feature
+   explore → plan → approve → implement → review
+   Investigate, diagnose and repair a bug
+   investigate → diagnose → implement → verify
+ ▸ Baseline, optimize, benchmark and evaluate
+   baseline → optimize → benchmark → evaluate
+
+
+
+
+
+ Select a workflow, then Continue. Nothing starts while browsing.
+
+
+╭──────────╮ ╭────────╮
+│ Continue │ │ Cancel │
+╰──────────╯ ╰────────╯

@@ -1,0 +1,23 @@
+Greenlight / bar-project                                   ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+optimize-performance · completed · step evaluate
+
+Your question goes to the read-only manager.
+
+
+
+ Ask manager
+ To: manager (read-only) · optimize-performance / evaluate
+ Read-only answer or route proposal; no workflow instruction is delivered.
+ Where are we, and what is still unverified?
+
+
+
+
+
+ Enter sends · Alt+Enter newline · Esc keeps draft
+╭───────────────╮ ╭──────────╮ ╭───────────╮
+│ Send question │ │ Commands │ │ Close Esc │
+╰───────────────╯ ╰──────────╯ ╰───────────╯

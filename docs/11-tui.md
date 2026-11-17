@@ -2,7 +2,7 @@
 
 Greenlight's Ratatui interface is a session conversation and a controller for **the existing Engine**. Both CLI and TUI use the same persisted histories, approval policy, workspace edit journal and fork/restore implementation.
 
-The first [manager Q&A stage](21-manager-qa.md) implements `/ask`, context preview, saved exchanges and validated **unexecuted** forwarding proposals. With `manager.enabled: true`, ordinary messages ask the manager; `/resume` still explicitly runs a ready/blocked session. Default disabled preserves existing ordinary-message resume behavior. Executing manager routes and the [coordinator contract's](20-conversational-coordinator.md) live instruction inbox remain unimplemented.
+The first [manager Q&A stage](21-manager-qa.md) implements `/ask`, context preview, saved exchanges and validated **unexecuted** forwarding proposals. The composer now names its recipient: Ask manager is read-only; Send & resume delivers literal instructions to the selected ready/blocked step, even when `manager.enabled` is true. The setting suggests a manager question for a fresh draft; it never overrides an explicitly selected recipient. Navigation `/` opens a separate Commands editor for `/resume` and the other control commands. Executing manager routes and the [coordinator contract's](20-conversational-coordinator.md) live instruction inbox remain unimplemented.
 
 ```bash
 cargo run -- --root /path/to/project tui
@@ -25,7 +25,7 @@ The session sidebar is hidden by default. Sessions, Left/Esc from the list, or `
 
 From navigation press `f` to search goals, workflows, current steps, statuses or full session IDs. Matching is case-insensitive and accepts Unicode. Use arrows to select, Enter to keep the filter, or Escape to clear it. To clear an applied filter, press `f`, then Escape. The sidebar shows matching/total counts. A worker's approval switches back to its owning session and clears a filter that might hide it.
 
-Press `n` to choose a workflow from the project's `.greenlight/workflows/` (or legacy root `workflows/`). Arrows or `j/k` select; Enter opens the goal editor. Invalid workflows show their validation error. Enter a nonempty goal and press **Enter to create and immediately start the session** through the existing engine and approval policy. Escape cancels before creation. The form revalidates workflow files on submission and retains other sessions' drafts. Creation is disabled while this TUI has an active worker; no separate `/resume` is needed for a new goal.
+Press `n` to choose a workflow from the project's `.greenlight/workflows/` (or legacy root `workflows/`). Arrows or `j/k` select; Enter opens the goal editor. Invalid workflows show their validation error. Enter a nonempty goal and press **Enter to create and immediately start the session** through the existing engine and approval policy. Back changes the workflow without losing the goal; Cancel/Escape closes creation while retaining its memory-only draft. Clear draft discards that unsent goal. The form revalidates workflow files on submission and retains other sessions' drafts. Creation is disabled while this TUI has an active worker; no separate `/resume` is needed for a new goal.
 
 Goal and composer editors support Left/Right, Up/Down across wrapped rows, Home/End, Delete and Backspace, including Unicode graphemes. Ctrl+J, Alt+Enter or Shift+Enter inserts a newline (terminal support for modified Enter varies). Editable text is blue; labels/hints retain their UI colors. Active goal, composer, session search and activity-filter fields use a real terminal blinking caret and scroll to keep it visible.
 
@@ -34,7 +34,7 @@ The header shows STARTING immediately, then the persisted execution status. TUI-
 
 ## Main interaction
 
-Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Enter** to focus the conversation/artifact list. Enter or clicking a row explicitly opens evidence; at wide widths the activity inspector can remain beside the list and follows deliberate selection. At narrow widths it uses a full-width reader. Right or Tab focuses the workspace actions instead of implicitly opening evidence. Press **i** or Compose to open the editor. Enter in the detail pane returns to its list. Type instructions and press Enter in the composer to resume the agent. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. Direct resume waits for the current worker to stop; read-only manager questions remain available through `/ask`.
+Open a blocked or ready session. The composer never automatically captures shortcuts. Blocked sessions with recorded failures open a scrollable diagnostic first; inspect it and press Escape to return to navigation. From Sessions use **Enter** to focus the conversation/artifact list. Enter or clicking a row explicitly opens evidence; at wide widths the activity inspector can remain beside the list and follows deliberate selection. At narrow widths it uses a full-width reader. Right or Tab focuses the workspace actions instead of implicitly opening evidence. Press **i** or Compose to open the editor. Enter in the detail pane returns to its list. Choose the workflow-step recipient, type instructions and press Enter or Send & resume to resume the agent. Choose Ask manager for read-only questions. While the agent works, its activity appears in the conversation timeline; the TUI refreshes automatically. Direct resume waits for the current worker to stop; read-only manager questions remain available through Ask manager; `/ask` remains available in Commands mode.
 
 Example instruction: `Fix the existing add() bug and rerun verification.`
 
@@ -118,7 +118,7 @@ Export a specific visible version with `greenlight artifact SESSION NAME --event
 
 Type `/restart` in the composer. Use `j/k` to select an earlier **executed** workflow step and press Enter. Greenlight selects the checkpoint immediately before the first recorded attempt at that step, constructs a **guarded workspace restoration plan** from its native edit history, and displays the file changes. Press `y` to apply and fork at that event; `n` or Escape cancels with no modification. This is a real workflow branch, not a text instruction asking the model to pretend it is at a different step.
 
-The restore planner refuses mismatched file snapshots, manual drift, symlinks, and unsupported paths. Its guarantees apply only to recorded native writes/restores, not manual edits or untracked shell operations. Restoration applies individual files; if an error occurs partway through, the error is displayed and the user must inspect the workspace/history. Never retry blindly after a partial restore. Restart does not automatically execute the new branch; send a message or `/resume` from the composer.
+The restore planner refuses mismatched file snapshots, manual drift, symlinks, and unsupported paths. Its guarantees apply only to recorded native writes/restores, not manual edits or untracked shell operations. Restoration applies individual files; if an error occurs partway through, the error is displayed and the user must inspect the workspace/history. Never retry blindly after a partial restore. Restart does not automatically execute the new branch; send step instructions or run `/resume` in Commands mode.
 
 ## Keys
 
@@ -133,13 +133,13 @@ The focus model uses explicit evidence opening: Enter or click opens details, En
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
 - **Up/Down** (or **j/k**) also scroll permission requests and restoration previews when those dialogs are open.
 - **F** filters activity; **C** copies the full selected text; **E** opens a temporary review snapshot in the editor. All are uppercase navigation keys.
-- **h/?** opens contextual keyboard Help; **/help** opens it from the composer. Help owns input above approvals: y/a/p/g/n cannot decide there, and Esc closes only Help. Expired requests never regain controls. Within Help, Tab reaches Close and Toggle mouse; **M** toggles capture directly. While editing, letters and `?` remain literal text.
+- **h/?** opens contextual keyboard Help; **/help** opens it from Commands mode. Help owns input above approvals: y/a/p/g/n cannot decide there, and Esc closes only Help. Expired requests never regain controls. Within Help, Tab reaches Close and Toggle mouse; **M** toggles capture directly. While editing, letters and `?` remain literal text.
 - **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/recover** recovers the selected session's interrupted execution owner without running it; **/events** toggles raw event visibility; **/help** lists shortcuts.
 - **q** quits from navigation mode when no agent is running. The TUI intentionally prevents quitting while its own worker is active, to avoid silently abandoning a pending prompt.
 
 ## Drafts, following and terminal size
 
-Unsent composer text belongs to the selected session ID. Switching sessions, changing filters, opening help, cancelling restart and returning to an approval's owning session retain each session's draft separately. A new session starts with an empty draft. Drafts remain **in memory only**; exiting the TUI discards them. Long messages scroll to keep the editing caret visible.
+Unsent composer text belongs to the selected session, active branch and recipient (step, manager or command interface). Switching sessions, changing filters, opening help, cancelling restart and returning to an approval's owning session retain each session's draft separately. A new session starts with an empty draft. Drafts remain **in memory only**; exiting the TUI discards them. Long messages scroll to keep the editing caret visible.
 
 Activity initially follows incoming events. Opening evidence or navigating activity pauses following, including when reading the latest event. Background polling preserves that event and its scroll position. In the activity list, End or `G` selects the latest visible event and resumes following; Home or `g` selects the first and pauses. The activity title indicates following/paused. Artifact and diagnostic scrolling remains independent of new activity.
 
@@ -185,7 +185,7 @@ Open Help (`h`/`?`) and use Toggle mouse or `M` to release capture for terminal 
 
 The composer and sidebar are not permanently allocated. Activity/artifact/native-edit inspection opens deliberately; the workspace action row replaces the old full static key legend. Blue input, cyan focus, neutral model output, scoped green outcomes, amber attention and red errors/destructive actions have separate roles.
 
-This implements the compact workspace/interaction foundations from [the plan](34-ui-implementation-plan.md), not every mockup. Edits All-files Tab cycling and Keep-file/Keep-all review markers, explicit-purpose composer modes, and the fully redesigned result/recovery/artifact/checkpoint surfaces remain pending. Existing typed approvals, native restore guards and accounting contracts remain authoritative.
+This implements the compact workspace/interaction foundations from [the plan](34-ui-implementation-plan.md), not every mockup. Edits All-files Tab cycling and Keep-file/Keep-all review markers, and the fully redesigned result/recovery/artifact/checkpoint surfaces remain pending. Existing typed approvals, native restore guards and accounting contracts remain authoritative.
 
 ## Rendered presentation and contextual controls
 
@@ -196,3 +196,11 @@ The TUI uses a shared dark background/panel palette and rounded, framed action b
 Tab cycles the current footer controls, then Sessions / Details / Help in the header, and wraps. Shift+Tab reverses the cycle. The same visible focus treatment applies to one-line header controls and menu items; Escape leaves the action focus. A primary action such as Read final report is not permanently filled.
 
 Navigation labels show their existing keys: `[1] Activity`, `[2] Artifacts`, `[3] Edits`, `[f] Sessions` (find/search), `[c] Details` and `[h] Help`. No 4–6 shortcuts are added. Header labels remain visible on a second navigation row on narrow terminals.
+
+## Creation and explicit-purpose messaging
+
+New session uses readable workflow titles/roadmaps and a full goal editor. Browsing never creates a session or calls a model. Continue/Start workflow, Back, Clear draft and Cancel have matching keyboard/mouse paths. Goals are revalidated before creation; duplicate Enter repeats cannot start a second session.
+
+Compose opens an editor with a visible target and effect. Change recipient switches Step/Manager drafts when step delivery is eligible. A completed/running/interrupted session offers manager questions or Commands rather than a live-step delivery promise. Sending step instructions rechecks persisted branch/step, ownership and unfinished writes; a refusal keeps the draft. The read-only manager saves the question before inference, and More → Manager replies opens its saved exchange. A reply to another scope is identified as belonging to its original session/branch. Stop manager retries does not stop a coding worker or force-kill an in-flight provider call.
+
+Letters and slash-prefixed text remain literal in Step and Manager messages. From navigation, `/` opens **Commands**, the explicit control-command interface. Mode switches retain separate memory-only drafts, including by branch. Tab/Shift+Tab reaches Send, recipient controls and header Help without submitting; Escape from controls returns to editing, then Escape closes with the draft retained. Small terminals use a full-width editor. A sent step instruction can be restored for review through More → Restore instructions for the same scope, without automatically resending or overwriting another draft.

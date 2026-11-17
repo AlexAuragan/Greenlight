@@ -82,7 +82,7 @@ fn new_session_form_starts_worker_without_draft_loss_and_keeps_approvals() {
     app.refresh(&store).unwrap();
     app.composer = "Saved instructions".into();
     key(&mut app, root.path(), &store, KeyCode::Char('n'));
-    assert!(screen(&app).contains("choose workflow"));
+    assert!(screen(&app).contains("Choose workflow"));
     key(&mut app, root.path(), &store, KeyCode::Enter);
     key(&mut app, root.path(), &store, KeyCode::Enter);
     assert!(store.list().unwrap().is_empty());
@@ -98,7 +98,7 @@ fn new_session_form_starts_worker_without_draft_loss_and_keeps_approvals() {
     assert_eq!(app.session().unwrap().status, "ready");
     assert!(app.composer.is_empty());
     assert_eq!(
-        app.drafts.get(&None).map(String::as_str),
+        app.drafts.get(&(None,None,compose::Mode::Step)).map(String::as_str),
         Some("Saved instructions")
     );
     assert_eq!(store.list().unwrap().len(), 1);

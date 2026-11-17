@@ -253,3 +253,7 @@ The user reports that repeated Tab presses leave Read final report permanently b
 ## 2026-11-17 — Display existing navigation shortcut badges
 
 The user requests visible `[1]`/`[2]`/`[3]` view labels and clarifies that Sessions/Details/Help should display their existing letter keys, not new numeric assignments. Labels now show `[f] Sessions`, `[c] Details`, `[h] Help`, with reduced tab padding to keep all three view labels visible at 40 columns. Input routing and existing shortcuts are unchanged. Actual render captures and text baselines are regenerated and the 93 TUI tests pass.
+
+## 2026-11-17 — Creation and explicit-recipient composer UI implemented
+
+The user continues the UI pass after shortcut/focus review. Creation receives workflow roadmaps, a full goal editor and Start/Back/Clear/Cancel controls; cancelling retains the memory-only goal. Step, manager and command messages have explicit UI modes with separate session/branch-scoped drafts. Step instructions are passed verbatim through the guarded worker path even with manager routing enabled; slash-prefixed message content is literal. Control commands are entered separately through navigation `/`. Sending rechecks target/owner/write prerequisites and retains drafts on refusal; manager questions are saved before inference and never execute routes. More exposes saved manager exchanges and same-scope instruction restoration. Actual Ratatui captures plus local fixture-provider/PTY tests cover the new surfaces.

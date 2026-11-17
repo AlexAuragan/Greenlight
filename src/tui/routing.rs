@@ -53,19 +53,19 @@ impl App {
             return Ok(false);
         }
         let typing = self.composer_active()
-            || self.searching || self.activity_filtering || self.new_session.is_some();
-        if (self.searching || self.activity_filtering || self.new_session.is_some())
+            || self.searching || self.activity_filtering || self.new_session.as_ref().is_some_and(|f|f.goal.is_some());
+        if (self.searching || self.activity_filtering || self.new_session.is_some() || self.composer_active())
             && (matches!(key.code,KeyCode::Tab|KeyCode::BackTab) || self.shell.actions_focus) {
+            let actions=self.shell_actions();
             match key.code {
-                KeyCode::Tab|KeyCode::BackTab => {
-                    if self.shell.actions_focus {self.shell.action_index=1-self.shell.action_index.min(1);}
-                    else {self.shell.actions_focus=true;self.shell.action_index=if key.code==KeyCode::BackTab {1}else{0};}
+                KeyCode::Tab|KeyCode::BackTab|KeyCode::Left|KeyCode::Right => {
+                    let reverse=matches!(key.code,KeyCode::BackTab|KeyCode::Left);
+                    if self.shell.actions_focus {self.shell.action_index=(self.shell.action_index+if reverse {actions.len()-1}else{1})%actions.len();}
+                    else {self.shell.actions_focus=true;self.shell.action_index=if reverse {actions.len()-1}else{0};}
                 }
                 KeyCode::Esc => self.shell.actions_focus=false,
                 KeyCode::Enter => {
-                    let action=if self.shell.action_index==0 {shell::Action::Help}else{shell::Action::Close};
-                    self.shell.actions_focus=false;
-                    return self.activate(action,root,store);
+                    if let Some(action)=actions.get(self.shell.action_index).copied() {self.shell.actions_focus=false;return self.activate(action,root,store);}
                 }
                 _=>{}
             }
@@ -417,6 +417,7 @@ impl App {
             }
             match key.code {
                 KeyCode::Esc => {
+                    self.remember_creation();
                     self.new_session = None;
                     self.notice = "New session cancelled.".into();
                 }
@@ -431,7 +432,7 @@ impl App {
                             if let Some(error) = &choice.error {
                                 form.error = Some(error.clone());
                             } else {
-                                form.goal = Some(String::new());
+                                form.goal = Some(self.compose.creation_goal.clone());
                                 self.goal_editor.reset();
                                 form.error = None;
                             }
@@ -455,6 +456,8 @@ impl App {
                                 self.view = View::Conversation;
                                 self.follow_activity = true;
                                 self.activity_query.clear();
+                                self.compose.creation_goal.clear();
+                                self.compose.creation_workflow.clear();
                                 self.notice = "Starting workflow. Model output and approval requests will appear here.".into();
                             }
                             Err(error) => {
@@ -567,11 +570,9 @@ impl App {
                         .modifiers
                         .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) =>
                 {
-                    self.submit(root, store)
+                    self.send_message(root, store)
                 }
-                _ => self
-                    .composer_editor
-                    .key(&mut self.composer, key, true, 8192),
+                _ => {let limit=self.message_limit();self.composer_editor.key(&mut self.composer,key,true,limit)},
             }
             return Ok(false);
         }
@@ -595,8 +596,8 @@ impl App {
                     self.notice =
                         "Wait for the active worker before creating another session.".into();
                 } else {
-                    match crate::session_picker::NewSession::discover(root) {
-                        Ok(form) => self.new_session = Some(form),
+                    match self.new_form(root) {
+                        Ok(()) => {},
                         Err(error) => {
                             self.raise_diagnostic(format!("Cannot list workflows: {error:#}"))
                         }
@@ -696,8 +697,9 @@ impl App {
             }
             KeyCode::Char('i') => self.focus_composer(),
             KeyCode::Char('/') => {
+                self.set_message_mode(compose::Mode::Command);
                 self.focus_composer();
-                self.composer.push('/');
+                if self.composer.is_empty(){self.composer.push('/');}
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if self.focus == Focus::Detail

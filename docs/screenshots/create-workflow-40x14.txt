@@ -1,0 +1,13 @@
+Greenlight / bar-project      ● idle · -
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+ New session · Choose workflow
+
+
+ Select a workflow, then Continue.
+ Nothing starts while browsing.
+
+╭──────────╮ ╭────────╮
+│ Continue │ │ Cancel │
+╰──────────╯ ╰────────╯

@@ -1,0 +1,13 @@
+Greenlight / bar-…  ● blocked · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+ Resume step with instructions
+ To: workflow step · optimize-performa…
+ Here are the host logs I measured manu
+ ally.
+ Startup took 30.1 seconds.
+ Enter sends · Alt+Enter newline · Esc…
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│   Send    │ │    To     │ │   Back   │
+╰───────────╯ ╰───────────╯ ╰──────────╯

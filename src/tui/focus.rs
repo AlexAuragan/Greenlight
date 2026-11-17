@@ -29,6 +29,10 @@ impl App {
         if self.focus != Focus::Compose {
             self.focus_before_compose = self.focus;
         }
+        if !self.compose.explicit && self.composer.is_empty() {
+            let mode=if self.manager_enabled || !self.can_resume_message() {compose::Mode::Manager}else{compose::Mode::Step};
+            self.compose.mode=mode;self.sync_draft();
+        }
         self.focus = Focus::Compose;
     }
     pub(super) fn focus_left(&mut self) {
@@ -49,16 +53,16 @@ impl App {
         self.detail_scroll = current.saturating_add_signed(delta);
     }
     pub(super) fn sync_draft(&mut self) {
-        let selected = self.session().map(|s| s.id.clone());
-        if selected != self.composer_session {
-            self.drafts.insert(
-                self.composer_session.take(),
-                std::mem::take(&mut self.composer),
-            );
-            self.composer = self.drafts.remove(&selected).unwrap_or_default();
-            self.composer_session = selected;
-            self.composer_editor.reset();
+        let selected=self.session().map(|s|s.id.clone());
+        let branch=self.session().map(|s|s.active_branch.clone());
+        let scope=(selected.clone(),branch,self.compose.mode);
+        if scope!=self.compose.scope {
+            if scope.0!=self.compose.scope.0 || scope.1!=self.compose.scope.1 {self.compose.explicit=false;}
+            self.drafts.insert(self.compose.scope.clone(),std::mem::take(&mut self.composer));
+            self.composer=self.drafts.remove(&scope).unwrap_or_default();
+            self.compose.scope=scope;self.composer_editor.reset();
         }
+        self.composer_session=selected;
     }
     pub(super) fn open_help(&mut self) {
         self.shell.help_scroll = self.detail_scroll;

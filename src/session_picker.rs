@@ -11,6 +11,7 @@ pub struct WorkflowChoice {
     pub id: String,
     pub title: String,
     pub error: Option<String>,
+    pub summary: String,
 }
 #[derive(Default)]
 pub struct NewSession {
@@ -33,11 +34,16 @@ impl NewSession {
                     let Some(id) = entry.file_name().to_str().map(str::to_owned) else {
                         continue;
                     };
-                    let (title, error) = match config::load_workflow(root, &id) {
-                        Ok(wf) => (wf.definition.title, None),
-                        Err(error) => (id.clone(), Some(format!("{error:#}"))),
+                    let (title, error, summary) = match config::load_workflow(root, &id) {
+                        Ok(wf) => (wf.definition.title, None, wf.definition.steps.join(" → ")),
+                        Err(error) => (id.clone(), Some(format!("{error:#}")), String::new()),
                     };
-                    workflows.push(WorkflowChoice { id, title, error });
+                    workflows.push(WorkflowChoice {
+                        id,
+                        title,
+                        error,
+                        summary,
+                    });
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

@@ -115,8 +115,20 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     let compact = area.width < 72 || area.height < 22;
     let outer = Layout::vertical([
         Constraint::Length(4),
-        Constraint::Min(3),
-        Constraint::Length(if app.composer_active() { 4 } else { 0 }),
+        Constraint::Min(if app.composer_active() && area.height < 22 {
+            0
+        } else {
+            3
+        }),
+        Constraint::Length(if app.composer_active() {
+            if area.height < 22 {
+                area.height.saturating_sub(8)
+            } else {
+                10.min(area.height.saturating_sub(11))
+            }
+        } else {
+            0
+        }),
         Constraint::Length(4),
     ])
     .split(area);
@@ -368,58 +380,8 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             ),
             columns[1],
         );
-    } else if let Some(form) = &app.new_session {
-        if let Some(goal) = &form.goal {
-            let choice = &form.workflows[form.cursor];
-            input_panel(
-                frame,
-                app,
-                &app.goal_editor,
-                goal,
-                " New session · goal ",
-                &format!(
-                    "{} — {} · Enter starts · Ctrl+J newline · Esc cancel\n{}",
-                    choice.id,
-                    choice.title,
-                    form.error.as_deref().unwrap_or("")
-                ),
-                columns[1],
-            );
-        } else {
-            let choices = form.workflows.iter().map(|w| {
-                ListItem::new(inline_display(&format!(
-                    "{} — {}{}",
-                    w.id,
-                    w.title,
-                    if w.error.is_some() { " [invalid]" } else { "" }
-                )))
-            });
-            let mut state = ListState::default();
-            if !form.workflows.is_empty() {
-                state.select(Some(form.cursor));
-            }
-            let panels =
-                Layout::vertical([Constraint::Min(3), Constraint::Length(4)]).split(columns[1]);
-            frame.render_stateful_widget(
-                List::new(choices)
-                    .highlight_symbol("▶ ")
-                    .highlight_style(Style::default().fg(Color::Cyan))
-                    .block(border(" New session · choose workflow ", true)),
-                panels[0],
-                &mut state,
-            );
-            let help = if form.workflows.is_empty() {
-                "No workflows found. Add workflows/<name>/workflow.yaml and step files."
-            } else {
-                form.error
-                    .as_deref()
-                    .unwrap_or("↑/↓ choose · Enter set goal · Esc cancel")
-            };
-            frame.render_widget(
-                Paragraph::new(safe_display(help)).wrap(Wrap { trim: false }),
-                panels[1],
-            );
-        }
+    } else if app.new_session.is_some() {
+        compose::draw_creation(frame, app, columns[1]);
     } else if app.searching {
         input_panel(
             frame,
@@ -468,6 +430,31 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         );
     } else if app.restart_plan.is_some() || !app.restart_choices.is_empty() {
         recovery::draw(frame, app, columns[1]);
+    } else if app.composer_active() {
+        let context = app
+            .session()
+            .map(|s| {
+                format!(
+                    "{} · {} · step {}\n\n{}",
+                    s.workflow,
+                    s.status,
+                    s.current_step,
+                    if app.compose.mode == compose::Mode::Manager {
+                        "Your question goes to the read-only manager."
+                    } else if app.compose.mode == compose::Mode::Command {
+                        "Review a Greenlight slash command before running it."
+                    } else {
+                        "Your instructions target this workflow step."
+                    }
+                )
+            })
+            .unwrap_or_else(|| "Choose a session before sending a message.".into());
+        frame.render_widget(
+            Paragraph::new(context)
+                .style(Style::default().fg(theme::MUTED))
+                .wrap(Wrap { trim: false }),
+            columns[1],
+        );
     } else if app.edits.pending.is_some() || app.view == View::Edits {
         edits::draw(frame, app, columns[1]);
     } else if app.result_open && app.view == View::Conversation {
@@ -649,29 +636,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         }
     }
 
-    let input_title = if app.manager_job.is_some() {
-        " Manager answering · /cancel-manager stops future retries "
-    } else if app.manager_enabled {
-        " Message manager · read-only · /resume runs agent "
-    } else if app.runner.is_some() {
-        " Agent running · x stops future provider requests "
-    } else {
-        " Message agent · i to focus · Enter sends "
-    };
-    let composer_block = border(input_title, app.focus == Focus::Compose && !overlay);
-    let input_area = composer_block.inner(outer[2]);
-    frame.render_widget(composer_block, outer[2]);
-    app.composer_editor.draw(
-        frame,
-        &app.composer,
-        if app.session().is_some_and(|s| s.status == "completed") {
-            "Run ended · s result · 3 edits/revert · /ask QUESTION"
-        } else {
-            "Type instructions to resume this session…"
-        },
-        input_area,
-        app.composer_active(),
-    );
+    compose::draw_composer(frame, app, outer[2]);
 
     let actions = app.footer_actions();
     let count = actions.len().max(1) as u16;

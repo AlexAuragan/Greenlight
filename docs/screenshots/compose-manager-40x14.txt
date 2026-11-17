@@ -1,0 +1,13 @@
+Greenlight / bar…  ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+ Ask manager
+ To: manager (read-only) · optimize-pe…
+ Where are we, and what is still unveri
+ fied?
+
+ Enter sends · Alt+Enter newline · Esc…
+╭───────────╮ ╭──────────╮ ╭───────────╮
+│   Send    │ │ Commands │ │ Close Esc │
+╰───────────╯ ╰──────────╯ ╰───────────╯
