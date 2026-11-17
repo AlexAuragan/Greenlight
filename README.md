@@ -210,3 +210,5 @@ The [Edits/revert design](docs/29-edits-and-revert-design.md) covers recorded di
 The [artifact reader/history design](docs/31-artifact-reader-and-history-design.md) covers exact saved versions, document comparison and provenance. The Edits design also includes All files, Tab cycling and Keep-file/Keep-all review.
 
 The [navigation, checkpoints, details and Help design](docs/32-navigation-checkpoints-details-and-help-design.md) completes focused proposals for the major screen families, with six additional static studies.
+
+The [compact layout/navigation revision](docs/33-compact-layout-and-navigation.md) keeps h Help and arrows/j/k/Tab navigation without function-key shortcuts.

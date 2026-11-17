@@ -718,3 +718,5 @@ The [Edits/revert proposal](29-edits-and-revert-design.md) and [cross-screen con
 The user-selected [Edits review amendment](29-edits-and-revert-design.md) adds All files, Tab cycling and per-file/all-file acceptance of applied edits. [Artifact reading, versions and provenance](31-artifact-reader-and-history-design.md) remain a separate document-evidence flow.
 
 The [supporting-surface review](32-navigation-checkpoints-details-and-help-design.md) covers empty home, session navigation, human checkpoints, run details/usage and contextual Help. Major families now have focused design coverage; minor variants and real-terminal checks remain.
+
+The user-selected [compact navigation revision](33-compact-layout-and-navigation.md) retains `h` Help, arrows/`j/k`/Tab navigation and removes required function-key shortcuts. It supersedes earlier loose spacing/F6 proposals.

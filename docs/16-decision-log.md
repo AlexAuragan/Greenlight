@@ -229,3 +229,7 @@ The user requests an All files overview, Tab cycling through edited files and ac
 ## 2026-11-17 — Supporting UI surfaces proposed
 
 The user requests continued design work. The [supporting-surface review](32-navigation-checkpoints-details-and-help-design.md) adds six fictional PNG/SVG studies for empty home, session sidebar, exact-input human checkpoint, run details, usage and contextual Help. It distinguishes human input approval from result verification/tool grants/Keep marks, preserves usage uncertainty, and proposes candidate-versus-open session navigation with safe owner routing. Major surface families now have focused coverage; exact key/focus/compact behavior and minor states remain implementation-validation work. No application code, runtime Help, model calls or policy changes.
+
+## 2026-11-17 — Denser layouts and no function keys
+
+The user requests a more compact UI with arrows, j/k and Tab and rejects function-key shortcuts. Asked about the h conflict, they explicitly retain h for Help rather than h/j/k/l navigation. The [compact revision](33-compact-layout-and-navigation.md) replaces the proposed F6 escape with Enter to focus Edits actions (without activation), Esc to return, and local Tab routing. Two new static studies demonstrate denser Help and file review. Older studies remain historical; no runtime input/layout changes.

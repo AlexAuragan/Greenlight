@@ -82,7 +82,7 @@ A visible Disable/Enable mouse action makes terminal text selection discoverable
 
 While typing, `h` remains text. The visible Help control is reached through focus navigation. Opening Help preserves draft/caret, reader/scroll and pending request identity. Esc closes Help and returns to the still-valid underlying surface. Expiry/ownership changes must return an unavailable notice rather than stale controls. No shortcut or mouse click reaches a covered approval/revert dialog.
 
-The Edits example explains the user-selected Tab file cycle and the proposed F6 focus escape; it does not make Tab file navigation global. Ordinary composer/control traversal remains local to that region. Exact focus routing and terminal compatibility must be tested. Uppercase `H` remains the suggested Activity/history replacement, not a finalized runtime binding.
+The original Edits Help study predates the [compact navigation revision](33-compact-layout-and-navigation.md): replace its F6 hint with Enter to focus actions and Esc to return to file review. The revised design retains the user-selected Tab file cycle; it does not make Tab file navigation global. Ordinary composer/control traversal remains local to that region. Exact focus routing and terminal compatibility must be tested. Uppercase `H` remains the suggested Activity/history replacement, not a finalized runtime binding.
 
 Generate Help/action availability from the same typed action/state definitions used by controls during implementation. A hand-maintained static key list must not drift from the rendered actions. The [current Help source](../src/tui/help.rs) remains a description of current behavior, including historical differences; this design does not edit it or pretend these keys have landed.
 

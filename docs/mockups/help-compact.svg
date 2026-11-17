@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620" role="img" aria-label="Compact contextual Help with no function keys">
+<title>Compact contextual Help with no function keys</title>
+<rect width="1000" height="620" fill="#111827"/>
+<text x="20" y="24" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="12" font-weight="400" xml:space="preserve">DESIGN STUDY · SAMPLE DATA · NOT THE RUNNING APP</text>
+<path d="M20 38h960" stroke="#374151"/>
+<text x="20" y="69" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="17" font-weight="700" xml:space="preserve">Greenlight / bar-project</text>
+<rect x="870" y="46" width="83" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="883" y="66" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Help h</text>
+<rect x="50" y="111" width="900" height="382" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="70" y="148" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="20" font-weight="700" xml:space="preserve">Help · Edits review</text>
+<text x="70" y="177" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Esc closes Help and restores the same file and position.</text>
+<text x="70" y="221" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">Arrows / j,k</text>
+<text x="275" y="221" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Navigate lists or scroll the current reader.</text>
+<text x="70" y="253" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">Tab / Shift+Tab</text>
+<text x="275" y="253" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Cycle files while the Edits review area is focused.</text>
+<text x="70" y="285" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">Enter</text>
+<text x="275" y="285" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Focus review actions; it does not activate one.</text>
+<text x="70" y="317" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">Esc from actions</text>
+<text x="275" y="317" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Return to file review.</text>
+<text x="70" y="349" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">h / ?</text>
+<text x="275" y="349" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Help in navigation; typed letters remain text.</text>
+<text x="70" y="381" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">Keep / Revert</text>
+<text x="275" y="381" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Keep accepts edits; Revert requires a preview.</text>
+<rect x="70" y="436" width="132" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="83" y="456" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Close · Esc</text>
+<rect x="214" y="436" width="151" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="227" y="456" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">All shortcuts</text>
+<rect x="377" y="436" width="151" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="390" y="456" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Disable mouse</text>
+</svg>

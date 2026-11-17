@@ -59,3 +59,7 @@ This is a proposal for later planning. No code changes, new model requests, merg
 ## 5. Supporting-surface follow-up
 
 The [navigation/checkpoints/details/Help proposal](32-navigation-checkpoints-details-and-help-design.md) now supplies focused coverage for the remaining major families listed in section 3. Its six static studies retain distinct checkpoint/tool/Keep semantics, explicit session opening, usage uncertainty and topmost Help routing. Exact traversal, key remapping, compact terminal behavior and minor/error variants still need an implementation acceptance matrix and tests. This updates coverage, not blanket user acceptance or runtime capability.
+
+## 6. Compactness and no-function-key revision
+
+The user requests denser screens and rejects function-key shortcuts. In explicit follow-up they retain `h` for Help and select arrows plus `j/k` for navigation. The [compact navigation revision](33-compact-layout-and-navigation.md) supersedes the F6 proposal: Edits Tab cycles files, Enter focuses actions without activating one, Esc returns. Older static studies are historical where their spacing or F6 text differs.

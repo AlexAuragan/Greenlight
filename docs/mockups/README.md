@@ -38,6 +38,8 @@ These are documentation assets for the [running-screen review](../24-running-scr
 | Run details | [PNG](run-details.png) | [SVG](run-details.svg) |
 | Usage and cost uncertainty | [PNG](usage-detail.png) | [SVG](usage-detail.svg) |
 | Contextual Help | [PNG](help-contextual.png) | [SVG](help-contextual.svg) |
+| Compact contextual Help (supersedes F6 hint) | [PNG](help-compact.png) | [SVG](help-compact.svg) |
+| Compact Edits file review | [PNG](edits-review-compact.png) | [SVG](edits-review-compact.svg) |
 
 The studies use the agreed semantic color roles and example RGB values from the main UI draft. The SVGs contain only drawing/text elements, not scripts or external resources. No runtime or project dependencies were added to create them.
 
@@ -50,3 +52,5 @@ See the [Edits/revert review](../29-edits-and-revert-design.md) for the four rec
 The [Edits review amendment](../29-edits-and-revert-design.md) supersedes the initial list default with All files and file cycling. See the [artifact-reader review](../31-artifact-reader-and-history-design.md) for document/history studies.
 
 See the [navigation/checkpoints/details/Help review](../32-navigation-checkpoints-details-and-help-design.md) for the six supporting-surface studies.
+
+The [compact navigation revision](../33-compact-layout-and-navigation.md) supersedes older spacing and F6 hints: h stays Help; arrows/j/k and Tab navigate without function keys.
