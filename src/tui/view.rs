@@ -179,7 +179,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         (shell::Action::Artifacts, View::Artifacts),
         (shell::Action::Edits, View::Edits),
     ] {
-        let width = action.label().len() as u16 + 3;
+        let width = action.label().len() as u16 + 1;
         shell::tab(
             frame,
             app,

@@ -249,3 +249,7 @@ The user reports a major mismatch between the approved drawings and the first co
 ## 2026-11-17 — Distinguish primary actions, tab selection and keyboard focus
 
 The user reports that repeated Tab presses leave Read final report permanently blue and make header stops appear inactive. The shared button renderer now uses primary accent without permanent fill; keyboard focus alone adds cyan fill, bold text and a visible marker for both framed and one-line controls. Main-tab selection has a separate renderer so it cannot mask focus, including when Activity appears as an action in More. A render regression walks all six result actions forward/backward at three sizes and verifies one visible marker/fill at every stop. Actual captures demonstrate report and header focus.
+
+## 2026-11-17 — Display existing navigation shortcut badges
+
+The user requests visible `[1]`/`[2]`/`[3]` view labels and clarifies that Sessions/Details/Help should display their existing letter keys, not new numeric assignments. Labels now show `[f] Sessions`, `[c] Details`, `[h] Help`, with reduced tab padding to keep all three view labels visible at 40 columns. Input routing and existing shortcuts are unchanged. Actual render captures and text baselines are regenerated and the 93 TUI tests pass.

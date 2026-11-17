@@ -1,6 +1,6 @@
 Greenlight / bar-project                                   ● Finished · evaluate
 
- Activity    Artifacts   Edits                                          Help h
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
 
  performance-evaluation.md · Content
 

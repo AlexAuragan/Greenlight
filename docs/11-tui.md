@@ -194,3 +194,5 @@ The TUI uses a shared dark background/panel palette and rounded, framed action b
 [Actual Ratatui captures](screenshots/README.md) show the current code at explicit cell dimensions. Earlier [design drawings](mockups/README.md) are visual direction rather than terminal screenshots. Text snapshots guard the default 80×24 result and artifact list against accidental return to the older layout.
 
 Tab cycles the current footer controls, then Sessions / Details / Help in the header, and wraps. Shift+Tab reverses the cycle. The same visible focus treatment applies to one-line header controls and menu items; Escape leaves the action focus. A primary action such as Read final report is not permanently filled.
+
+Navigation labels show their existing keys: `[1] Activity`, `[2] Artifacts`, `[3] Edits`, `[f] Sessions` (find/search), `[c] Details` and `[h] Help`. No 4–6 shortcuts are added. Header labels remain visible on a second navigation row on narrow terminals.

@@ -17,8 +17,10 @@ Each source cell's text, foreground, background and bold flag is copied to the i
 Regenerate from the repository root:
 
 ```bash
-GREENLIGHT_CAPTURE_DIR=/tmp/greenlight-captures cargo test tui::presentation_tests -- --test-threads=1
+GREENLIGHT_UPDATE_CAPTURE_BASELINES=1 GREENLIGHT_CAPTURE_DIR=/tmp/greenlight-captures cargo test tui::presentation_tests -- --test-threads=1
 python tests/render_tui_captures.py /tmp/greenlight-captures docs/screenshots
 ```
 
 The optional PNG renderer uses Python Pillow and the DejaVu Sans Mono system font; neither is a Greenlight runtime dependency. Cargo tests require neither. Intermediate JSON stays outside the repository. The text fixtures for the 80×24 result/artifact list also serve as rendering regression baselines.
+
+The explicit update flag skips only the two text-baseline comparisons while producing replacement captures. Review the generated files, then rerun tests without that flag to verify the checked-in baselines. Other render/focus assertions still run during capture updates.

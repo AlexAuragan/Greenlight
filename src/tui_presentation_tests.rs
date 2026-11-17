@@ -137,7 +137,9 @@ fn result_overview_is_scoped_compact_and_opens_exact_report() {
         }
         assert_eq!(buffer[(0, 0)].bg, theme::BACKGROUND);
         if (w, h) == (80, 24) {
-            assert_eq!(screen, include_str!("../docs/screenshots/result-80x24.txt"));
+            if std::env::var_os("GREENLIGHT_UPDATE_CAPTURE_BASELINES").is_none() {
+                assert_eq!(screen, include_str!("../docs/screenshots/result-80x24.txt"));
+            }
             assert_eq!(buffer[(1, 7)].bg, theme::PANEL);
         }
     }
@@ -164,10 +166,12 @@ fn artifacts_are_single_rows_with_contextual_actions_and_explicit_reading() {
         }
         assert!(!output.contains("Saved evidence"));
         if (w, h) == (80, 24) {
-            assert_eq!(
-                output,
-                include_str!("../docs/screenshots/artifacts-80x24.txt")
-            );
+            if std::env::var_os("GREENLIGHT_UPDATE_CAPTURE_BASELINES").is_none() {
+                assert_eq!(
+                    output,
+                    include_str!("../docs/screenshots/artifacts-80x24.txt")
+                );
+            }
         }
     }
     app.activate(shell::Action::Open, root.path(), &store)
