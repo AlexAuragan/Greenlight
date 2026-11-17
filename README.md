@@ -198,3 +198,5 @@ The `optimize-performance` example loops on `target_not_met` and stops on regres
 See [documentation and decisions](docs/16-decision-log.md), the [manual smoke-test guide](docs/17-smoke-test.md), and the rest of `docs/` for execution contracts, workflow syntax and engineering tradeoffs.
 
 The [approval-dialog design and static mockups](docs/25-approval-dialog-design.md) show all valid grant choices, explicit scope confirmation and read-only Help. These remain design studies.
+
+The [completed-workflow design and static mockups](docs/26-completed-screen-design.md) propose an outcome-first result view with scoped verification, edits and historical-result warnings.

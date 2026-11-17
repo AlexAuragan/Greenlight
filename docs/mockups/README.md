@@ -1,6 +1,6 @@
 # Static UI design studies
 
-These are documentation assets for the [running-screen review](../24-running-screen-design.md) and [approval-dialog review](../25-approval-dialog-design.md). They are not screenshots, executable prototypes or implemented application screens. Data, paths and code snippets are fictional. Exact colors, spacing and glyphs are illustrative; the images do not prove terminal-cell fit at 80×24.
+These are documentation assets for the [running-screen review](../24-running-screen-design.md), [approval-dialog review](../25-approval-dialog-design.md) and [completed-screen review](../26-completed-screen-design.md). They are not screenshots, executable prototypes or implemented application screens. Data, paths and code snippets are fictional. Exact colors, spacing and glyphs are illustrative; the images do not prove terminal-cell fit at 80×24.
 
 | Study | Preview | Editable vector source |
 | --- | --- | --- |
@@ -11,5 +11,8 @@ These are documentation assets for the [running-screen review](../24-running-scr
 | Pending native write and diff | [PNG](approval-write.png) | [SVG](approval-write.svg) |
 | Global native-write confirmation | [PNG](approval-global-write.png) | [SVG](approval-global-write.svg) |
 | Read-only Help above approval | [PNG](approval-help.png) | [SVG](approval-help.svg) |
+| Completed, measurement unavailable | [PNG](completed-unmeasured.png) | [SVG](completed-unmeasured.svg) |
+| Completed, recorded checks passed | [PNG](completed-checks.png) | [SVG](completed-checks.svg) |
+| Historical result after restore | [PNG](completed-restored.png) | [SVG](completed-restored.svg) |
 
 The studies use the agreed semantic color roles and example RGB values from the main UI draft. The SVGs contain only drawing/text elements, not scripts or external resources. No runtime or project dependencies were added to create them.

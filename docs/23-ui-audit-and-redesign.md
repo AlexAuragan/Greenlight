@@ -546,6 +546,8 @@ The workspace remains recognizable behind the layer. Long commands/diffs get a r
 
 ### 9.3 Completed: outcome first
 
+The [focused completed-screen design](26-completed-screen-design.md) expands this proposal with three static studies, evidence attribution, scoped checks and historical results after restore. This remains a review proposal, not an accepted goal-outcome classifier.
+
 ```text
  Greenlight / my-project   Bar startup investigation      Finished · review result
  Activity   Artifacts   Edits                                      [Help]
