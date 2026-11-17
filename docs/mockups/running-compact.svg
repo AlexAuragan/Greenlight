@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="760" viewBox="0 0 850 760" role="img" aria-label="Compact running-screen design study">
+<title>Compact running-screen design study</title>
+<rect width="850" height="760" fill="#111827"/>
+<text x="24" y="27" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">DESIGN STUDY · SAMPLE DATA · NOT THE RUNNING APP</text>
+<path d="M24 43h802" stroke="#374151"/>
+<text x="24" y="76" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Greenlight / bar-project</text>
+<text x="24" y="105" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Investigate slow startup</text>
+<text x="565" y="77" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="17" font-weight="700" xml:space="preserve">● Working · baseline</text>
+<text x="24" y="153" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="700" xml:space="preserve">Activity</text>
+<path d="M24 162h79" stroke="#67E8F9"/>
+<text x="129" y="153" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Artifacts</text>
+<text x="257" y="153" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">Edits</text>
+<rect x="484" y="128" width="103" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="497" y="148" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Sessions</text>
+<rect x="599" y="128" width="132" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="612" y="148" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Run details</text>
+<rect x="743" y="128" width="83" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="756" y="148" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Help h</text>
+<path d="M24 176h802" stroke="#374151"/>
+<text x="24" y="208" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="700" xml:space="preserve">Now</text>
+<text x="24" y="236" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Receiving model output</text>
+<text x="24" y="279" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="15" font-weight="700" xml:space="preserve">Recent activity</text>
+<text x="731" y="277" fill="#67E8F9" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">Following</text>
+<text x="33" y="310" fill="#93C5FD" font-family="DejaVu Sans Mono,monospace" font-size="12" font-weight="700" xml:space="preserve">You</text>
+<text x="33" y="330" fill="#93C5FD" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Inspect without host-service access.</text>
+<text x="33" y="368" fill="#4ADE80" font-family="DejaVu Sans Mono,monospace" font-size="12" font-weight="700" xml:space="preserve">Recorded</text>
+<text x="33" y="388" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Read project instructions</text>
+<rect x="20" y="407" width="810" height="48" rx="3" fill="#1F2937" stroke="#67E8F9"/>
+<text x="33" y="426" fill="#4ADE80" font-family="DejaVu Sans Mono,monospace" font-size="12" font-weight="700" xml:space="preserve">Recorded</text>
+<text x="33" y="446" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Read src/bar.py</text>
+<path d="M24 494h802" stroke="#374151"/>
+<text x="24" y="522" fill="#FBBF24" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="700" xml:space="preserve">Live draft · not executed</text>
+<rect x="657" y="503" width="83" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="670" y="523" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Expand</text>
+<rect x="752" y="503" width="64" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="765" y="523" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Hide</text>
+<text x="34" y="564" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">action: tool</text>
+<text x="34" y="586" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">tool: shell</text>
+<text x="34" y="608" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">input: systemctl --user status pure-black</text>
+<path d="M24 687h802" stroke="#374151"/>
+<rect x="24" y="709" width="151" height="32" rx="3" fill="#67E8F9" stroke="#67E8F9"/>
+<text x="37" y="729" fill="#111827" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="700" xml:space="preserve">Open selected</text>
+<rect x="187" y="709" width="93" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="200" y="729" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Compose</text>
+<rect x="292" y="709" width="151" height="32" rx="3" fill="#1F2937" stroke="#FBBF24"/>
+<text x="305" y="729" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Stop requests</text>
+<rect x="455" y="709" width="64" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="468" y="729" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">More</text>
+</svg>

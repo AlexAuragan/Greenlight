@@ -16,11 +16,13 @@ User edits from commit `ef9672a` and the subsequent layout discussion establish 
 | --- | --- | --- |
 | Help key | Lowercase `h` opens Help in navigation; keep `?` as an alias | Uppercase `H` is the user's suggested replacement for the existing Activity/history binding; final remapping remains to review |
 | Session navigation | Collapsible sidebar, **hidden by default**, opened through a visible Sessions control | Pinning and persistence across application launches have not been decided |
-| Activity/file details | **Enter or click explicitly opens details**; use an inspector when width permits and a full-width reader on small terminals | Whether an already-open inspector follows later selection changes remains to review |
+| Activity/file details | **Enter or click explicitly opens details**; use an inspector when width permits and a full-width reader on small terminals. Once open, it follows deliberate selection changes | Focus transfer, return controls and item-specific reading positions remain to validate |
 | Composer | **Open on demand** through a visible Compose action; closing preserves the draft | Recipient/mode presentation and precise sizing remain to review; existing drafts are memory-only, not durably saved |
 | Semantic colors | Blue user input, cyan focus/active controls, neutral model body, green recorded positive outcomes, amber attention, red errors/destructive actions | Exact shades, optional attribution accents and theme fallbacks remain to validate |
 | Mouse | **Enabled by default** for clicks/scrolling, with complete keyboard operation and a discoverable way to disable capture | Hit regions, terminal text-selection interaction and supported-terminal behavior require implementation/testing |
 | Help over approvals | `h` opens read-only Help above the pending decision; decision keys are disabled while Help is open; Esc closes Help and returns to the approval | Exact Help content, focus restoration and request-expiry presentation remain to design/test |
+| Running header | **Compact:** project/session, status and current step; full goal/roadmap/technical metadata under Run details | Exact row count, sizing and narrow-layout action placement remain to validate |
+| Live output | **Small preview**, expandable and hideable while generating | Exact preview height, expanded-reader presentation and truncation treatment remain to validate |
 
 List browsing should therefore remain quiet while details are closed. The normal workspace does not reserve space for the sidebar, inspector or composer until the person opens them. The other recommendations below remain proposals unless explicitly marked settled.
 
@@ -199,7 +201,7 @@ No dependency is required just to add an overlay, drawer or action row. A small 
 
 Keep one session workspace and the three familiar sections: **Activity, Artifacts, Edits**. Let Activity be a state-aware overview rather than a raw-event-first page. A completed result can be its landing content without adding another permanent tab.
 
-- **Compact identity/header:** project/session title, one status badge, current step. Keep the full goal readable through a Goal/Details action. Put model identifiers, attempt UUIDs and branch IDs behind Details.
+- **Compact identity/header — settled:** project/session title, one status badge and current step. Full goal, workflow roadmap, model identifiers, attempt UUIDs and branch IDs move under Run details.
 - **Session navigation — settled:** a collapsible sidebar is hidden by default. A visible Sessions control opens it for switching/browsing. Do not automatically allocate a permanent sidebar just because multiple sessions exist; pinning/persistence can be reviewed separately.
 - **Main content:** one primary task. Running overview, blocker resolution, report reading, or source-edit review—not all four simultaneously.
 - **Inspector opening — settled:** Enter or click explicitly opens the selected activity/file details. Use an inspector beside the list when width permits, or a full-width reader on a small terminal. Preserve the exact Back target; selecting rows while details are closed does not open a preview.
@@ -234,7 +236,7 @@ At rest, the sidebar, details and composer do not occupy separate permanent pane
 
 Do not move **critical decision information** down this ladder: the operation, target, permission scope, affected file count, destructive consequence and stale/conflict warnings stay visible before a decision. Hide verbosity, not consequences.
 
-**Settled:** navigation changes the selected row while details remain closed. **Open/Enter/click** explicitly opens the item; simple browsing does not trigger an automatic preview. Focusing a pane makes its available actions clear. The behavior of an already-open inspector during subsequent selection changes is still open.
+**Settled:** navigation changes the selected row while details remain closed. **Open/Enter/click** explicitly opens the item; simple browsing does not trigger an automatic preview. Focusing a pane makes its available actions clear. **Also settled:** once explicitly opened, the inspector follows deliberate list selection changes. Reader scrolling and background updates do not count as a new selection; retain the person's reading context.
 
 ### 4.3 Surface choices
 
@@ -497,6 +499,8 @@ Use an elapsed duration only when a real start time is available. An animation p
 
 ### 9.1 Running: one main task, optional detail
 
+The [focused running-screen review](24-running-screen-design.md) now records the agreed compact header, small expandable/hideable live preview and follow-selection-after-opening behavior, with [static visual studies](mockups/README.md). The text below remains an illustrative sketch; exact action placement is still under review.
+
 ```text
  Greenlight / my-project   Bar startup investigation       ◌ Working · baseline
  Activity   Artifacts   Edits                         [Sessions] [Details] [Help]
@@ -606,20 +610,20 @@ Rows marked **Settled** reflect explicit user choices recorded at the top of thi
 
 | Decision | Recommended starting point | Alternative / tradeoff to discuss |
 | --- | --- | --- |
-| D01 — Main frame | **Settled:** collapsible sidebar, hidden by default; composer opens on demand. Three sections and remaining frame details are proposed | Open/closed preference persistence, header density and exact action placement still need review |
+| D01 — Main frame | **Settled:** collapsible sidebar, hidden by default; composer opens on demand. Three sections and remaining frame details are proposed | Open/closed preference persistence, exact compact-header height and action placement still need review |
 | D02 — Default content | State-aware Activity overview; preserve explicit artifact/edit readers | Rename Activity to Overview, or add a permanent Result tab; both add migration/navigation questions |
-| D03 — Details | **Settled:** Enter/click opens an inspector when width permits, full-width reader on small terminals | Behavior after opening, including following selection and preserving multiple reader positions, remains to review |
+| D03 — Details | **Settled:** Enter/click opens details; inspector when wide, full-width reader when narrow; once open, follows deliberate selection | Focus transfer, return controls and useful reading-position preservation still require validation |
 | D04 — Help key and presentation | **Settled:** lowercase h for Help, ? alias; read-only Help can open over approvals as D05 specifies | Uppercase H is the suggested Activity/history replacement; exact contextual Help layout and final remapping remain to review |
 | D05 — Help during decisions | **Settled:** read-only Help above the pending approval; decision keys disabled; Esc returns to the approval without denying it | Validate focus restoration, held keys and expired requests; Help must not reactivate stale decisions |
 | D06 — Input/color roles | **Settled:** user blue, focus cyan, neutral model body, green recorded positive outcomes, amber attention, red errors/destructive emphasis | Exact RGB shades, attribution accents, selected backgrounds and terminal fallbacks still require validation |
 | D07 — Mouse | **Settled:** mouse enabled by default; complete keyboard controls; discoverable mouse-capture toggle | Implement/test shared action dispatch, current hit regions, resize/modal transitions and text-selection fallback |
-| D08 — Live model draft | Small preview while generating, collapsible/expandable by user | Entirely hidden behind View stream is quieter but risks recreating “nothing happened”; permanent half-screen stream is too noisy |
+| D08 — Live model draft | **Settled:** small preview during generation, expandable and hideable | Exact height, reader behavior and truncation indication remain to validate; do not invent progress or execute draft content |
 | D09 — Finished-run behavior | Open result when following live; show a quiet View result notice if already reading something else | Always auto-open result is simpler but interrupts review |
 | D10 — Visual motif | One compact lamp + word; optional traffic-light prototype for comparison | Literal three-lamp graphic may be memorable but consumes space and has ambiguous running/success semantics |
 | D11 — Component approach | Small local theme/overlay/button/action layer; reuse existing engine and reader | Evaluate a component library if it removes complexity without competing for focus/approval ownership |
 | D12 — Scope of the first visual revision | Information hierarchy, theme, Help/decisions, action dock and reading surfaces | Charts, file trees, images, settings editor and animations remain later options, not prerequisites |
 
-**Review progress:** sidebar visibility, explicit detail opening, on-demand composition, Help key, semantic color roles, mouse default and Help-over-approval behavior are settled above. Next review the concrete running, approval, finished-result and edit-review layouts: header density, action placement, reader return behavior and composer modes. The remaining component proposals and implementation sequence are still open. Do not begin by rewriting all screens or adopting a whole new UI framework.
+**Review progress:** sidebar visibility, explicit detail opening, on-demand composition, Help key, semantic color roles, mouse default and Help-over-approval behavior are settled above. The [running-screen pass](24-running-screen-design.md) additionally settles the compact header, small expandable/hideable live preview and inspector following deliberate selection after opening. Continue reviewing its concrete action placement, reader return behavior and composer modes, then the approval, finished-result and edit-review layouts. The remaining component proposals and implementation sequence are still open. Do not begin by rewriting all screens or adopting a whole new UI framework.
 
 ## 11. Acceptance criteria and possible delivery order
 
