@@ -11,6 +11,8 @@ Each source cell's text, foreground, background and bold flag is copied to the i
 | Artifact reader | [PNG](artifact-reader-80x24.png) · [text](artifact-reader-80x24.txt) | — | — |
 | Exact final-report reader | [PNG](report-reader-80x24.png) · [text](report-reader-80x24.txt) | — | — |
 | Result after restore | [PNG](result-restored-80x24.png) · [text](result-restored-80x24.txt) | — | — |
+| Tab focus: report action | [PNG](focus-report-80x24.png) · [text](focus-report-80x24.txt) | — | — |
+| Tab focus: header Sessions | [PNG](focus-sessions-80x24.png) · [text](focus-sessions-80x24.txt) | — | — |
 
 Regenerate from the repository root:
 

@@ -180,7 +180,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         (shell::Action::Edits, View::Edits),
     ] {
         let width = action.label().len() as u16 + 3;
-        shell::button(
+        shell::tab(
             frame,
             app,
             ratatui::layout::Rect::new(x, outer[0].y + 2, width, 1),

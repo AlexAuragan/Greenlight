@@ -576,22 +576,48 @@ impl App {
         }
     }
 }
+/// Selection in the main view tabs is separate from action-button focus.
+pub(super) fn tab(frame: &mut Frame, app: &App, area: Rect, action: Action, selected: bool) {
+    let style = if selected {
+        Style::default()
+            .fg(theme::FOCUS)
+            .bg(theme::BACKGROUND)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::TEXT).bg(theme::PANEL)
+    };
+    frame.render_widget(
+        Paragraph::new(action.label())
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(style),
+        area,
+    );
+    app.shell.hit(area, action);
+}
 pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, focused: bool) {
     if area.width == 0 || area.height == 0 {
         return;
     }
     let primary = matches!(action, Action::Report | Action::New | Action::Open);
-    let filled = focused || primary && area.height >= 3;
-    let base = Style::default()
-        .fg(if filled {
-            theme::BACKGROUND
-        } else {
-            theme::TEXT
-        })
-        .bg(if filled { theme::FOCUS } else { theme::PANEL });
-    let available = area
-        .width
-        .saturating_sub(if area.height >= 3 { 4 } else { 0 }) as usize;
+    // Primary action emphasis is independent from keyboard focus.
+    let keyboard_focus = focused;
+    let base = if keyboard_focus {
+        Style::default()
+            .fg(theme::BACKGROUND)
+            .bg(theme::FOCUS)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(if primary { theme::FOCUS } else { theme::TEXT })
+            .bg(theme::PANEL)
+    };
+    let available = area.width.saturating_sub(if area.height >= 3 {
+        4
+    } else if keyboard_focus {
+        2
+    } else {
+        0
+    }) as usize;
     let label = if action.label().len() > available {
         match action {
             Action::Report => "Report",
@@ -605,6 +631,11 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
         action.label()
     };
     let label = super::view::fit(label, available);
+    let label = if keyboard_focus {
+        format!("› {label}")
+    } else {
+        label
+    };
     let mut paragraph = Paragraph::new(label)
         .alignment(ratatui::layout::Alignment::Center)
         .style(base);
@@ -618,13 +649,6 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
                 } else {
                     theme::BORDER
                 })),
-        );
-    } else if focused || primary {
-        paragraph = paragraph.style(
-            Style::default()
-                .fg(theme::FOCUS)
-                .bg(theme::BACKGROUND)
-                .add_modifier(Modifier::BOLD),
         );
     }
     frame.render_widget(paragraph, area);

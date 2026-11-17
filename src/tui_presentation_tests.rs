@@ -64,6 +64,9 @@ fn screen(app: &mut App, w: u16, h: u16, name: &str) -> Buffer {
     terminal.draw(|f| view::draw(f, app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
     if let Ok(dir) = std::env::var("GREENLIGHT_CAPTURE_DIR") {
+        if name.starts_with("focus-") && (name == "focus-cycle" || (w, h) != (80, 24)) {
+            return buffer;
+        }
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
         fn color(c: Color) -> String {
@@ -230,4 +233,106 @@ fn historical_results_and_unknown_verdicts_do_not_claim_success() {
     let no_verdict = result::overview(&session, &[]);
     assert!(!no_verdict.checked);
     assert!(no_verdict.verification.contains("No recorded"));
+}
+
+#[test]
+fn every_tab_stop_has_one_visible_focus_marker_and_fill() {
+    let (root, store, _, mut app, _) = fixture();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        app.shell.actions_focus = false;
+        let initial = screen(&mut app, w, h, "result");
+        assert!(
+            !initial.content.iter().any(|c| c.bg == theme::FOCUS),
+            "primary action must not look focused"
+        );
+        let actions = app.shell_actions();
+        for (index, action) in actions.iter().enumerate() {
+            app.on_key(
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                root.path(),
+                &store,
+            )
+            .unwrap();
+            assert_eq!(app.shell_actions()[app.shell.action_index], *action);
+            let name = if *action == shell::Action::Report {
+                "focus-report"
+            } else if *action == shell::Action::Sessions {
+                "focus-sessions"
+            } else {
+                "focus-cycle"
+            };
+            let buffer = screen(&mut app, w, h, name);
+            let markers = buffer
+                .content
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.symbol() == "›")
+                .collect::<Vec<_>>();
+            assert_eq!(
+                markers.len(),
+                1,
+                "exactly one focus marker for {action:?} at {w}x{h}"
+            );
+            let (position, marker) = markers[0];
+            assert_eq!(
+                marker.bg,
+                theme::FOCUS,
+                "focused control needs high-contrast fill"
+            );
+            assert_eq!(marker.fg, theme::BACKGROUND);
+            assert!(marker.modifier.contains(Modifier::BOLD));
+            // All filled cells belong to the focused control's visible rows.
+            let row = position / w as usize;
+            assert!(buffer
+                .content
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.bg == theme::FOCUS)
+                .all(|(i, _)| if index < app.footer_actions().len() {
+                    (row.saturating_sub(1)..=row + 1).contains(&(i / w as usize))
+                } else {
+                    i / w as usize == row
+                }));
+        }
+        app.on_key(
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            root.path(),
+            &store,
+        )
+        .unwrap();
+        assert_eq!(app.shell.action_index, 0, "forward wrap");
+        app.on_key(
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE),
+            root.path(),
+            &store,
+        )
+        .unwrap();
+        assert_eq!(app.shell.action_index, actions.len() - 1, "reverse wrap");
+        app.on_key(
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            root.path(),
+            &store,
+        )
+        .unwrap();
+        assert!(!screen(&mut app, w, h, "result")
+            .content
+            .iter()
+            .any(|c| c.bg == theme::FOCUS));
+        // An Activity entry in More is a focused action, not a selected tab.
+        app.shell.more = true;
+        app.shell.menu_index = app
+            .more_actions()
+            .iter()
+            .position(|a| *a == shell::Action::Activity)
+            .unwrap();
+        let menu = screen(&mut app, w, h, "focus-cycle");
+        assert_eq!(
+            menu.content
+                .iter()
+                .filter(|c| c.symbol() == "›" && c.bg == theme::FOCUS)
+                .count(),
+            1
+        );
+        app.shell.more = false;
+    }
 }
