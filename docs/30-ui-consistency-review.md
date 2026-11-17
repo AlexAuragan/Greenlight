@@ -55,3 +55,7 @@ Exact sizes, keyboard escape sequences, blinking carets, bracketed paste, mouse 
 6. Remaining readers/navigation/settings surfaces and a complete keyboard/mouse/resize regression pass.
 
 This is a proposal for later planning. No code changes, new model requests, merges or environment publication are part of this review.
+
+## 5. Supporting-surface follow-up
+
+The [navigation/checkpoints/details/Help proposal](32-navigation-checkpoints-details-and-help-design.md) now supplies focused coverage for the remaining major families listed in section 3. Its six static studies retain distinct checkpoint/tool/Keep semantics, explicit session opening, usage uncertainty and topmost Help routing. Exact traversal, key remapping, compact terminal behavior and minor/error variants still need an implementation acceptance matrix and tests. This updates coverage, not blanket user acceptance or runtime capability.

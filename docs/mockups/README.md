@@ -32,6 +32,12 @@ These are documentation assets for the [running-screen review](../24-running-scr
 | Saved artifact versions | [PNG](artifact-versions.png) | [SVG](artifact-versions.svg) |
 | Exact-version provenance | [PNG](artifact-provenance.png) | [SVG](artifact-provenance.svg) |
 | Adjacent document comparison | [PNG](artifact-compare.png) | [SVG](artifact-compare.svg) |
+| Empty project home | [PNG](home-empty.png) | [SVG](home-empty.svg) |
+| Session navigation sidebar | [PNG](sessions-sidebar.png) | [SVG](sessions-sidebar.svg) |
+| Exact-input human checkpoint | [PNG](checkpoint-human.png) | [SVG](checkpoint-human.svg) |
+| Run details | [PNG](run-details.png) | [SVG](run-details.svg) |
+| Usage and cost uncertainty | [PNG](usage-detail.png) | [SVG](usage-detail.svg) |
+| Contextual Help | [PNG](help-contextual.png) | [SVG](help-contextual.svg) |
 
 The studies use the agreed semantic color roles and example RGB values from the main UI draft. The SVGs contain only drawing/text elements, not scripts or external resources. No runtime or project dependencies were added to create them.
 
@@ -42,3 +48,5 @@ See the [session creation and composer review](../28-session-creation-and-compos
 See the [Edits/revert review](../29-edits-and-revert-design.md) for the four recorded-edit studies.
 
 The [Edits review amendment](../29-edits-and-revert-design.md) supersedes the initial list default with All files and file cycling. See the [artifact-reader review](../31-artifact-reader-and-history-design.md) for document/history studies.
+
+See the [navigation/checkpoints/details/Help review](../32-navigation-checkpoints-details-and-help-design.md) for the six supporting-surface studies.

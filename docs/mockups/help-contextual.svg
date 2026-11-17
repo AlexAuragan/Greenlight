@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-label="Help: contextual navigation and mouse toggle">
+<title>Help: contextual navigation and mouse toggle</title>
+<rect width="1200" height="820" fill="#111827"/>
+<text x="24" y="27" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="13" font-weight="400" xml:space="preserve">DESIGN STUDY · SAMPLE DATA · NOT THE RUNNING APP</text>
+<path d="M24 43h1152" stroke="#374151"/>
+<text x="24" y="76" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="18" font-weight="700" xml:space="preserve">Greenlight / bar-project</text>
+<rect x="1065" y="57" width="83" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="1078" y="77" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Help h</text>
+<rect x="60" y="126" width="1080" height="606" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="84" y="171" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="23" font-weight="700" xml:space="preserve">Help · Edits review</text>
+<text x="84" y="206" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Read-only · Close returns to the same file and review position</text>
+<text x="84" y="271" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="17" font-weight="700" xml:space="preserve">Review files</text>
+<text x="84" y="301" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Tab / Shift+Tab cycles All files and individual file views.</text>
+<text x="84" y="367" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="17" font-weight="700" xml:space="preserve">Keep or revert</text>
+<text x="84" y="397" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Keep accepts recorded edits. Revert opens a separate reverse-diff preview.</text>
+<text x="84" y="463" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="17" font-weight="700" xml:space="preserve">Move focus</text>
+<text x="84" y="493" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">F6 moves between the review region and its action controls.</text>
+<text x="84" y="559" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="17" font-weight="700" xml:space="preserve">Mouse capture</text>
+<text x="84" y="589" fill="#94A3B8" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Enabled · turn capture off to use terminal text selection.</text>
+<rect x="84" y="661" width="132" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="97" y="681" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Close · Esc</text>
+<rect x="228" y="661" width="151" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="241" y="681" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">All shortcuts</text>
+<rect x="391" y="661" width="151" height="32" rx="3" fill="#1F2937" stroke="#374151"/>
+<text x="404" y="681" fill="#E5E7EB" font-family="DejaVu Sans Mono,monospace" font-size="14" font-weight="400" xml:space="preserve">Disable mouse</text>
+</svg>

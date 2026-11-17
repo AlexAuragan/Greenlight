@@ -716,3 +716,5 @@ The [session creation and composer proposal](28-session-creation-and-composer-de
 The [Edits/revert proposal](29-edits-and-revert-design.md) and [cross-screen consistency review](30-ui-consistency-review.md) cover restore scope, explicit confirmation, failure states and remaining design/validation work.
 
 The user-selected [Edits review amendment](29-edits-and-revert-design.md) adds All files, Tab cycling and per-file/all-file acceptance of applied edits. [Artifact reading, versions and provenance](31-artifact-reader-and-history-design.md) remain a separate document-evidence flow.
+
+The [supporting-surface review](32-navigation-checkpoints-details-and-help-design.md) covers empty home, session navigation, human checkpoints, run details/usage and contextual Help. Major families now have focused design coverage; minor variants and real-terminal checks remain.
