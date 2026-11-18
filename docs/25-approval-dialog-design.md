@@ -57,7 +57,8 @@ Project/global review opens a separate confirmation with only its valid decision
 - Shell: reuse approval for this exact command in the project or across projects for this account.
 - Native write: all permitted native writes in this project, or across all projects for this account. This is broader than the displayed file.
 - Confirm: save the grant and authorize the current request.
-- Cancel or Esc: save nothing **and deny the current request**, matching the existing engine contract. Do not label this as Back.
+- Explicit `n`: save nothing and deny the current request.
+- Esc: dismiss the popup without answering. Keep the same confirmation pending; [a] Review permission reopens it. No grant is saved on dismissal.
 
 A grant-save failure must be reported separately from a successful save or tool execution. Confirmation is a fresh explicit decision, not a key repeat carried over from opening it.
 
@@ -67,11 +68,7 @@ A grant-save failure must be reported separately from a successful save or tool 
 
 [Editable SVG](mockups/approval-help.svg)
 
-`h` / `?` opens read-only contextual Help. The pending decision remains visible but inactive beneath it. No approval shortcut or background click may reach the underlying dialog while Help owns input.
-
-Esc closes Help and returns to the **still-valid** approval; it does not deny from this layer. Esc in the main approval denies; Esc in persistent confirmation cancels the grant and denies the current request. These distinct outcomes must be clear in each surface.
-
-If the worker disappears, ownership changes or the request expires while Help is open, return to an expired/unavailable notice with no actionable stale choices. Opening Help never extends request authority.
+**Updated implementation, 2026-11-18:** Tool permissions and persistent confirmations use centered modal popups. Only their valid permission keys make decisions; Esc dismisses without answering. Workspace shortcuts (including Help) and background clicks cannot act through the popup. Dismiss it to browse or open Help while the worker remains waiting, then use **[a] Review permission** to return to the exact pending request. Enter is inert; arrows/page keys can scroll long requests. The Help-above-decision study remains applicable to human checkpoints, whose separate evidence-review controls are unchanged.
 
 ## 5. Long evidence, small terminals and focus
 

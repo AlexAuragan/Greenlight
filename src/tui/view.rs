@@ -8,6 +8,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         frame.area(),
     );
     draw_workspace(frame, app);
+    if app.permission_popup_visible() && !app.help {approval::draw_popup(frame,app);return;}
     if (app.help || app.shell.more) && (frame.area().width < 4 || frame.area().height < 4) {
         app.shell.hits.borrow_mut().clear();
         return;
@@ -66,7 +67,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         let regions = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(popup);
         let context = format!(
             "Keyboard help · {} · mouse {}\n\n{}",
-            if app.approval.is_some() {
+            if app.approval_visible() {
                 "Approval pending; decisions disabled"
             } else if app.details.page.is_some() {
                 "Run details / usage; read-only"
@@ -105,8 +106,8 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
 }
 fn draw_workspace(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    if area.width < 40 || area.height < 14 || ((app.approval.is_some() || app.edits.pending.is_some()) && area.height < 20) {
-        let text = if app.approval.is_some() {
+    if area.width < 40 || area.height < 14 || (((app.approval_visible() && !app.permission_popup_visible()) || app.edits.pending.is_some()) && area.height < 20) {
+        let text = if app.approval_visible() {
             "Resize to at least 40×20 to review approval. Decisions disabled. Esc denies."
         } else if app.edits.pending.is_some() {
             "Resize to at least 40×20 to review the reverse diff. Revert disabled. Esc cancels."
@@ -152,7 +153,11 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         .as_ref()
         .is_some_and(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
         && raw_status == "ready";
-    let status = if starting {
+    let permission_pending_here=app.approval.as_ref().is_some_and(|p|p.mode!=ApprovalMode::Human)
+        && app.runner.as_ref().is_some_and(|r|r.session_id.as_deref()==app.session().map(|s|s.id.as_str()));
+    let status = if permission_pending_here {
+        "WAITING FOR PERMISSION".into()
+    } else if starting {
         "STARTING".into()
     } else if workspace
         .is_some_and(|w| w.primary == crate::workspace_view::PrimaryAction::RecoverOwner)
@@ -170,10 +175,10 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     };
     let state_color = match status.as_str() {
         "RUNNING" | "STARTING" => theme::FOCUS,
-        "BLOCKED" | "INTERRUPTED" => theme::ATTENTION,
+        "BLOCKED" | "INTERRUPTED" | "WAITING FOR PERMISSION" => theme::ATTENTION,
         _ => theme::MUTED,
     };
-    let state = if raw_status == "completed" {
+    let state = if raw_status == "completed" && !permission_pending_here {
         format!("● Finished · {}", inline_display(step))
     } else {
         format!("● {} · {}", status.to_lowercase(), inline_display(step))
@@ -242,7 +247,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         || (app.result_open && app.view == View::Conversation)
         || app.activity_filtering
         || app.artifact_browser.is_some()
-        || app.approval.is_some()
+        || app.approval_visible()
         || app.new_session.is_some()
         || app.searching
         || app.help
@@ -265,7 +270,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     if overlay {
         app.shell.hits.borrow_mut().clear();
     }
-    if let Some(prompt) = &app.approval {
+    if let Some(prompt) = app.approval.as_ref().filter(|_|app.approval_visible() && !app.permission_popup_visible()) {
         approval::draw(frame, app, prompt, columns[1]);
     } else if let Some(browser) = &app.artifact_browser {
         let panes = if browser.reading {

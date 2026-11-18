@@ -92,7 +92,7 @@ impl App {
     pub(super) fn too_small(&self) -> bool {
         self.viewport.0 < 40
             || self.viewport.1 < 14
-            || ((self.approval.is_some() || self.edits.pending.is_some()) && self.viewport.1 < 20)
+            || ((self.approval_visible() || self.edits.pending.is_some()) && self.viewport.1 < 20)
     }
     pub(super) fn navigate(&mut self, delta: isize) {
         match self.focus {

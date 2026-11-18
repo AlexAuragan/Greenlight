@@ -831,3 +831,41 @@ fn conversation_dump_has_visible_refresh_and_full_export_controls_at_both_widths
     app.on_key(KeyEvent::new(KeyCode::Char('w'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.notice.starts_with("Saved full conversation dump:"));
     assert_eq!(store.history(&session).unwrap(),before);
 }
+
+#[test]
+fn permission_popup_is_modal_dismissible_and_keeps_the_worker_waiting() {
+    let (root,store,session,mut app,_)=fixture();
+    let (_pt,prompts)=std::sync::mpsc::channel();
+    let (answers,received)=std::sync::mpsc::channel();
+    let (_ft,finished)=std::sync::mpsc::channel();
+    app.runner=Some(Runner{live:None,cancel_retry:None,session_id:Some(session.id.clone()),prompts,answers,finished});
+    app.approval=Some(ApprovalPrompt{review:None,command:Some("find . -maxdepth 2 -type f".into()),mode:ApprovalMode::Persistent,content:"[approval required: shell]\nfind . -maxdepth 2 -type f\nScope: this exact command\n[y] once / [a] process / [p] project / [g] global / [n] deny".into()});
+    for (w,h) in [(80,24),(120,36)] {
+        let output=text(&screen(&mut app,w,h,"permission-popup"));
+        assert!(output.contains("Permission required"));
+        assert!(output.contains("find . -maxdepth 2 -type f"));
+        for key in ['y','a','p','g','n'] {assert!(output.contains(&format!("[{key}]")));}
+        for kind in [crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)] {
+            app.on_event(Event::Mouse(crossterm::event::MouseEvent{kind,column:0,row:0,modifiers:KeyModifiers::NONE}),root.path(),&store).unwrap();
+        }
+        assert!(received.try_recv().is_err());assert!(app.permission_popup_visible());
+    }
+    // Workspace and Help shortcuts are inert while the modal is visible.
+    for code in [KeyCode::Char('h'),KeyCode::Char('3'),KeyCode::Char('i'),KeyCode::Enter] {
+        app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();
+    }
+    assert!(!app.help && app.view==View::Conversation && app.approval_visible());
+    let before=store.history(&session).unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert!(received.try_recv().is_err());assert!(app.approval_hidden);
+    let output=text(&screen(&mut app,80,24,"permission-pending"));assert!(output.contains("[a] Review permission"));
+    for code in [KeyCode::Char('y'),KeyCode::Char('n'),KeyCode::Char('p'),KeyCode::Char('g'),KeyCode::Esc] {
+        app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();
+    }
+    assert!(received.try_recv().is_err());assert!(app.approval.is_some());
+    app.on_key(KeyEvent::new(KeyCode::Char('a'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert!(app.permission_popup_visible());
+    app.on_key(KeyEvent::new(KeyCode::Char('y'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert_eq!(received.try_recv().unwrap(),"y");assert!(app.approval.is_none());
+    assert_eq!(store.history(&session).unwrap(),before);
+}

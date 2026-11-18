@@ -114,6 +114,8 @@ struct App {
     notice: String,
     runner: Option<Runner>,
     approval: Option<ApprovalPrompt>,
+    approval_hidden: bool,
+    approval_return_scroll: u16,
     checkpoint: checkpoint::State,
     restart_choices: Vec<RestartCandidate>,
     restart_cursor: usize,
@@ -199,6 +201,8 @@ impl App {
             notice: String::new(),
             runner: None,
             approval: None,
+            approval_hidden: false,
+            approval_return_scroll: 0,
             checkpoint: checkpoint::State::default(),
             restart_choices: Vec::new(),
             restart_cursor: 0,
@@ -642,6 +646,9 @@ impl App {
                     self.shell.request_epoch += 1;
                     self.shell.actions_focus = false;
                     self.checkpoint = checkpoint::State::default();
+                    self.approval_hidden = false;
+                    self.approval_return_scroll = self.detail_scroll;
+                    self.shell.more = false;
                     self.approval = Some(question);
                     self.detail_scroll = 0;
                 }
@@ -660,6 +667,7 @@ impl App {
             };
             self.runner = None;
             self.approval = None;
+            self.approval_hidden = false;
             if failed {
                 self.raise_diagnostic(self.notice.clone());
             }

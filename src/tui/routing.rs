@@ -64,6 +64,24 @@ impl App {
             }
             return Ok(false);
         }
+        // Permission popups own input before workspace shortcuts or text editors.
+        // Esc only hides the layer: no answer is sent to the waiting worker.
+        if self.permission_popup_visible() {
+            match key.code {
+                KeyCode::Esc => self.dismiss_permission(),
+                KeyCode::Char(choice) if key.kind==KeyEventKind::Press && !self.too_small()
+                    && !key.modifiers.intersects(KeyModifiers::CONTROL|KeyModifiers::ALT)
+                    && self.approval.as_ref().is_some_and(|p|p.mode.accepts(choice.to_ascii_lowercase())) => {
+                    self.deliver_checked_approval(choice.to_ascii_lowercase(),store)?;
+                }
+                KeyCode::Down|KeyCode::PageDown => self.scroll_detail(if key.code==KeyCode::PageDown {8}else{1}),
+                KeyCode::Up|KeyCode::PageUp => self.scroll_detail(if key.code==KeyCode::PageUp {-8}else{-1}),
+                KeyCode::Home=>self.detail_scroll=0,
+                KeyCode::End=>self.detail_scroll=u16::MAX,
+                _=>{}
+            }
+            return Ok(false);
+        }
         let typing = self.composer_active()
             || self.searching
             || self.activity_filtering
@@ -100,6 +118,7 @@ impl App {
         }
         if !typing && !self.shell.more {
             let shortcut=match key.code {
+                KeyCode::Char('a') if self.approval_hidden=>Some(shell::Action::ReviewPermission),
                 KeyCode::Char('.')=>Some(shell::Action::More),
                 KeyCode::Char('i')=>Some(shell::Action::Compose),
                 KeyCode::Char('s')=>Some(shell::Action::Overview),
@@ -136,7 +155,7 @@ impl App {
             }
             return Ok(false);
         }
-        if self.shell.sessions && self.approval.is_none() && self.new_session.is_none() {
+        if self.shell.sessions && !self.approval_visible() && self.new_session.is_none() {
             let actions=self.shell_actions();
             match key.code {
                 KeyCode::Esc if self.shell.actions_focus => self.shell.actions_focus=false,
@@ -188,13 +207,13 @@ impl App {
         }
         if !typing
             && (!self.blocking_surface()
-                || (self.navigation.error.is_some() || self.navigation.load_error.is_some()) && self.approval.is_none()
-                || self.details.page.is_some() && self.approval.is_none() && self.diagnostic.is_none()
+                || (self.navigation.error.is_some() || self.navigation.load_error.is_some()) && !self.approval_visible()
+                || self.details.page.is_some() && !self.approval_visible() && self.diagnostic.is_none()
                 || self.diagnostic.is_some()
-                    && self.approval.is_none()
+                    && !self.approval_visible()
                     && self.context_detail.is_none()
                 || self.artifact_browser.is_some()
-                    && self.approval.is_none()
+                    && !self.approval_visible()
                     && self.diagnostic.is_none()
                     && self.context_detail.is_none())
         {
@@ -244,7 +263,7 @@ impl App {
             }
         }
 
-        if self.approval.is_none()
+        if !self.approval_visible()
             && self.focus != Focus::Compose
             && !self.searching
             && self.new_session.is_none()
@@ -275,7 +294,7 @@ impl App {
             return Ok(false);
         }
         if self.too_small() {
-            if key.code == KeyCode::Esc && self.approval.is_some() {
+            if key.code == KeyCode::Esc && self.approval_visible() {
                 self.deliver_checked_approval('n', store)?;
             }
             if key.code == KeyCode::Esc && self.edits.pending.is_some() {self.edits.pending=None;self.notice="Revert cancelled; no files changed.".into();}
@@ -283,7 +302,7 @@ impl App {
                 && self.runner.is_none()
                 && self.manager_job.is_none());
         }
-        if let Some(mode) = self.approval.as_ref().map(|request| request.mode) {
+        if let Some(mode) = self.approval.as_ref().filter(|_|self.approval_visible()).map(|request| request.mode) {
             if key.kind != KeyEventKind::Press {
                 return Ok(false);
             }
@@ -474,7 +493,7 @@ impl App {
             }
             return Ok(false);
         }
-        if self.details.page.is_some() && self.approval.is_none() && self.diagnostic.is_none() {
+        if self.details.page.is_some() && !self.approval_visible() && self.diagnostic.is_none() {
             match key.code {
                 KeyCode::Esc => self.back_run_details(store),
                 KeyCode::Char('R') if self.details.page == Some(details::Page::Conversation) => self.reload_conversation_dump(store),
@@ -553,7 +572,7 @@ impl App {
                 _ => {}
             }
         }
-        let scrolling = self.approval.is_some()
+        let scrolling = self.approval_visible()
             || self.diagnostic.is_some()
             || self.context_detail.is_some()
             || self.restart_plan.is_some()

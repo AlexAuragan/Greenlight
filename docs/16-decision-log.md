@@ -310,3 +310,7 @@ Verified with 332 full-suite tests passed (one existing ignored), 133 TUI tests,
 ### D-013 — Inspect complete recorded conversations without inventing missing reasoning (2026-11-18)
 
 Expose branch-scoped conversation dumps through the CLI and the TUI's More menu. Preserve original events and exact new prepared message values with content-addressed deduplication. Offer bounded previews plus complete local Markdown/JSON exports. Parser rejection, tool-operation failure, nonzero exits and missing outcomes remain distinct. Legacy missing payloads, incomplete dispatches and ephemeral live buffers are explicit; private reasoning is never reconstructed. Dump actions do not execute or change workflow state. See [conversation dumps](35-conversation-dump.md).
+
+### D-014 — Dismissing a tool-permission popup never denies the request (2026-11-18)
+
+Tool approvals and persistent-grant confirmations are modal popups. Their valid permission keys are the only keyboard decisions; Esc hides the layer and sends nothing. The worker keeps waiting on the same request. An amber [a] Review permission control reopens it without granting approval. Background clicks and unrelated shortcuts cannot act through the modal, and permission keys outside it never answer the request. Human evidence checkpoints retain their separate review controls. This supersedes the earlier tool-approval Esc-as-deny behavior that could turn navigation into an unintended denial.

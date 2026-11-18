@@ -1,0 +1,23 @@
+Greenlight / bar-project                     ● waiting for permission · evaluate
+  ╭ Permission required · Esc closes; agent waits ───────────────────────────╮
+[1│╭─Tool permission required · The bars take about 30s to display; ful…────╮│
+  ││Command to execute                                                      ││
+ R││find . -maxdepth 2 -type f                                              ││
+ W││                                                                        ││
+  ││Scope: this exact command                                               ││
+  ││                                                                        ││
+  ││                                                                        ││
+  ││                                                                        ││
+  ││                                                                        ││
+  ││                                                                        ││
+  ││                                                                        ││
+ R│╰────────────────────────────────────────────────────────────────────────╯│
+ N│╭ Press a key to decide — no Enter needed ───────────────────────────────╮│
+ P││  [y] Allow once                                                        ││
+  ││  [a] Allow for this process                                            ││
+ R││  [p] Review project grant                                              ││
+ 0││  [g] Review global grant                                               ││
+ S││  [n] Deny                                                              ││
+  ││  Esc closes without deciding; the agent keeps waiting.                 ││
+  │╰────────────────────────────────────────────────────────────────────────╯│
+  ╰──────────────────────────────────────────────────────────────────────────╯

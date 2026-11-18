@@ -105,3 +105,5 @@ The optional PNG renderer uses Python Pillow and the DejaVu Sans Mono system fon
 The explicit update flag skips only the two text-baseline comparisons while producing replacement captures. Review the generated files, then rerun tests without that flag to verify the checked-in baselines. Other render/focus assertions still run during capture updates.
 
 Conversation-dump snapshots: [80×24 PNG](conversation-dump-80x24.png) · [text](conversation-dump-80x24.txt) · [120×35 PNG](conversation-dump-120x35.png). These show the real bounded reader and its Refresh, Save full dump and Copy controls; complete exports retain bodies beyond the on-screen preview.
+
+Tool-permission popup: [80×24](permission-popup-80x24.png) · [120×36](permission-popup-120x36.png). [Dismissed, still waiting](permission-pending-80x24.png) shows the amber pending state and Review permission action. These are actual application renders; Esc does not submit a decision.

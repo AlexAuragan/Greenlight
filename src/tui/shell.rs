@@ -8,6 +8,7 @@ use std::cell::RefCell;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
     InspectAttention,
+    ReviewPermission,
     FullDiagnostic,
     ConversationDump,
     RefreshDump,
@@ -91,6 +92,7 @@ pub(super) enum Action {
 impl Action {
     pub(super) fn label(self) -> &'static str {
         match self {
+            Self::ReviewPermission => "[a] Review permission",
             Self::InspectAttention => "Inspect evidence",
             Self::ConversationDump => "Conversation dump",
             Self::RefreshDump => "[R] Refresh",
@@ -229,7 +231,7 @@ impl App {
             self.focus,
             self.event().map(|e| e.id),
             self.shell.request_epoch,
-            self.approval.is_some(),
+            self.approval_visible(),
             self.help,
             self.shell.sessions,
             self.artifact().map(|a| a.event_id),
@@ -274,7 +276,7 @@ impl App {
     pub(super) fn blocking_surface(&self) -> bool {
         self.shell.sessions || self.navigation.error.is_some() || self.navigation.load_error.is_some() || self.details.page.is_some()
             || self.help
-            || self.approval.is_some()
+            || self.approval_visible()
             || self.shell.more
             || self.searching
             || self.activity_filtering
@@ -374,10 +376,18 @@ impl App {
         }
     }
     pub(super) fn footer_actions(&self) -> Vec<Action> {
+        let mut actions=self.base_footer_actions();
+        if self.approval.is_some() && self.approval_hidden && !self.help && !self.shell.more {
+            actions.insert(0,Action::ReviewPermission);
+        }
+        actions
+    }
+    fn base_footer_actions(&self) -> Vec<Action> {
         if self.help {
             return vec![Action::Close, Action::Mouse];
         }
-        if self.approval.is_some() {
+        if self.permission_popup_visible() {return vec![];}
+        if self.approval_visible() {
             if self.human_review().is_some() {
                 return if self.checkpoint.reading {vec![Action::ReviewBack,Action::Copy,Action::Help]} else {vec![Action::ReviewOpen,Action::Help]};
             }
@@ -571,6 +581,7 @@ impl App {
             self.shell.more = false;
         }
         let code = match action {
+            ReviewPermission => {self.reopen_permission();return Ok(false);}
             InspectAttention => {
                 self.inspect_attention();
                 return Ok(false);
@@ -739,7 +750,7 @@ impl App {
                 return Ok(false);
             }
             Overview => {
-                if self.session().is_some_and(|s|s.status=="completed") && self.approval.is_none() && self.edits.pending.is_none() && self.restart_plan.is_none() {
+                if self.session().is_some_and(|s|s.status=="completed") && !self.approval_visible() && self.edits.pending.is_none() && self.restart_plan.is_none() {
                     self.artifact_browser=None;
                     self.context_detail=None;
                     self.details.close();
@@ -908,7 +919,7 @@ impl App {
             Event::Paste(text) => {
                 self.shell.pressed = None;
                 if self.help
-                    || self.approval.is_some()
+                    || self.approval_visible()
                     || self.edits.pending.is_some()
                     || self.restart_plan.is_some()
                 {
@@ -944,7 +955,7 @@ impl App {
                     .rev()
                     .find(|h| h.area.contains((mouse.column, mouse.row).into()))
                     .map(|h| h.action);
-                if hit.is_none() && !self.help && self.approval.is_none() {
+                if hit.is_none() && !self.help && !self.approval_visible() {
                     let editor = if self.new_session.as_ref().is_some_and(|f| f.goal.is_some()) {
                         Some(&self.goal_editor)
                     } else if self.searching {
@@ -1048,6 +1059,8 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             .fg(theme::BACKGROUND)
             .bg(theme::FOCUS)
             .add_modifier(Modifier::BOLD)
+    } else if action==Action::ReviewPermission {
+        Style::default().fg(theme::ATTENTION).bg(theme::PANEL).add_modifier(Modifier::BOLD)
     } else if active_overview {
         Style::default().fg(theme::FOCUS).bg(theme::PANEL).add_modifier(Modifier::BOLD)
     } else {
@@ -1071,6 +1084,7 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::ClearGoal => "Clear",
             Action::Continue => "Next",
             Action::Help => "Help",
+            Action::ReviewPermission => "[a] Review",
             Action::InspectAttention => "Evidence",
             Action::FullDiagnostic => "Details",
             Action::OpenCandidate => "Open",
@@ -1245,7 +1259,7 @@ mod tests {
         app.approval = Some(ApprovalPrompt { review: None,
             command: Some("ls".into()),
             content: "Scope: exact command".into(),
-            mode: ApprovalMode::Persistent,
+            mode: ApprovalMode::Human,
         });
         app.detail_scroll = 3;
         key(&mut app, root.path(), &store, KeyCode::Char('h'));

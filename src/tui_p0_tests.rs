@@ -100,7 +100,12 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
     app.on_key(repeated, root.path(), &store).unwrap();
     assert!(received.try_recv().is_err());
     key(&mut app, &store, root.path(), KeyCode::Esc);
-    assert_eq!(received.recv().unwrap(), "n");
+    assert!(received.try_recv().is_err());
+    assert!(app.approval_hidden);
+    key(&mut app, &store, root.path(), KeyCode::Char('a'));
+    assert!(!app.approval_hidden);
+    key(&mut app, &store, root.path(), KeyCode::Char('n'));
+    assert_eq!(received.try_recv().unwrap(), "n");
 }
 
 #[test]
@@ -146,6 +151,19 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     );
     wait(&mut app, &store, |a| a.approval.is_some());
     assert!(screen(&app).contains("Tool permission required"));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    assert!(app.approval_hidden && app.runner.is_some());
+    for code in [KeyCode::Char('y'),KeyCode::Char('p'),KeyCode::Char('g'),KeyCode::Esc] {
+        key(&mut app,&store,root.path(),code);
+    }
+    for _ in 0..10 {app.tick();thread::sleep(Duration::from_millis(1));}
+    let pending_history=store.history(&store.session(&session.id).unwrap()).unwrap();
+    assert_eq!(pending_history.iter().filter(|e|e.2=="model.output").count(),1);
+    assert!(!pending_history.iter().any(|e|matches!(e.2.as_str(),"tool.error"|"tool.result"|"permission.decision")));
+    assert!(!root.path().join("result.txt").exists());
+    assert!(screen(&app).contains("Review permission"));
+    key(&mut app,&store,root.path(),KeyCode::Char('a'));
+    assert!(app.permission_popup_visible());
     key(&mut app, &store, root.path(), KeyCode::Enter);
     assert!(!root.path().join("result.txt").exists());
     key(&mut app, &store, root.path(), KeyCode::Char('n'));

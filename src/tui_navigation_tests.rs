@@ -223,18 +223,18 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
         content: "Sensitive global scope".into(),
         mode: ApprovalMode::ConfirmPersistent,
     });
-    assert!(screen(&mut app, 40, 14).contains("Decisions disabled"));
+    assert!(screen(&mut app, 40, 14).contains("Resize to at least 40×20"));
     key(&mut app, &store, root.path(), KeyCode::Char('y'));
     assert!(received.try_recv().is_err());
     assert!(app.approval.is_some());
     assert!(screen(&mut app, 60, 20).contains("Sensitive global scope"));
     key(&mut app, &store, root.path(), KeyCode::Char('?'));
-    assert!(app.help);
-    key(&mut app,&store,root.path(),KeyCode::Char('y'));
-    assert!(received.try_recv().is_err());
+    assert!(!app.help, "permission popup captures unrelated shortcuts");
     key(&mut app,&store,root.path(),KeyCode::Esc);
-    assert!(!app.help);
+    assert!(app.approval_hidden);
     assert!(received.try_recv().is_err());
+    key(&mut app, &store, root.path(), KeyCode::Char('a'));
+    assert!(!app.approval_hidden);
     key(&mut app, &store, root.path(), KeyCode::Enter);
     assert!(received.try_recv().is_err());
     key(&mut app, &store, root.path(), KeyCode::Char('y'));
