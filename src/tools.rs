@@ -46,12 +46,13 @@ pub enum ApprovalMode {
     Tool,
     Persistent,
     ConfirmPersistent,
+    ProviderRetry,
 }
 
 impl ApprovalMode {
     pub fn accepts(self, answer: char) -> bool {
         match self {
-            Self::Human | Self::ConfirmPersistent => matches!(answer, 'y' | 'n'),
+            Self::Human | Self::ConfirmPersistent | Self::ProviderRetry => matches!(answer, 'y' | 'n'),
             Self::Tool => matches!(answer, 'y' | 'a' | 'n'),
             Self::Persistent => matches!(answer, 'y' | 'a' | 'p' | 'g' | 'n'),
         }
@@ -87,10 +88,10 @@ pub enum PromptDriver {
 }
 
 impl PromptDriver {
-    fn ask_with_command(&mut self, prompt: &str, mode: ApprovalMode, command: Option<&str>) -> Result<String> {
+    fn ask_with_command(&self, prompt: &str, mode: ApprovalMode, command: Option<&str>) -> Result<String> {
         self.ask_with_review(prompt, mode, command, None)
     }
-    fn ask_with_review(&mut self, prompt: &str, mode: ApprovalMode, command: Option<&str>, review: Option<HumanReview>) -> Result<String> {
+    fn ask_with_review(&self, prompt: &str, mode: ApprovalMode, command: Option<&str>, review: Option<HumanReview>) -> Result<String> {
         match self {
             Self::Terminal => {
                 println!("{prompt}");
@@ -140,6 +141,11 @@ impl Tools {
         let answer = self.prompt_driver.ask_with_review(
             &format!("{message}\n[y] approve / [n] deny (default)"), ApprovalMode::Human, None, Some(review),
         )?;
+        Ok(answer.trim().eq_ignore_ascii_case("y"))
+    }
+
+    pub fn ask_provider_retry(&self, message:&str)->Result<bool> {
+        let answer=self.prompt_driver.ask_with_command(message,ApprovalMode::ProviderRetry,None)?;
         Ok(answer.trim().eq_ignore_ascii_case("y"))
     }
 

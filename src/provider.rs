@@ -55,7 +55,7 @@ impl Completion {
             None
         };
         if let Some(failure) = &mut failure {
-            if failure.retryable && v.get("usage").is_some_and(|usage| !usage.is_null()) {
+            if v.get("usage").is_some_and(|usage| !usage.is_null()) {
                 failure.retryable = false;
                 failure.billing_uncertain = true;
             }

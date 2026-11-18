@@ -155,7 +155,9 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         && raw_status == "ready";
     let permission_pending_here=app.approval.as_ref().is_some_and(|p|p.mode!=ApprovalMode::Human)
         && app.runner.as_ref().is_some_and(|r|r.session_id.as_deref()==app.session().map(|s|s.id.as_str()));
-    let status = if permission_pending_here {
+    let status = if permission_pending_here && app.provider_retry_pending() {
+        "PROVIDER REQUEST PAUSED".into()
+    } else if permission_pending_here {
         "WAITING FOR PERMISSION".into()
     } else if starting {
         "STARTING".into()
@@ -175,7 +177,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     };
     let state_color = match status.as_str() {
         "RUNNING" | "STARTING" => theme::FOCUS,
-        "BLOCKED" | "INTERRUPTED" | "WAITING FOR PERMISSION" => theme::ATTENTION,
+        "BLOCKED" | "INTERRUPTED" | "WAITING FOR PERMISSION" | "PROVIDER REQUEST PAUSED" => theme::ATTENTION,
         _ => theme::MUTED,
     };
     let state = if raw_status == "completed" && !permission_pending_here {

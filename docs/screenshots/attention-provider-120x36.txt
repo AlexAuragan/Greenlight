@@ -9,10 +9,10 @@ Greenlight / bar-project                                                        
   replace/reload the key if needed. (HTTP 401)
 
  What this means
- The step is blocked. No automatic retry is currently active.
+ Continue step starts a new attempt; earlier tools may run again. Recorded work and branch are retained.
 
  Next
- Resolve the provider issue, then resume explicitly when ready.
+ Fix the provider issue, then t / Continue step. A live retry popup preserves the exact request.
 
 
 
@@ -30,7 +30,7 @@ Greenlight / bar-project                                                        
 
 
 
-╭──────────────────╮ ╭───────────────────╮ ╭──────────╮
-│ Inspect evidence │ │ Give instructions │ │ [.] More │
-╰──────────────────╯ ╰───────────────────╯ ╰──────────╯
+╭───────────────────╮ ╭──────────────────╮ ╭──────────╮
+│ [t] Continue step │ │ Inspect evidence │ │ [.] More │
+╰───────────────────╯ ╰──────────────────╯ ╰──────────╯
 Workflow needs attention. Review the evidence before continuing.

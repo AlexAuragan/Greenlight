@@ -1,0 +1,35 @@
+Greenlight / bar-project                                                            ● provider request paused · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits                                                                         [h] Help
+
+╭ Cards · following · Enter expands ───────────────────────────────────────────────────────────────────────────────────╮
+│  Artifac╭ Provider request paused · Esc closes; request waits ─────────────────────────────────────────────╮         │
+│    basel│╭─Provider status · The bars take about 30s to display; ful…─────────────────────────────────────╮│         │
+│  Artifac││Provider rate limit reached. Wait before retrying or reduce request frequency; check account    ││         │
+│    basel││quota too if the provider gave no specific error code. (HTTP 429)                               ││         │
+│  Artifac││                                                                                                ││         │
+│    basel││Retry sends the same request to fixture. Earlier tools will not run again.                      ││         │
+│  Artifac││Wait or fix the provider issue, then retry. Any remaining Retry-After cooldown is respected.    ││         │
+│    basel││Local credential/config changes may require restarting Greenlight; this request retains its     ││         │
+│  Artifac││original settings.                                                                              ││         │
+│    basel││                                                                                                ││         │
+│  Artifac││                                                                                                ││         │
+│    basel││                                                                                                ││         │
+│  Artifac││                                                                                                ││         │
+│    basel││                                                                                                ││         │
+│  Step st││                                                                                                ││         │
+│    evalu││                                                                                                ││         │
+│  Artifac││                                                                                                ││         │
+│    evalu││                                                                                                ││         │
+│  Verific││                                                                                                ││         │
+│    evalu│╰────────────────────────────────────────────────────────────────────────────────────────────────╯│         │
+│  Policy │╭ Press a key to decide — no Enter needed ───────────────────────────────────────────────────────╮│         │
+│    evalu││  [y] Retry request                                                                             ││         │
+│  Step co││  [n] Stop for now                                                                              ││         │
+│    evalu││  Esc closes without deciding; the agent keeps waiting.                                         ││ic before│
+│▶ Session│╰────────────────────────────────────────────────────────────────────────────────────────────────╯│         │
+│     ·   ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯         │
+╰ F filter:  · 18 records ─────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+

@@ -107,3 +107,5 @@ The explicit update flag skips only the two text-baseline comparisons while prod
 Conversation-dump snapshots: [80×24 PNG](conversation-dump-80x24.png) · [text](conversation-dump-80x24.txt) · [120×35 PNG](conversation-dump-120x35.png). These show the real bounded reader and its Refresh, Save full dump and Copy controls; complete exports retain bodies beyond the on-screen preview.
 
 Tool-permission popup: [80×24](permission-popup-80x24.png) · [120×36](permission-popup-120x36.png). [Dismissed, still waiting](permission-pending-80x24.png) shows the amber pending state and Review permission action. These are actual application renders; Esc does not submit a decision.
+
+Provider retry: [80×24 popup](provider-retry-popup-80x24.png) · [120×36 popup](provider-retry-popup-120x36.png) · [hidden, still paused](provider-retry-pending-80x24.png). Retry/Stop controls are typed separately from tool grants; Esc sends no decision. The blocked-provider screen's Continue step control starts a fresh step attempt.

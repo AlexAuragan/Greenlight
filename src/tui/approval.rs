@@ -6,12 +6,13 @@ impl App {
     pub(super) fn permission_popup_visible(&self) -> bool {
         self.approval_visible() && self.approval.as_ref().is_some_and(|p|p.mode!=ApprovalMode::Human)
     }
+    pub(super) fn provider_retry_pending(&self)->bool {self.approval.as_ref().is_some_and(|p|p.mode==ApprovalMode::ProviderRetry)}
     pub(super) fn dismiss_permission(&mut self) {
         if !self.permission_popup_visible() {return;}
         self.approval_hidden=true;
         self.detail_scroll=self.approval_return_scroll;
         self.shell.actions_focus=false;
-        self.notice="Permission pending — agent is waiting. [a] Review permission; no decision sent.".into();
+        self.notice=if self.provider_retry_pending() {"Provider request paused. [a] Review retry; no new request sent."}else{"Permission pending — agent is waiting. [a] Review permission; no decision sent."}.into();
     }
     pub(super) fn reopen_permission(&mut self) {
         if self.approval.is_none() || !self.approval_hidden {return;}
@@ -30,6 +31,7 @@ impl App {
         if !request.mode.accepts(choice) {
             bail!("approval option {choice} is unavailable for this request");
         }
+        let retry = request.mode == ApprovalMode::ProviderRetry;
         let human = request.mode == ApprovalMode::Human;
         let review_kind = request.review.as_ref().map(|r|r.kind);
         let confirmation = request.mode == ApprovalMode::ConfirmPersistent;
@@ -42,6 +44,8 @@ impl App {
         self.approval_hidden=false;
         self.detail_scroll=self.approval_return_scroll;
         self.notice = match choice {
+            'y' if retry => "Retry requested for the same model messages; waiting for any provider cooldown.".into(),
+            'n' if retry => "Stopped the provider retry; recorded work remains available.".into(),
             'y' if human && review_kind == Some(crate::tools::HumanReviewKind::Checkpoint) => "Sent checkpoint approval; awaiting the engine’s input recheck and recorded outcome.".into(),
             'y' if human => "Sent human step-result decision; awaiting its recorded outcome.".into(),
             'n' if human => "Sent decline; the workflow follows its configured handling.".into(),
@@ -70,7 +74,9 @@ pub(super) fn approval_line(key: char, description: &'static str, color: Color) 
 pub(super) fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
     let mut options = vec![approval_line(
         'y',
-        if mode == ApprovalMode::ConfirmPersistent {
+        if mode == ApprovalMode::ProviderRetry {
+            "Retry request"
+        } else if mode == ApprovalMode::ConfirmPersistent {
             "Save grant and allow"
         } else if mode == ApprovalMode::Human {
             "Approve checkpoint"
@@ -86,7 +92,7 @@ pub(super) fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
         options.push(approval_line('p', "Review project grant", Color::Yellow));
         options.push(approval_line('g', "Review global grant", Color::Yellow));
     }
-    options.push(approval_line('n', "Deny", Color::Red));
+    options.push(approval_line('n', if mode==ApprovalMode::ProviderRetry {"Stop for now"}else{"Deny"}, Color::Red));
     options.push(Line::styled(
         "  Esc closes without deciding; the agent keeps waiting.",
         Style::default().fg(Color::DarkGray),
@@ -159,13 +165,15 @@ pub(super) fn draw(
         if let Some(review) = &prompt.review { checkpoint::draw(frame,app,review,area); return; }
     }
     let choices_height = match prompt.mode {
-        ApprovalMode::Human | ApprovalMode::ConfirmPersistent => 5,
+        ApprovalMode::Human | ApprovalMode::ConfirmPersistent | ApprovalMode::ProviderRetry => 5,
         ApprovalMode::Tool => 6,
         ApprovalMode::Persistent => 8,
     };
     let approval_areas =
         Layout::vertical([Constraint::Min(3), Constraint::Length(choices_height)]).split(area);
-    let title = if prompt.mode == ApprovalMode::ConfirmPersistent {
+    let title = if prompt.mode == ApprovalMode::ProviderRetry {
+        " Provider status "
+    } else if prompt.mode == ApprovalMode::ConfirmPersistent {
         " Confirm persistent grant "
     } else if prompt.mode == ApprovalMode::Human {
         " Human approval required "
@@ -208,7 +216,7 @@ pub(super) fn draw_popup(frame: &mut Frame, app: &App) {
     let height=area.height.saturating_sub(2).min(26);
     let popup=ratatui::layout::Rect::new((area.width-width)/2,(area.height-height)/2,width,height);
     frame.render_widget(ratatui::widgets::Clear,popup);
-    frame.render_widget(Block::default().style(Style::default().bg(theme::PANEL)).borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).border_style(Style::default().fg(theme::ATTENTION)).title(" Permission required · Esc closes; agent waits "),popup);
+    frame.render_widget(Block::default().style(Style::default().bg(theme::PANEL)).borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).border_style(Style::default().fg(theme::ATTENTION)).title(if prompt.mode==ApprovalMode::ProviderRetry {" Provider request paused · Esc closes; request waits "}else{" Permission required · Esc closes; agent waits "}),popup);
     let inner=ratatui::layout::Rect::new(popup.x+1,popup.y+1,popup.width-2,popup.height-2);
     draw(frame,app,prompt,inner);
 }

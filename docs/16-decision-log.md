@@ -314,3 +314,7 @@ Expose branch-scoped conversation dumps through the CLI and the TUI's More menu.
 ### D-014 — Dismissing a tool-permission popup never denies the request (2026-11-18)
 
 Tool approvals and persistent-grant confirmations are modal popups. Their valid permission keys are the only keyboard decisions; Esc hides the layer and sends nothing. The worker keeps waiting on the same request. An amber [a] Review permission control reopens it without granting approval. Background clicks and unrelated shortcuts cannot act through the modal, and permission keys outside it never answer the request. Human evidence checkpoints retain their separate review controls. This supersedes the earlier tool-approval Esc-as-deny behavior that could turn navigation into an unintended denial.
+
+### D-015 — Separate retrying a provider request from restarting a workflow step (2026-11-18)
+
+Live TUI workflow workers pause on provider failures after bounded automatic recovery, retaining the exact prepared messages and Rust call frame. A typed Retry request / Stop for now popup owns the decision; Esc hides without answering. Manual retries respect remaining provider cooldowns and retain per-dispatch usage/billing uncertainty. They do not replay prior tools, create a branch or begin another step attempt. Already-stopped sessions instead expose Continue step with its fresh-attempt/repeated-tool implications visible. Tool-call retries require a separate design covering side effects and permissions and remain TODO, alongside durable continuations and independent manager-request recovery.

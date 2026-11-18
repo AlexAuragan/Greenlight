@@ -9,6 +9,8 @@ use std::cell::RefCell;
 pub(super) enum Action {
     InspectAttention,
     ReviewPermission,
+    ReviewProviderRetry,
+    ResumeProvider,
     FullDiagnostic,
     ConversationDump,
     RefreshDump,
@@ -92,6 +94,8 @@ pub(super) enum Action {
 impl Action {
     pub(super) fn label(self) -> &'static str {
         match self {
+            Self::ResumeProvider => "[t] Continue step",
+            Self::ReviewProviderRetry => "[a] Review retry",
             Self::ReviewPermission => "[a] Review permission",
             Self::InspectAttention => "Inspect evidence",
             Self::ConversationDump => "Conversation dump",
@@ -378,7 +382,7 @@ impl App {
     pub(super) fn footer_actions(&self) -> Vec<Action> {
         let mut actions=self.base_footer_actions();
         if self.approval.is_some() && self.approval_hidden && !self.help && !self.shell.more {
-            actions.insert(0,Action::ReviewPermission);
+            actions.insert(0,if self.provider_retry_pending(){Action::ReviewProviderRetry}else{Action::ReviewPermission});
         }
         actions
     }
@@ -581,6 +585,21 @@ impl App {
             self.shell.more = false;
         }
         let code = match action {
+            ResumeProvider => {
+                self.refresh(store)?;
+                if !self.attention.as_ref().is_some_and(|s|s.kind==attention::Kind::Provider && s.resumable) {
+                    self.notice="Provider recovery state changed; inspect the current session before continuing.".into();
+                    return Ok(false);
+                }
+                self.clear_diagnostic();
+                let draft=self.composer.clone();
+                let last_instruction=self.compose.last_instruction.clone();
+                self.resume_instruction(root,store,String::new());
+                self.composer=draft;
+                self.compose.last_instruction=last_instruction;
+                return Ok(false);
+            }
+            ReviewProviderRetry => {self.reopen_permission();return Ok(false);}
             ReviewPermission => {self.reopen_permission();return Ok(false);}
             InspectAttention => {
                 self.inspect_attention();
@@ -1059,7 +1078,7 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             .fg(theme::BACKGROUND)
             .bg(theme::FOCUS)
             .add_modifier(Modifier::BOLD)
-    } else if action==Action::ReviewPermission {
+    } else if matches!(action,Action::ReviewPermission|Action::ReviewProviderRetry) {
         Style::default().fg(theme::ATTENTION).bg(theme::PANEL).add_modifier(Modifier::BOLD)
     } else if active_overview {
         Style::default().fg(theme::FOCUS).bg(theme::PANEL).add_modifier(Modifier::BOLD)
@@ -1084,7 +1103,8 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::ClearGoal => "Clear",
             Action::Continue => "Next",
             Action::Help => "Help",
-            Action::ReviewPermission => "[a] Review",
+            Action::ResumeProvider => "[t] Continue",
+            Action::ReviewPermission | Action::ReviewProviderRetry => "[a] Review",
             Action::InspectAttention => "Evidence",
             Action::FullDiagnostic => "Details",
             Action::OpenCandidate => "Open",

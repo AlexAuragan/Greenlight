@@ -118,7 +118,8 @@ impl App {
         }
         if !typing && !self.shell.more {
             let shortcut=match key.code {
-                KeyCode::Char('a') if self.approval_hidden=>Some(shell::Action::ReviewPermission),
+                KeyCode::Char('t')=>Some(shell::Action::ResumeProvider),
+                KeyCode::Char('a') if self.approval_hidden=>Some(if self.provider_retry_pending(){shell::Action::ReviewProviderRetry}else{shell::Action::ReviewPermission}),
                 KeyCode::Char('.')=>Some(shell::Action::More),
                 KeyCode::Char('i')=>Some(shell::Action::Compose),
                 KeyCode::Char('s')=>Some(shell::Action::Overview),

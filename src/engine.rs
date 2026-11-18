@@ -38,6 +38,8 @@ pub struct Engine {
     pub store: Store,
     pub provider: Provider,
     pub tools: Tools,
+    /// The foreground TUI can suspend a failed request and explicitly retry its exact messages.
+    pub interactive_provider_retry: bool,
 }
 impl Engine {
     pub fn open(root: &Path) -> Result<Self> {
@@ -52,6 +54,7 @@ impl Engine {
             store,
             provider,
             tools,
+            interactive_provider_retry: false,
         })
     }
     pub async fn run(
@@ -257,7 +260,37 @@ impl Engine {
         self.model_call_with_message(s,step,purpose,model,messages,None).await
     }
     pub(crate) async fn model_call_with_message(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value],interaction:Option<(&str,&str)>)->Result<String> {
-        self.dispatch_model_call(s,step,purpose,model,messages,interaction).await.context(crate::provider_failure::ModelCallFailed)
+        let result=async {
+            loop {
+                match self.dispatch_model_call(s,step,purpose,model,messages,interaction).await {
+                    Ok(text)=>return Ok(text),
+                    Err(error)=>{
+                        let Some(failure)=error.downcast_ref::<crate::provider_failure::Failure>().cloned() else {return Err(error);};
+                        if !self.interactive_provider_retry || !self.tools.is_tui()
+                            || failure.kind==crate::provider_failure::Kind::Cancelled
+                            || self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(error);}
+                        let waiting=std::time::Instant::now();
+                        let source=self.store.history(s)?.into_iter().rev().find_map(|(_,event_step,kind,data)|{
+                            if event_step!=step || kind!="provider.failure" {return None;}
+                            let value:serde_json::Value=serde_json::from_str(&data).ok()?;
+                            (value["purpose"].as_str()==Some(purpose)).then(||value["call_id"].as_str().map(str::to_owned)).flatten()
+                        });
+                        self.store.event(s,Some(step),"provider.retry-pending",&json!({"call_id":source,"purpose":purpose,"failure":failure}).to_string())?;
+
+                        let retry=self.tools.ask_provider_retry(&failure.retry_prompt(model))?;
+                        self.store.event(s,Some(step),"provider.retry-decision",&json!({"call_id":source,"purpose":purpose,"retry":retry}).to_string())?;
+                        if !retry {return Err(error);}
+                        let remaining=std::time::Duration::from_secs(failure.retry_after_seconds.unwrap_or(0)).saturating_sub(waiting.elapsed());
+                        self.store.event(s,Some(step),"provider.retry",&json!({"call_id":source,"purpose":purpose,"manual":true,"wait_ms":remaining.as_millis(),"message":"User requested retry of the same prepared messages; waiting for any remaining provider cooldown. x stops future requests."}).to_string())?;
+                        if let Err(cancelled)=crate::provider_failure::wait(remaining,&self.provider.retry_cancel).await {
+                            self.store.event(s,Some(step),"provider.retry-cancelled",&cancelled.to_string())?;
+                            return Err(cancelled.into());
+                        }
+                    }
+                }
+            }
+        }.await;
+        result.context(crate::provider_failure::ModelCallFailed)
     }
     async fn dispatch_model_call(&self,s:&Session,step:&str,purpose:&str,model:&str,messages:&[serde_json::Value],interaction:Option<(&str,&str)>)->Result<String> {
         use crate::provider_failure::{Failure,Kind};

@@ -9,6 +9,6 @@ Greenlight / b…  ● blocked · investigate
   or expired. Check the configured
   API-key environment variable and
 ╭───────────╮ ╭───────────╮ ╭──────────╮
-│ Evidence  │ │  Compose  │ │ [.] More │
+│ [t] Cont… │ │ Evidence  │ │ [.] More │
 ╰───────────╯ ╰───────────╯ ╰──────────╯
 Workflow needs attention. Review the evi

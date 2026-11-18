@@ -34,6 +34,7 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
     std::thread::spawn(move || {
         let result = (|| -> Result<()> {
             let mut engine = Engine::open(&root)?;
+            engine.interactive_provider_retry = true;
             engine.provider.retry_cancel = worker_cancel;
             engine.provider.live = Some(worker_live);
             engine.tools.use_tui(prompt_tx, answer_rx);

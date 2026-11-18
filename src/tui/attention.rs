@@ -37,6 +37,7 @@ impl State {
             Kind::Writes => vec![WriteGuidance, RecordedActivity, More],
             Kind::Retry => vec![Stop, InspectAttention, More],
             Kind::Observing => vec![RecordedActivity, More],
+            Kind::Provider if self.resumable => vec![ResumeProvider, InspectAttention, More],
             _ if self.resumable => vec![InspectAttention, GiveInstructions, More],
             _ => vec![InspectAttention, More],
         }
@@ -219,8 +220,8 @@ pub(super) fn project(
             }
             .into();
             state.reason = failure.to_string();
-            state.next = "Resolve the provider issue, then resume explicitly when ready.";
-            state.impact = "The step is blocked. No automatic retry is currently active.";
+            state.next = "Fix the provider issue, then t / Continue step. A live retry popup preserves the exact request.";
+            state.impact = "Continue step starts a new attempt; earlier tools may run again. Recorded work and branch are retained.";
         }
     }
     Some(state)
@@ -638,4 +639,16 @@ mod tests {
         assert!(received.try_recv().is_err());
         assert!(app.notice.contains("refused"));
     }
+    #[test]
+    fn blocked_provider_has_a_direct_continue_action_but_rechecks_changed_evidence() {
+        let (root,store,session,mut app)=fixture();
+        failure(&store,&session,"coding",ProviderKind::RateLimit);app.refresh(&store).unwrap();
+        app.blocker_card=true;app.clear_diagnostic();
+        assert!(app.footer_actions().contains(&shell::Action::ResumeProvider));
+        assert!(app.attention.as_ref().unwrap().impact.contains("new attempt"));
+        store.event(&session,Some(&session.current_step),"model.call-started","superseding-call").unwrap();
+        app.activate(shell::Action::ResumeProvider,root.path(),&store).unwrap();
+        assert!(app.runner.is_none());assert!(app.notice.contains("state changed"));
+    }
+
 }

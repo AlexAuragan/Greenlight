@@ -456,3 +456,33 @@ async fn failed_trace_persistence_prevents_http_dispatch() {
     let report=engine.store.usage_report(&s,Scope::Session).unwrap();
     assert_eq!(report.calls[0].status,"not-sent");
 }
+
+#[test]
+fn manual_provider_retries_preserve_all_call_purposes_and_stop_does_not_dispatch() {
+    for (purpose,status,body,retry) in [
+        ("verification",503,"{}",true),
+        ("deviation-detector",401,"{}",true),
+        ("coding",402,"{}",true),
+        ("coding",429,"{}",false),
+        ("coding",429,r#"{"usage":{"prompt_tokens":12}}"#,false),
+    ] {
+        let failure=Completion::parse(status,body).unwrap();
+        let (_root,mut engine,s)=fixture(vec![failure,success()]);
+        engine.interactive_provider_retry=true;
+        let (pt,requests)=std::sync::mpsc::channel();let (answers,rx)=std::sync::mpsc::channel();engine.tools.use_tui(pt,rx);
+        let script=engine.provider.script.clone().unwrap();
+        let session=s.clone();let messages=vec![serde_json::json!({"role":"user","content":"exact original messages"})];
+        let worker=std::thread::spawn(move||{
+            let result=tokio::runtime::Runtime::new().unwrap().block_on(engine.model_call(&s,"work",purpose,"fixture",&messages));
+            (result,engine)
+        });
+        let prompt=requests.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
+        assert_eq!(prompt.mode,crate::tools::ApprovalMode::ProviderRetry);
+        assert!(prompt.content.contains("same request"));
+        if status==503 || body.contains("usage") {assert!(prompt.content.contains("billing remains uncertain"));}
+        answers.send(if retry {"y"}else{"n"}.into()).unwrap();
+        let (result,engine)=worker.join().unwrap();assert_eq!(result.is_ok(),retry);
+        let script=script.lock().unwrap();assert_eq!(script.requests.len(),if retry{2}else{1});if retry{assert_eq!(script.requests[0],script.requests[1]);}
+        assert_eq!(engine.store.attempts(&session).unwrap().len(),1);
+    }
+}

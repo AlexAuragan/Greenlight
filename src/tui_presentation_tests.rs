@@ -869,3 +869,25 @@ fn permission_popup_is_modal_dismissible_and_keeps_the_worker_waiting() {
     assert_eq!(received.try_recv().unwrap(),"y");assert!(app.approval.is_none());
     assert_eq!(store.history(&session).unwrap(),before);
 }
+
+#[test]
+fn provider_retry_popup_explains_the_next_action_without_tool_grant_choices() {
+    let (root,store,session,mut app,_)=fixture();
+    let (_pt,prompts)=std::sync::mpsc::channel();let (answers,received)=std::sync::mpsc::channel();let (_ft,finished)=std::sync::mpsc::channel();
+    app.runner=Some(Runner{live:None,cancel_retry:None,session_id:Some(session.id.clone()),prompts,answers,finished});
+    let failure=crate::provider_failure::Failure::http(429,&serde_json::json!({}),None);
+    app.approval=Some(ApprovalPrompt{review:None,command:None,mode:ApprovalMode::ProviderRetry,content:failure.retry_prompt("fixture")});
+    app.result_open=false;
+    for (w,h) in [(80,24),(120,36)] {
+        let output=text(&screen(&mut app,w,h,"provider-retry-popup"));
+        for label in ["Provider request paused","Retry request","Stop for now"] {assert!(output.contains(label),"{output}");}
+        assert!(!output.contains("Allow once") && !output.contains("Review project grant"));
+    }
+    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();
+    let output=text(&screen(&mut app,80,24,"provider-retry-pending"));assert!(output.contains("Review retry"));
+    for c in ['y','p','g'] {app.on_key(KeyEvent::new(KeyCode::Char(c),KeyModifiers::NONE),root.path(),&store).unwrap();}
+    assert!(received.try_recv().is_err());
+    app.on_key(KeyEvent::new(KeyCode::Char('a'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Char('n'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert_eq!(received.try_recv().unwrap(),"n");assert!(app.notice.contains("Stopped the provider retry"));
+}

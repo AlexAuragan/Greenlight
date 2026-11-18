@@ -481,14 +481,20 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                 ),
             }
         }
+        "provider.retry-pending" => card("Provider request paused", "Waiting for your Retry request / Stop for now decision; earlier tools are retained", Tone::Attention),
+        "provider.retry-decision" => match serde_json::from_str::<serde_json::Value>(raw).ok().and_then(|v|v["retry"].as_bool()) {
+            Some(true)=>card("Retry requested", "User chose to resend the same prepared model messages",Tone::Info),
+            Some(false)=>card("Request stopped", "User stopped the provider retry; recorded work remains available",Tone::Attention),
+            None=>card("Provider retry decision unavailable", "Inspect the recorded metadata",Tone::Attention),
+        },
         "provider.retry" => {
             let v = serde_json::from_str::<serde_json::Value>(raw).ok();
             let manager = v.as_ref().is_some_and(|v| v["purpose"] == "manager");
             let summary = v
                 .and_then(|v| {
                     Some(format!(
-                        "Request {} · wait {} ms · {} cancels",
-                        v["next_request"].as_u64()?,
+                        "{} · wait {} ms · {} cancels",
+                        if v["manual"].as_bool()==Some(true) {"User-requested retry".to_string()}else{format!("Request {}",v["next_request"].as_u64()?)},
                         v["wait_ms"].as_u64()?,
                         if manager { "/cancel-manager" } else { "x" }
                     ))

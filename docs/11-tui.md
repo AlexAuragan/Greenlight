@@ -228,3 +228,7 @@ Letters and slash-prefixed text remain literal in Step and Manager messages. Fro
 ## Complete conversation dump
 
 **More → Conversation dump** or Commands **/dump** opens a read-only snapshot of every recorded event on this branch and its ancestry, including full tool arguments/results, raw model responses, protocol errors and provider failures. Long bodies show previews. **[R] Refresh** captures new evidence; **[w] Save full dump** writes complete Markdown to `.greenlight/exports/`; Copy retains the complete content. New requests include exact prepared messages; older runs label missing payloads. A locally owned runner can contribute an explicitly unvalidated live-buffer snapshot. See [format, CLI commands and limits](35-conversation-dump.md).
+
+## Retry a failed provider request
+
+A live workflow provider failure opens **Provider request paused**, with **[y] Retry request**, **[n] Stop for now**, and Esc to hide without answering. Retry keeps the exact messages, current attempt and branch; earlier tools are not replayed. Fix credits/connectivity or wait for a rate limit, then retry; any remaining provider cooldown is honored. Billing uncertainty remains visible for timeouts/server errors. **[a] Review retry** returns to a hidden popup. If the worker has already stopped, **[t] Continue step** starts a new step attempt without typing an instruction; the screen warns that earlier tools may run again. See [retry behavior and limits](19-provider-failures.md#explicit-retry-in-the-workflow-tui).

@@ -522,3 +522,43 @@ fn human_result_verification_transports_recorded_outputs_without_pinned_approval
     assert!(!history.iter().any(|e|e.2=="human.approved"));
     assert_eq!(store.session(&session.id).unwrap().status,"completed");
 }
+
+#[test]
+fn provider_retry_keeps_exact_messages_attempt_and_branch_without_replaying_a_tool() {
+    use crate::provider::Completion;
+    let root=tempfile::tempdir().unwrap();
+    fs::write(root.path().join("greenlight.yaml"),"provider:\n  model: fixture\n").unwrap();
+    let folder=root.path().join("workflows/demo");fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("workflow.yaml"),"id: demo\ntitle: Demo\nstart: work\nsteps: [work]\n").unwrap();
+    fs::write(folder.join("work.md"),"---\nid: work\ntools: [read]\nverification:\n  type: none\n---\nRead notes then finish.\n").unwrap();
+    fs::write(root.path().join("notes.txt"),"ALREADY_READ_ONCE").unwrap();
+    let store=Store::open(root.path()).unwrap();let session=store.create("demo","retry fixture","work").unwrap();
+    let mut app=App::new(Some(&session.id));app.refresh(&store).unwrap();
+    let response=|text:&str|Completion::parse(200,&serde_json::json!({"choices":[{"message":{"content":text}}]}).to_string()).unwrap();
+    // An ambiguous 429 is not automatically repeated. A one-second header also
+    // checks that an immediate manual choice respects the remaining cooldown.
+    let mut failure=Completion::parse(429,"{}").unwrap();failure.failure.as_mut().unwrap().retry_after_seconds=Some(1);
+    let script=Arc::new(Mutex::new(Script{completions:vec![response("action: tool\ntool: read\npath: notes.txt"),failure,response("action: finish\nsummary: done")].into(),..Default::default()}));
+    let mut engine=Engine::open(root.path()).unwrap();engine.provider.script=Some(script.clone());engine.interactive_provider_retry=true;
+    let (pt,prompts)=mpsc::channel();let (answers,rx)=mpsc::channel();let (ft,finished)=mpsc::channel();
+    engine.tools.use_tui(pt,rx);let id=session.id.clone();
+    thread::spawn(move||{let result=tokio::runtime::Runtime::new().unwrap().block_on(engine.run(&id,None,None));let _=ft.send(result.map_err(|e|format!("{e:#}")));});
+    app.runner=Some(Runner{live:None,cancel_retry:None,session_id:Some(session.id.clone()),prompts,answers,finished});
+    wait(&mut app,&store,|a|a.approval.as_ref().is_some_and(|p|p.mode==ApprovalMode::ProviderRetry));
+    let paused=Instant::now();
+    let output=screen(&app);assert!(output.contains("Retry request"));assert!(output.contains("Stop for now"));assert!(!output.contains("Allow once"));
+    assert_eq!(script.lock().unwrap().requests.len(),2);
+    key(&mut app,&store,root.path(),KeyCode::Esc);
+    for c in ['y','p','g'] {key(&mut app,&store,root.path(),KeyCode::Char(c));}
+    app.tick();assert_eq!(script.lock().unwrap().requests.len(),2);assert!(screen(&app).contains("Review retry"));
+    key(&mut app,&store,root.path(),KeyCode::Char('a'));assert!(app.provider_retry_pending());
+    key(&mut app,&store,root.path(),KeyCode::Char('y'));
+    wait(&mut app,&store,|a|a.runner.is_none());app.refresh(&store).unwrap();
+    assert!(paused.elapsed()>=Duration::from_millis(850));
+    let requests=&script.lock().unwrap().requests;assert_eq!(requests.len(),3);assert_eq!(requests[1],requests[2]);
+    assert!(requests[2].last().unwrap()["content"].as_str().unwrap().contains("ALREADY_READ_ONCE"));
+    let current=store.session(&session.id).unwrap();assert_eq!(current.status,"completed");assert_eq!(current.active_branch,session.active_branch);
+    let history=store.history(&current).unwrap();assert_eq!(history.iter().filter(|e|e.2=="tool.request").count(),1);assert_eq!(store.attempts(&current).unwrap().len(),1);
+    assert_eq!(history.iter().filter(|e|e.2=="provider.retry-decision").count(),1);
+    assert_eq!(store.usage_report(&current,crate::usage::Scope::Session).unwrap().calls.len(),3);
+}
