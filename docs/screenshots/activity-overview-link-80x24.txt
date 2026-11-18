@@ -1,0 +1,23 @@
+Greenlight / bar-project                                   ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+╭ Cards · following · Enter expands ───────────────────────────────────────────╮
+│  Artifact stored · read_availability_note.md                                 │
+│    baseline · Version #12 · o opens this exact version                       │
+│  Step started                                                                │
+│    evaluate ·                                                                │
+│  Artifact stored · performance-evaluation.md                                 │
+│    evaluate · Version #14 · o opens this exact version                       │
+│  Verification policy                                                         │
+│    evaluate · No checks required                                             │
+│  Policy accepted · no checks                                                 │
+│    evaluate · No checks required; no improvement established                 │
+│  Step completed                                                              │
+│    evaluate · Performance evaluation recorded. Status: measurement_failure (b│
+│▶ Session completed                                                           │
+│     ·                                                                        │
+╰ F filter:  · 18 records ─────────────────────────────────────────────────────╯
+╭───────────────╮ ╭─────────╮ ╭──────────────╮ ╭──────╮
+│ Open selected │ │ Compose │ │ [s] Overview │ │ More │
+╰───────────────╯ ╰─────────╯ ╰──────────────╯ ╰──────╯

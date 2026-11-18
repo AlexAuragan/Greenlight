@@ -29,6 +29,7 @@ pub(super) enum Action {
     BackWorkflow,
     RestoreInstruction,
     Workflow(usize),
+    Overview,
     Report,
     ResultEvidence,
     ReviewEdits,
@@ -107,6 +108,7 @@ impl Action {
             Self::ClearGoal => "Clear draft",
             Self::BackWorkflow => "Back",
             Self::RestoreInstruction => "Restore instructions",
+            Self::Overview => "[s] Overview",
             Self::Report => "Read final report",
             Self::ResultEvidence => "Full result",
             Self::ReviewEdits => "Review edits",
@@ -295,13 +297,15 @@ impl App {
         }
 
         if self.artifact_browser.is_some() {
-            return vec![
+            let mut actions=vec![
                 Action::Versions,
                 Action::Provenance,
                 Action::Compare,
                 Action::Copy,
                 Action::Editor,
             ];
+            if self.session().is_some_and(|s|s.status=="completed"){actions.insert(0,Action::Overview);}
+            return actions;
         }
 
         if self.session().is_none() {return vec![Action::New,Action::Sessions,Action::Help];}
@@ -312,6 +316,10 @@ impl App {
             Action::New,
             Action::Usage,
         ];
+        if self.session().is_some_and(|s|s.status=="completed") && !(self.result_open && self.view==View::Conversation) {
+            actions.insert(0,Action::Overview);
+            if self.view==View::Conversation{actions.push(Action::Compose);}
+        }
         if self.view==View::Edits && !self.edits.files.is_empty() {actions.splice(0..0,[Action::OpenEdit,Action::EditAll,Action::RevertAll]);}
         if self.focus != Focus::Compose {
             actions.extend([Action::Copy, Action::Editor]);
@@ -420,6 +428,9 @@ impl App {
             ];
         }
         if self.artifact_browser.is_some() {
+            if self.session().is_some_and(|s|s.status=="completed") {
+                return if self.viewport.0<60 {vec![Action::Overview,Action::Close,Action::More]}else{vec![Action::Versions,Action::Provenance,Action::Overview,Action::Close]};
+            }
             return vec![Action::Versions, Action::Provenance, Action::Close];
         }
         if self.diagnostic.is_some() {
@@ -482,6 +493,9 @@ impl App {
                 Action::Versions,
                 Action::More,
             ];
+        }
+        if self.session().is_some_and(|s|s.status=="completed") {
+            return if self.viewport.0<60 {vec![Action::Open,Action::Overview,Action::More]}else{vec![Action::Open,Action::Compose,Action::Overview,Action::More]};
         }
         vec![Action::Open, Action::Compose, Action::More]
     }
@@ -701,6 +715,16 @@ impl App {
                 browser.load(store, session);
                 self.artifact_browser = Some(browser);
                 self.detail_scroll = 0;
+                return Ok(false);
+            }
+            Overview => {
+                if self.session().is_some_and(|s|s.status=="completed") && self.approval.is_none() && self.edits.pending.is_none() && self.restart_plan.is_none() {
+                    self.artifact_browser=None;
+                    self.context_detail=None;
+                    self.details.close();
+                    self.switch_view(View::Conversation);
+                    self.result_open=true;self.focus=Focus::Detail;self.detail_scroll=0;
+                }
                 return Ok(false);
             }
             ReviewEdits => KeyCode::Char('3'),

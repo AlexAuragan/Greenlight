@@ -368,6 +368,9 @@ impl App {
             }
             return Ok(false);
         }
+        if self.artifact_browser.is_some() && key.code==KeyCode::Char('s') && self.session().is_some_and(|s|s.status=="completed") {
+            return self.activate(shell::Action::Overview,root,store);
+        }
         if self.artifact_browser.is_some() {
             if key.kind != KeyEventKind::Press
                 && matches!(

@@ -78,6 +78,12 @@ Session navigation captures keep an opened Alpha workspace while browsing Beta a
 | Discovery failure | [PNG](sessions-error-80x24.png) | — | — |
 | Setup needs attention | [PNG](home-setup-80x24.png) | — | — |
 
+Completed Activity exposes the return to the result explicitly.
+
+| View | 80×24 | 120×36 | 40×14 |
+| --- | --- | --- | --- |
+| Activity with Overview action | [PNG](activity-overview-link-80x24.png) | [PNG](activity-overview-link-120x36.png) | [PNG](activity-overview-link-40x14.png) |
+
 Regenerate from the repository root:
 
 ```bash

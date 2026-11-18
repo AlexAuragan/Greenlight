@@ -617,7 +617,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         let remaining = outer[3].right().saturating_sub(x);
         let remaining_count = count.saturating_sub(index as u16);
         let width = preferred
-            .min(remaining / remaining_count)
+            .min(if action==shell::Action::Overview {remaining}else{remaining / remaining_count})
             .max(1)
             .min(remaining);
         shell::button(

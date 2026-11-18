@@ -733,3 +733,44 @@ fn empty_missing_and_discovery_failure_have_distinct_home_surfaces() {
     let mut app=App::new(None);app.refresh(&unconfigured).unwrap();
     let output=text(&screen(&mut app,80,24,"home-setup"));assert!(output.contains("Project setup needs attention"));assert!(output.contains("configuration unavailable"));
 }
+
+#[test]
+fn completed_activity_visibly_reopens_overview_after_navigating_away() {
+    use crossterm::event::{MouseEvent,MouseEventKind,MouseButton};
+    let (root,store,session,mut app,report)=fixture();
+    let before=store.history(&session).unwrap().len();
+    for (w,h) in [(120,36),(80,24),(40,14)] {
+        for code in [KeyCode::Char('2'),KeyCode::Char('1')] {
+            app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();
+        }
+        assert!(!app.result_open);
+        let output=text(&screen(&mut app,w,h,"activity-overview-link"));
+        assert!(output.contains("[s] Overview"),"Overview shortcut must remain readable at {w}x{h}: {output}");
+        assert!(app.footer_actions().contains(&shell::Action::Overview));
+        for _ in 0..app.shell_actions().len() {
+            app.on_key(KeyEvent::new(KeyCode::Tab,KeyModifiers::NONE),root.path(),&store).unwrap();
+            if app.shell_actions()[app.shell.action_index]==shell::Action::Overview {break}
+        }
+        assert_eq!(app.shell_actions()[app.shell.action_index],shell::Action::Overview);
+        app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE),root.path(),&store).unwrap();
+        assert!(app.result_open);
+        assert_eq!(app.result_overview.as_ref().unwrap().report.as_ref().unwrap().1,report);
+    }
+    app.result_open=false;app.shell.actions_focus=false;app.focus=Focus::Events;app.inspector_open=false;
+    let buffer=screen(&mut app,80,24,"activity-overview-link");
+    let location=buffer.content.chunks(80).enumerate().find_map(|(y,row)| {
+        let line=row.iter().map(|c|c.symbol()).collect::<String>();
+        line.find("[s] Overview").map(|x|(unicode_width::UnicodeWidthStr::width(&line[..x]) as u16,y as u16))
+    }).unwrap();
+    for kind in [MouseEventKind::Down(MouseButton::Left),MouseEventKind::Up(MouseButton::Left)] {
+        app.on_event(Event::Mouse(MouseEvent{kind,column:location.0,row:location.1,modifiers:KeyModifiers::NONE}),root.path(),&store).unwrap();
+    }
+    assert!(app.result_open);
+    app.switch_view(View::Artifacts);assert!(app.more_actions().contains(&shell::Action::Overview));
+    app.activate(shell::Action::Versions,root.path(),&store).unwrap();
+    assert!(app.more_actions().contains(&shell::Action::Overview));
+    assert!(app.footer_actions().contains(&shell::Action::Overview));
+    app.on_key(KeyEvent::new(KeyCode::Char('s'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.result_open);assert!(app.artifact_browser.is_none());
+    assert_eq!(store.history(&session).unwrap().len(),before);
+    assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,0);
+}
