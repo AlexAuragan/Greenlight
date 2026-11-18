@@ -18,6 +18,6 @@ Tab/Shift+Tab cycles views · Enter focuses actions
 
 Keep saves review intent, not verification or tool approval.
 Kept revision is not a live disk check; files are already applied.
-╭──────────╮ ╭────────────────────╮ ╭────────────────────╮ ╭──────╮
-│ Keep all │ │       Revert       │ │ Open selected diff │ │ More │
-╰──────────╯ ╰────────────────────╯ ╰────────────────────╯ ╰──────╯
+╭──────────╮ ╭─────────────────────╮ ╭────────────────────╮ ╭──────────╮
+│ Keep all │ │ Preview all reverts │ │ Open selected diff │ │ [.] More │
+╰──────────╯ ╰─────────────────────╯ ╰────────────────────╯ ╰──────────╯

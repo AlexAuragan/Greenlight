@@ -9,5 +9,5 @@ Greenlight / bar…  ● Finished · evaluate
 
  Enter sends · Alt+Enter newline · Esc…
 ╭───────────╮ ╭──────────╮ ╭───────────╮
-│   Send    │ │ Commands │ │ Close Esc │
+│   Send    │ │ Commands │ │   [Esc]   │
 ╰───────────╯ ╰──────────╯ ╰───────────╯

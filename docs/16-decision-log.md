@@ -299,3 +299,10 @@ Verification: 330 full-suite tests passed, one existing test ignored; 131 TUI te
 ## 2026-11-18 — Make the completed-run overview discoverable
 
 User testing found that leaving the initial result screen made its conclusion difficult to find again. The completed Activity footer now exposes `[s] Overview` beside the ordinary controls; the same read-only action appears in More from other workspace tabs and directly in artifact readers. Narrow layouts preserve the full shortcut label by moving Compose into More. Keyboard/mouse regression checks navigate away and return to the same saved result without requests or history writes. The 132 TUI tests, Clippy (existing test warnings) and offline build pass. Actual captures are indexed in [screenshots](screenshots/README.md).
+
+
+## 2026-11-18 — Footer shortcut badges and active Overview
+
+User testing requested visible shortcuts on all four Activity buttons and a persistent selected Overview control. Activity now labels Enter/Open selected, i/Compose, s/Overview and period/More. Overview retains its button with bold cyan text and a double border, distinct from the filled keyboard-focus style; it is not marked active while reading a report. Report/Edits/reader controls expose their actual contextual keys, with compact badges preserving reachability on narrow screens. Contextual shortcuts use their shared action callbacks and remain literal in editors.
+
+Verified with 332 full-suite tests passed (one existing ignored), 133 TUI tests, offline build, Clippy (five existing test warnings) and a local-provider PTY check covering More/full-result shortcuts, editing, streaming and terminal cleanup. Actual cell captures and the two rendering baselines were regenerated and then tested without the baseline-update flag. No model calls occur when switching these read-only views.

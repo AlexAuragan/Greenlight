@@ -18,6 +18,6 @@ Sessions opens project history; Help explains the controls.
 
 
 
-╭─────────────╮ ╭──────╮
-│ New session │ │ More │
-╰─────────────╯ ╰──────╯
+╭─────────────╮ ╭──────────╮
+│ New session │ │ [.] More │
+╰─────────────╯ ╰──────────╯

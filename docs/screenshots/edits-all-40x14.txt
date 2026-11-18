@@ -8,6 +8,6 @@ Edits · All files · 2 changed
   unchanged…  no net change / reverted ·
 
 
-╭──────────╮ ╭───────────╮ ╭──────╮
-│ Keep all │ │  Revert   │ │ More │
-╰──────────╯ ╰───────────╯ ╰──────╯
+╭──────────╮ ╭───────────╮ ╭──────────╮
+│ Keep all │ │  Revert   │ │ [.] More │
+╰──────────╯ ╰───────────╯ ╰──────────╯

@@ -18,7 +18,7 @@ Net recorded diff: first tracked state → latest recorded state.
 
 Keep saves review intent, not verification or tool approval.
 Kept revision is not a live disk check; files are already applied.
-╭───────────╮ ╭────────────────────╮ ╭───────────╮ ╭──────╮
-│ Keep file │ │       Revert       │ │ All files │ │ More │
-╰───────────╯ ╰────────────────────╯ ╰───────────╯ ╰──────╯
+╭───────────╮ ╭─────────────────────╮ ╭───────────╮ ╭──────────╮
+│ Keep file │ │ Preview file revert │ │ All files │ │ [.] More │
+╰───────────╯ ╰─────────────────────╯ ╰───────────╯ ╰──────────╯
 Kept 1 recorded file revision(s). Review saved; no files, permissions or Git sta

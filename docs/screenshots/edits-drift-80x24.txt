@@ -18,7 +18,7 @@ Greenlight / bar-project                                     ● ready · implem
 
 
 
-╭─────────────────╮ ╭───────────╮
-│ Full diagnostic │ │ Close Esc │
-╰─────────────────╯ ╰───────────╯
+╭─────────────────╮ ╭────────────╮
+│ Full diagnostic │ │ [Esc] Back │
+╰─────────────────╯ ╰────────────╯
 Attention required: Keep unavailable; no review saved: bar.py differs from its l

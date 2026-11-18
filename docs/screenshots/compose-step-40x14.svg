@@ -852,10 +852,11 @@
 <text x="200" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">o</text>
 <text x="260" y="236" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
 <text x="280" y="236" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
-<text x="320" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">B</text>
-<text x="330" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">a</text>
-<text x="340" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">c</text>
-<text x="350" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">k</text>
+<text x="320" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">[</text>
+<text x="330" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">E</text>
+<text x="340" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">s</text>
+<text x="350" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">c</text>
+<text x="360" y="236" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">]</text>
 <text x="390" y="236" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
 <text x="0" y="256" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">╰</text>
 <text x="10" y="256" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>

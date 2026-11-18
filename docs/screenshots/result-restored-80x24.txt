@@ -18,6 +18,6 @@ Greenlight / bar-project                                   ● Finished · evalu
  Recorded native edits
  0 file(s) · Review edits for diffs and guarded revert
  Shell/manual changes are outside this journal.
-╭───────────────────╮ ╭──────────────╮ ╭──────╮
-│ Read final report │ │ Review edits │ │ More │
-╰───────────────────╯ ╰──────────────╯ ╰──────╯
+╭───────────────────────╮ ╭──────────────────╮ ╔══════════════╗ ╭──────────╮
+│ [o] Read final report │ │ [3] Review edits │ ║ [s] Overview ║ │ [.] More │
+╰───────────────────────╯ ╰──────────────────╯ ╚══════════════╝ ╰──────────╯

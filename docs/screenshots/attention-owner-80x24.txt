@@ -18,7 +18,7 @@ Greenlight / bar-project                             ● interrupted · investig
 
 
 
-╭───────────────╮ ╭──────────────────╮ ╭──────╮
-│ Recover owner │ │ Inspect evidence │ │ More │
-╰───────────────╯ ╰──────────────────╯ ╰──────╯
+╭───────────────╮ ╭──────────────────╮ ╭──────────╮
+│ Recover owner │ │ Inspect evidence │ │ [.] More │
+╰───────────────╯ ╰──────────────────╯ ╰──────────╯
 Workflow needs attention. Review the evidence before continuing.

@@ -30,6 +30,6 @@ Your instructions target this workflow step.
 
 
  Enter sends · Alt+Enter newline · Esc keeps draft
-╭───────────────╮ ╭──────────────────╮ ╭───────────╮
-│ Send & resume │ │ Change recipient │ │ Close Esc │
-╰───────────────╯ ╰──────────────────╯ ╰───────────╯
+╭───────────────╮ ╭──────────────────╮ ╭────────────╮
+│ Send & resume │ │ Change recipient │ │ [Esc] Back │
+╰───────────────╯ ╰──────────────────╯ ╰────────────╯

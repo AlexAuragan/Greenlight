@@ -30,7 +30,7 @@ Greenlight / bar-project                                                        
 
 
 
-╭──────────────────╮ ╭───────────────────╮ ╭──────╮
-│ Inspect evidence │ │ Give instructions │ │ More │
-╰──────────────────╯ ╰───────────────────╯ ╰──────╯
+╭──────────────────╮ ╭───────────────────╮ ╭──────────╮
+│ Inspect evidence │ │ Give instructions │ │ [.] More │
+╰──────────────────╯ ╰───────────────────╯ ╰──────────╯
 Workflow needs attention. Review the evidence before continuing.

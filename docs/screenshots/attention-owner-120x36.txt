@@ -30,7 +30,7 @@ Greenlight / bar-project                                                        
 
 
 
-╭───────────────╮ ╭──────────────────╮ ╭──────╮
-│ Recover owner │ │ Inspect evidence │ │ More │
-╰───────────────╯ ╰──────────────────╯ ╰──────╯
+╭───────────────╮ ╭──────────────────╮ ╭──────────╮
+│ Recover owner │ │ Inspect evidence │ │ [.] More │
+╰───────────────╯ ╰──────────────────╯ ╰──────────╯
 Workflow needs attention. Review the evidence before continuing.

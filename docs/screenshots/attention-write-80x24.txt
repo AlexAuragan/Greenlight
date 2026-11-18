@@ -18,7 +18,7 @@ Greenlight / bar-project                                 ● blocked · investig
 
 
 
-╭───────────────────╮ ╭───────────────────╮ ╭──────╮
-│ Recovery guidance │ │ Recorded activity │ │ More │
-╰───────────────────╯ ╰───────────────────╯ ╰──────╯
+╭───────────────────╮ ╭───────────────────╮ ╭──────────╮
+│ Recovery guidance │ │ Recorded activity │ │ [.] More │
+╰───────────────────╯ ╰───────────────────╯ ╰──────────╯
 Owner recovery check finished. No work resumed; review recorded state and unfini

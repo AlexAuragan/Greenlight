@@ -30,6 +30,6 @@ Your question goes to the read-only manager.
 
 
  Enter sends · Alt+Enter newline · Esc keeps draft
-╭───────────────╮ ╭──────────╮ ╭───────────╮
-│ Send question │ │ Commands │ │ Close Esc │
-╰───────────────╯ ╰──────────╯ ╰───────────╯
+╭───────────────╮ ╭──────────╮ ╭────────────╮
+│ Send question │ │ Commands │ │ [Esc] Back │
+╰───────────────╯ ╰──────────╯ ╰────────────╯

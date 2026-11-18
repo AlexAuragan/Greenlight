@@ -8,6 +8,6 @@ Artifacts · 12 saved
   baseline_draft_notes.md
   benchmark.md
   benchmark_measurement_notes.md
-╭───────────╮ ╭──────────╮ ╭──────╮
-│   Open    │ │ Versions │ │ More │
-╰───────────╯ ╰──────────╯ ╰──────╯
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│  [Enter]  │ │    [v]    │ │ [.] More │
+╰───────────╯ ╰───────────╯ ╰──────────╯

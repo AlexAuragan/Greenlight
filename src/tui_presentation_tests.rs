@@ -774,3 +774,35 @@ fn completed_activity_visibly_reopens_overview_after_navigating_away() {
     assert_eq!(store.history(&session).unwrap().len(),before);
     assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,0);
 }
+
+#[test]
+fn footer_shortcuts_work_and_active_overview_is_distinct_from_keyboard_focus() {
+    let (root,store,session,mut app,_)=fixture();let before=store.history(&session).unwrap().len();
+    for (w,h) in [(120,36),(80,24),(40,14)] {
+        let buffer=screen(&mut app,w,h,"overview-active");let output=text(&buffer);
+        assert!(output.contains("[s] Overview"));assert!(output.contains("╔"));
+        assert!(!buffer.content.iter().any(|c|c.bg==theme::FOCUS));
+        if w>=80 {
+            for label in ["[o] Read final report","[3] Review edits","[.] More"] {assert!(output.contains(label),"missing {label}: {output}");}
+        }
+        let cell=buffer.content.chunks(w as usize).find_map(|row| {
+            let line=row.iter().map(|c|c.symbol()).collect::<String>();
+            line.find("[s] Overview").map(|x|&row[unicode_width::UnicodeWidthStr::width(&line[..x])])
+        }).unwrap();
+        assert_eq!(cell.fg,theme::FOCUS);assert!(cell.modifier.contains(Modifier::BOLD));assert_eq!(cell.bg,theme::PANEL);
+    }
+    app.viewport=(80,24);
+    app.on_key(KeyEvent::new(KeyCode::Char('.'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.shell.more);
+    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Char('o'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.artifact_browser.is_some());
+    assert!(!text(&screen(&mut app,80,24,"report-shortcuts")).contains("╔"),"Overview must not look active while reading a report");
+    app.on_key(KeyEvent::new(KeyCode::Char('s'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.result_open);
+    for code in [KeyCode::Char('3'),KeyCode::Char('1')] {app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();}
+    let output=text(&screen(&mut app,80,24,"activity-shortcuts"));
+    for label in ["[Enter] Open selected","[i] Compose","[s] Overview","[.] More"] {assert!(output.contains(label),"missing {label}: {output}");}
+    app.on_key(KeyEvent::new(KeyCode::Tab,KeyModifiers::NONE),root.path(),&store).unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Char('i'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Char('.'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert_eq!(app.composer,".");assert!(!app.shell.more);
+    assert_eq!(store.history(&session).unwrap().len(),before);assert!(app.runner.is_none());assert!(app.manager_job.is_none());
+}

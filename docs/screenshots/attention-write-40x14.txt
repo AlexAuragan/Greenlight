@@ -8,7 +8,7 @@ Greenlight / b…  ● blocked · investigate
   The workspace has unresolved
   native-write records. Do not assume
   the intended file change was applied
-╭───────────╮ ╭───────────╮ ╭──────╮
-│ Recovery  │ │ Activity  │ │ More │
-╰───────────╯ ╰───────────╯ ╰──────╯
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│ Recovery  │ │ Activity  │ │ [.] More │
+╰───────────╯ ╰───────────╯ ╰──────────╯
 Owner recovery check finished. No work r

@@ -18,7 +18,7 @@ Greenlight / bar-project                               ● observing · investig
 
 
 
-╭───────────────────╮ ╭──────╮
-│ Recorded activity │ │ More │
-╰───────────────────╯ ╰──────╯
+╭───────────────────╮ ╭──────────╮
+│ Recorded activity │ │ [.] More │
+╰───────────────────╯ ╰──────────╯
 Workflow needs attention. Review the evidence before continuing.

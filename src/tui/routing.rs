@@ -98,6 +98,20 @@ impl App {
             }
             return Ok(false);
         }
+        if !typing && !self.shell.more {
+            let shortcut=match key.code {
+                KeyCode::Char('.')=>Some(shell::Action::More),
+                KeyCode::Char('i')=>Some(shell::Action::Compose),
+                KeyCode::Char('s')=>Some(shell::Action::Overview),
+                KeyCode::Char('o')=>Some(shell::Action::Report),
+                KeyCode::Char('e')=>Some(shell::Action::ResultEvidence),
+                KeyCode::Char('3')=>Some(shell::Action::ReviewEdits),
+                KeyCode::Char('v')=>Some(shell::Action::Versions),
+                KeyCode::Char('p')=>Some(shell::Action::Provenance),
+                _=>None,
+            };
+            if let Some(action)=shortcut.filter(|a|self.footer_actions().contains(a)){return self.activate(action,root,store);}
+        }
         if !typing && matches!(key.code, KeyCode::Char('h' | '?')) {
             self.open_help();
             return Ok(false);
@@ -496,6 +510,8 @@ impl App {
             && self.restart_choices.is_empty()
         {
             match key.code {
+                KeyCode::Char('o') if self.result_overview.as_ref().is_some_and(|r|r.report.is_some()) => return self.activate(shell::Action::Report,root,store),
+                KeyCode::Char('e') if self.result_overview.as_ref().is_none_or(|r|r.report.is_none()) => return self.activate(shell::Action::ResultEvidence,root,store),
                 KeyCode::Enter if self.focus != Focus::Sessions => {
                     self.result_open = false;
                     self.focus = Focus::Events;

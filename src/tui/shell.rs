@@ -109,24 +109,24 @@ impl Action {
             Self::BackWorkflow => "Back",
             Self::RestoreInstruction => "Restore instructions",
             Self::Overview => "[s] Overview",
-            Self::Report => "Read final report",
-            Self::ResultEvidence => "Full result",
-            Self::ReviewEdits => "Review edits",
-            Self::Versions => "Versions",
-            Self::Provenance => "Version details",
+            Self::Report => "[o] Read final report",
+            Self::ResultEvidence => "[e] Full result",
+            Self::ReviewEdits => "[3] Review edits",
+            Self::Versions => "[v] Versions",
+            Self::Provenance => "[p] Version details",
             Self::Compare => "Compare previous",
             Self::Sessions => "[f] Sessions",
-            Self::Compose => "Compose",
+            Self::Compose => "[i] Compose",
             Self::Details => "[c] Details",
             Self::Help => "[h] Help",
-            Self::More => "More",
-            Self::Close => "Close Esc",
+            Self::More => "[.] More",
+            Self::Close => "[Esc] Back",
             Self::Mouse => "Toggle mouse M",
             Self::Activity => "[1] Activity",
             Self::Artifacts => "[2] Artifacts",
             Self::Edits => "[3] Edits",
             Self::New => "New session",
-            Self::Open => "Open selected",
+            Self::Open => "[Enter] Open selected",
             Self::Copy => "Copy",
             Self::Editor => "Editor",
             Self::Filter => "Filter",
@@ -456,6 +456,7 @@ impl App {
             return self.attention.as_ref().unwrap().actions();
         }
         if self.result_open && self.view == View::Conversation {
+            if self.viewport.0<60{return vec![if self.result_overview.as_ref().is_some_and(|r|r.report.is_some()){Action::Report}else{Action::ResultEvidence},Action::Overview,Action::More];}
             return vec![
                 if self
                     .result_overview
@@ -467,6 +468,7 @@ impl App {
                     Action::ResultEvidence
                 },
                 Action::ReviewEdits,
+                Action::Overview,
                 Action::More,
             ];
         }
@@ -727,7 +729,7 @@ impl App {
                 }
                 return Ok(false);
             }
-            ReviewEdits => KeyCode::Char('3'),
+            ReviewEdits => {self.switch_view(View::Edits);self.refresh_edits(store);return Ok(false);}
             Versions => {
                 self.open_artifact_mode(store, crate::artifact_history::Mode::Content)?;
                 return Ok(false);
@@ -1021,11 +1023,14 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
     );
     // Primary action emphasis is independent from keyboard focus.
     let keyboard_focus = focused;
+    let active_overview=action==Action::Overview && app.result_open && app.view==View::Conversation && !app.blocking_surface();
     let base = if keyboard_focus {
         Style::default()
             .fg(theme::BACKGROUND)
             .bg(theme::FOCUS)
             .add_modifier(Modifier::BOLD)
+    } else if active_overview {
+        Style::default().fg(theme::FOCUS).bg(theme::PANEL).add_modifier(Modifier::BOLD)
     } else {
         Style::default()
             .fg(if primary { theme::FOCUS } else { theme::TEXT })
@@ -1069,10 +1074,15 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::GiveInstructions => "Compose",
             Action::RecoverOwner => "Recover",
             Action::WriteGuidance => "Recovery",
-            Action::Report => "Report",
-            Action::ReviewEdits => "Edits",
-            Action::Open => "Open",
-            Action::Close => "Back",
+            Action::Report => if available>=8 {"[o] Read"}else{"[o]"},
+            Action::ResultEvidence => "[e]",
+            Action::Compose => "[i]",
+            Action::More => if available>=8 {"[.] More"}else{"[.]"},
+            Action::Versions => "[v]",
+            Action::Provenance => "[p]",
+            Action::ReviewEdits => if available>=9{"[3] Edits"}else{"[3]"},
+            Action::Open => if available>=12{"[Enter] Open"}else{"[Enter]"},
+            Action::Close => "[Esc]",
             Action::Mouse => "Mouse",
             _ => action.label(),
         }
@@ -1092,8 +1102,8 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
         paragraph = paragraph.block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(Style::default().fg(if focused || primary {
+                .border_type(if active_overview{ratatui::widgets::BorderType::Double}else{ratatui::widgets::BorderType::Rounded})
+                .border_style(Style::default().fg(if focused || primary || active_overview {
                     theme::FOCUS
                 } else {
                     theme::BORDER
@@ -1190,7 +1200,7 @@ mod tests {
             assert!(!text.contains("Unsent draft"));
             assert!(!text.contains("Last:"));
             assert!(!text.contains("Step context"));
-            assert!(text.contains("Compose"));
+            assert!(text.contains("[i]"));
         }
         key(&mut app, root.path(), &store, KeyCode::Char('i'));
         assert!(render(&mut app, 80, 24).contains("Unsent draft"));

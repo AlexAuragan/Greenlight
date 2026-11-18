@@ -611,13 +611,14 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
 
     let actions = app.footer_actions();
     let count = actions.len().max(1) as u16;
+    let all_fit=actions.iter().map(|a|a.label().len() as u16+4).sum::<u16>()+count.saturating_sub(1)<=outer[3].width;
     let mut x = outer[3].x;
     for (index, action) in actions.into_iter().enumerate() {
         let preferred = action.label().len() as u16 + 4;
         let remaining = outer[3].right().saturating_sub(x);
         let remaining_count = count.saturating_sub(index as u16);
         let width = preferred
-            .min(if action==shell::Action::Overview {remaining}else{remaining / remaining_count})
+            .min(if all_fit || action==shell::Action::Overview {remaining}else{remaining / remaining_count})
             .max(1)
             .min(remaining);
         shell::button(

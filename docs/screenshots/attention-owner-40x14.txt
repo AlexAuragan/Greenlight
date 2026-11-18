@@ -8,7 +8,7 @@ Greenlight…  ● interrupted · investigate
   The execution record has no live
   owner lock. Recovery checks the lock
   again and refuses a live owner.
-╭───────────╮ ╭───────────╮ ╭──────╮
-│  Recover  │ │ Evidence  │ │ More │
-╰───────────╯ ╰───────────╯ ╰──────╯
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│  Recover  │ │ Evidence  │ │ [.] More │
+╰───────────╯ ╰───────────╯ ╰──────────╯
 Workflow needs attention. Review the evi

@@ -8,7 +8,7 @@ Greenlight / b…  ● blocked · investigate
   The required host-service
   measurement was unavailable. Supply
   logs or revise the approach before
-╭───────────╮ ╭───────────╮ ╭──────╮
-│ Evidence  │ │  Compose  │ │ More │
-╰───────────╯ ╰───────────╯ ╰──────╯
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│ Evidence  │ │  Compose  │ │ [.] More │
+╰───────────╯ ╰───────────╯ ╰──────────╯
 Workflow needs attention. Review the evi

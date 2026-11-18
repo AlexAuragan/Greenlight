@@ -84,6 +84,15 @@ Completed Activity exposes the return to the result explicitly.
 | --- | --- | --- | --- |
 | Activity with Overview action | [PNG](activity-overview-link-80x24.png) | [PNG](activity-overview-link-120x36.png) | [PNG](activity-overview-link-40x14.png) |
 
+
+Footer shortcut badges and the active Overview state are actual control renders; the double border indicates the current view, while solid cyan fill indicates keyboard focus.
+
+| View | 80×24 | 120×36 | 40×14 |
+| --- | --- | --- | --- |
+| Active Overview | [PNG](overview-active-80x24.png) | [PNG](overview-active-120x36.png) | [PNG](overview-active-40x14.png) |
+| Activity shortcut badges | [PNG](activity-shortcuts-80x24.png) | — | — |
+| Report shortcut badges | [PNG](report-shortcuts-80x24.png) | — | — |
+
 Regenerate from the repository root:
 
 ```bash

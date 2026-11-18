@@ -3884,7 +3884,7 @@
 <rect x="410" y="640" width="10" height="20" fill="#1f2937"/>
 <rect x="420" y="640" width="10" height="20" fill="#1f2937"/>
 <rect x="430" y="640" width="10" height="20" fill="#1f2937"/>
-<rect x="440" y="640" width="10" height="20" fill="#111827"/>
+<rect x="440" y="640" width="10" height="20" fill="#1f2937"/>
 <rect x="450" y="640" width="10" height="20" fill="#111827"/>
 <rect x="460" y="640" width="10" height="20" fill="#111827"/>
 <rect x="470" y="640" width="10" height="20" fill="#111827"/>
@@ -4004,7 +4004,7 @@
 <rect x="410" y="660" width="10" height="20" fill="#1f2937"/>
 <rect x="420" y="660" width="10" height="20" fill="#1f2937"/>
 <rect x="430" y="660" width="10" height="20" fill="#1f2937"/>
-<rect x="440" y="660" width="10" height="20" fill="#111827"/>
+<rect x="440" y="660" width="10" height="20" fill="#1f2937"/>
 <rect x="450" y="660" width="10" height="20" fill="#111827"/>
 <rect x="460" y="660" width="10" height="20" fill="#111827"/>
 <rect x="470" y="660" width="10" height="20" fill="#111827"/>
@@ -4124,7 +4124,7 @@
 <rect x="410" y="680" width="10" height="20" fill="#1f2937"/>
 <rect x="420" y="680" width="10" height="20" fill="#1f2937"/>
 <rect x="430" y="680" width="10" height="20" fill="#1f2937"/>
-<rect x="440" y="680" width="10" height="20" fill="#111827"/>
+<rect x="440" y="680" width="10" height="20" fill="#1f2937"/>
 <rect x="450" y="680" width="10" height="20" fill="#111827"/>
 <rect x="460" y="680" width="10" height="20" fill="#111827"/>
 <rect x="470" y="680" width="10" height="20" fill="#111827"/>
@@ -4743,7 +4743,8 @@
 <text x="400" y="656" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
 <text x="410" y="656" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
 <text x="420" y="656" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
-<text x="430" y="656" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">╮</text>
+<text x="430" y="656" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
+<text x="440" y="656" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">╮</text>
 <text x="0" y="676" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
 <text x="20" y="676" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">S</text>
 <text x="30" y="676" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">e</text>
@@ -4769,15 +4770,16 @@
 <text x="270" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">s</text>
 <text x="290" y="676" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
 <text x="310" y="676" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
-<text x="330" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">C</text>
-<text x="340" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">l</text>
-<text x="350" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">o</text>
-<text x="360" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">s</text>
-<text x="370" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">e</text>
-<text x="390" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">E</text>
-<text x="400" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">s</text>
+<text x="330" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">[</text>
+<text x="340" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">E</text>
+<text x="350" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">s</text>
+<text x="360" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">c</text>
+<text x="370" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">]</text>
+<text x="390" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">B</text>
+<text x="400" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">a</text>
 <text x="410" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">c</text>
-<text x="430" y="676" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
+<text x="420" y="676" fill="#e5e7eb" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">k</text>
+<text x="440" y="676" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">│</text>
 <text x="0" y="696" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">╰</text>
 <text x="10" y="696" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
 <text x="20" y="696" fill="#67e8f9" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
@@ -4819,5 +4821,6 @@
 <text x="400" y="696" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
 <text x="410" y="696" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
 <text x="420" y="696" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
-<text x="430" y="696" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">╯</text>
+<text x="430" y="696" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">─</text>
+<text x="440" y="696" fill="#374151" font-family="DejaVu Sans Mono,monospace" font-size="16" font-weight="400" xml:space="preserve">╯</text>
 </svg>

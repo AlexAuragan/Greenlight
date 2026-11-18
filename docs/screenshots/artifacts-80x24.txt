@@ -18,6 +18,6 @@ Artifacts · 12 saved
   read_availability_note.md                          baseline              39 B
 
 
-╭───────────────╮ ╭──────────╮ ╭──────╮
-│ Open selected │ │ Versions │ │ More │
-╰───────────────╯ ╰──────────╯ ╰──────╯
+╭───────────────────────╮ ╭──────────────╮ ╭──────────╮
+│ [Enter] Open selected │ │ [v] Versions │ │ [.] More │
+╰───────────────────────╯ ╰──────────────╯ ╰──────────╯

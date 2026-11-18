@@ -8,6 +8,6 @@ Greenlight / bar…  ● Finished · evaluate
 
   Agent-reported conclusion
   Performance evaluation recorded.
-╭───────────╮ ╭───────────╮ ╭──────╮
-│  Report   │ │   Edits   │ │ More │
-╰───────────╯ ╰───────────╯ ╰──────╯
+╭───────────╮ ╔══════════════╗ ╭───────╮
+│ [o] Read  │ ║ [s] Overview ║ │  [.]  │
+╰───────────╯ ╚══════════════╝ ╰───────╯

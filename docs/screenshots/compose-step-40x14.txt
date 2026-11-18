@@ -9,5 +9,5 @@ Greenlight / bar-…  ● blocked · evaluate
  Startup took 30.1 seconds.
  Enter sends · Alt+Enter newline · Esc…
 ╭───────────╮ ╭───────────╮ ╭──────────╮
-│   Send    │ │    To     │ │   Back   │
+│   Send    │ │    To     │ │   [Esc]  │
 ╰───────────╯ ╰───────────╯ ╰──────────╯
