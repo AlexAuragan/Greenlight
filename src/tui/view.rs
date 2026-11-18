@@ -105,9 +105,11 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
 }
 fn draw_workspace(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    if area.width < 40 || area.height < 14 || (app.approval.is_some() && area.height < 20) {
+    if area.width < 40 || area.height < 14 || ((app.approval.is_some() || app.edits.pending.is_some()) && area.height < 20) {
         let text = if app.approval.is_some() {
             "Resize to at least 40×20 to review approval. Decisions disabled. Esc denies."
+        } else if app.edits.pending.is_some() {
+            "Resize to at least 40×20 to review the reverse diff. Revert disabled. Esc cancels."
         } else {
             "Terminal too small. Resize to at least 40×14. Drafts preserved. q quits when idle."
         };

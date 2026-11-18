@@ -57,6 +57,14 @@ pub(super) enum Action {
     UsageAccounting,
     DetailsBack,
     UsageRequest(usize),
+    OpenEdit,
+    KeepFile,
+    KeepAll,
+    RevertFile,
+    RevertAll,
+    ConfirmRevert,
+    CancelRevert,
+    EditAll,
     ReviewOpen,
     ReviewBack,
     Follow,
@@ -115,6 +123,14 @@ impl Action {
             Self::Copy => "Copy",
             Self::Editor => "Editor",
             Self::Filter => "Filter",
+            Self::OpenEdit => "Open selected diff",
+            Self::KeepFile => "Keep file",
+            Self::KeepAll => "Keep all",
+            Self::RevertFile => "Preview file revert",
+            Self::RevertAll => "Preview all reverts",
+            Self::ConfirmRevert => "Revert [y]",
+            Self::CancelRevert => "Cancel [n]",
+            Self::EditAll => "All files",
             Self::ReviewOpen => "[e] Full evidence",
             Self::ReviewBack => "Back to review",
             Self::Usage => "Usage",
@@ -213,6 +229,7 @@ impl App {
             self.shell.more, self.shell.menu_index, self.shell.actions_focus
         ) + &format!(":{:?}:{:?}:{:?}", self.details.page, self.details.selected, self.details.page.and(self.details.report.as_ref()).map(|r| r.calls.iter().map(|c|c.id.as_str()).collect::<Vec<_>>()))
             + &format!(":{:?}:{}:{}", self.compose.mode, self.checkpoint.reading, self.checkpoint.index)
+            + &format!(":{}",self.edits.overview)
             + &format!(
                 ":{:?}",
                 self.sessions
@@ -225,7 +242,7 @@ impl App {
                 self.edits
                     .files
                     .iter()
-                    .map(|f| (&f.path, f.writes))
+                    .map(|f| (&f.path, f.revision, f.kept))
                     .collect::<Vec<_>>()
             )
     }
@@ -283,6 +300,7 @@ impl App {
             Action::New,
             Action::Usage,
         ];
+        if self.view==View::Edits && !self.edits.files.is_empty() {actions.splice(0..0,[Action::OpenEdit,Action::EditAll,Action::RevertAll]);}
         if self.focus != Focus::Compose {
             actions.extend([Action::Copy, Action::Editor]);
         }
@@ -388,6 +406,7 @@ impl App {
             return vec![Action::FullDiagnostic, Action::Close];
         }
         if self.details.page.is_some() { return self.details.actions(); }
+        if self.edits.pending.is_some() {return vec![Action::CancelRevert,Action::ConfirmRevert,Action::Help];}
         if self.blocking_surface() {
             return vec![Action::Help, Action::Close];
         }
@@ -411,6 +430,16 @@ impl App {
                 Action::ReviewEdits,
                 Action::More,
             ];
+        }
+        if self.view == View::Edits {
+            if self.edits.error.is_some() || self.edits.files.is_empty() {return vec![Action::More];}
+            let compact=self.viewport.0<60;
+            if self.edits.overview {
+                if !self.edits.files.iter().any(|f|f.changed() || f.gap){return vec![Action::OpenEdit,Action::More];}
+                return if compact{vec![Action::KeepAll,Action::RevertAll,Action::More]}else{vec![Action::KeepAll,Action::RevertAll,Action::OpenEdit,Action::More]};
+            }
+            if !self.edits.files.get(self.edits.index).is_some_and(|f|f.changed() && !f.gap){return vec![Action::EditAll,Action::More];}
+            return if compact{vec![Action::KeepFile,Action::RevertFile,Action::More]}else{vec![Action::KeepFile,Action::RevertFile,Action::EditAll,Action::More]};
         }
         if self.view == View::Artifacts {
             if self.artifact().is_none() {
@@ -694,6 +723,14 @@ impl App {
             Copy => KeyCode::Char('C'),
             Editor => KeyCode::Char('E'),
             Filter => KeyCode::Char('F'),
+            ConfirmRevert => KeyCode::Char('y'),
+            CancelRevert => KeyCode::Char('n'),
+            OpenEdit => {self.edits.overview=false;self.edits.select(0);self.focus=Focus::Detail;self.detail_scroll=0;return Ok(false);}
+            KeepFile => { self.keep_edits(root,store,false); return Ok(false); }
+            KeepAll => { self.keep_edits(root,store,true); return Ok(false); }
+            RevertFile => { self.prepare_revert(root,store,false); return Ok(false); }
+            RevertAll => { self.prepare_revert(root,store,true); return Ok(false); }
+            EditAll => { self.edits.overview=true;self.focus=Focus::Artifacts;self.detail_scroll=0;return Ok(false); }
             ReviewOpen => { self.checkpoint_open(store); return Ok(false); }
             ReviewBack => { self.checkpoint_back(store); return Ok(false); }
             Usage => {
@@ -763,6 +800,7 @@ impl App {
             Edit(i) => {
                 if i < self.edits.files.len() {
                     self.edits.index = i;
+                    self.edits.overview=false;
                     self.edits.select(0);
                     self.focus = Focus::Detail;
                     self.inspector_open = true;
@@ -958,6 +996,13 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::Help => "Help",
             Action::InspectAttention => "Evidence",
             Action::FullDiagnostic => "Details",
+            Action::OpenEdit => "Diff",
+            Action::KeepAll => "Keep *",
+            Action::EditAll => "All",
+            Action::ConfirmRevert => "Revert",
+            Action::CancelRevert => "Cancel",
+            Action::KeepFile => "Keep",
+            Action::RevertFile | Action::RevertAll => "Revert",
             Action::ReviewOpen => "Evidence [e]",
             Action::ReviewBack => "Back",
             Action::Technical => "Technical",

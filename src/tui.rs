@@ -515,6 +515,7 @@ impl App {
             self.blocker_card = false;
             self.context_detail = None;
         }
+        self.refresh_revert(store);
         self.refresh_checkpoint(store);
         self.refresh_run_details(store);
         if self.view == View::Edits && self.edits.pending.is_none() {

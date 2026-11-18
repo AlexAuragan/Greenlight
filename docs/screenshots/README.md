@@ -54,6 +54,17 @@ Human review captures use typed fixture metadata and a locally owned review. The
 | Changed input | [PNG](checkpoint-changed-80x24.png) | — | — |
 | Unsupported size | [PNG](checkpoint-small-40x14.png) | — | — |
 
+
+Edits captures cover native journal revisions only. Keep is saved review intent; no source mutation occurs until an explicitly confirmed revert.
+
+| View | 80×24 | 120×36 | 40×14 |
+| --- | --- | --- | --- |
+| All recorded paths | [PNG](edits-all-80x24.png) | [PNG](edits-all-120x36.png) | [PNG](edits-all-40x14.png) |
+| Selected recorded diff | [PNG](edits-file-80x24.png) | [PNG](edits-file-120x36.png) | [PNG](edits-file-40x14.png) |
+| Kept revision | [PNG](edits-kept-80x24.png) | — | — |
+| Manual drift | [PNG](edits-drift-80x24.png) | — | — |
+| Reverse-diff preview | [PNG](edits-revert-80x24.png) | [40×20](edits-revert-40x20.png) | [Safe fallback](edits-revert-small-40x14.png) |
+
 Regenerate from the repository root:
 
 ```bash

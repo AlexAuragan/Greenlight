@@ -35,6 +35,8 @@ impl App {
             ("revert preview".into(), pending.preview.clone())
         } else if self.result_open && self.view == View::Conversation {
             ("workflow result".into(), self.result_text.clone())
+        } else if self.view == View::Edits && self.edits.overview && self.edits.error.is_none() {
+            ("recorded native edits overview".into(),format!("Edits · selected session / active branch\nNative journal only; shell/manual changes are outside coverage.\n{}\n\nKeep records historical review intent, not live disk validation, tool permission or Git staging.",self.edits.files.iter().map(|f|format!("{} · {} · revision #{} · {}",f.path,f.label(),f.revision,if f.kept{"Kept revision"}else{"Not kept"})).collect::<Vec<_>>().join("\n")))
         } else if self.view == View::Edits {
             (
                 "recorded code diff".into(),

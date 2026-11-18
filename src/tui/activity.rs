@@ -165,6 +165,7 @@ pub(super) fn is_chatter(kind: &str) -> bool {
 
 pub(super) fn conversational_label(kind: &str) -> &str {
     match kind {
+        "edits.kept" => "Edits review saved",
         "user.instruction" => "You",
         "activity.title" => "Agent intent (model-authored)",
         "workspace.correlation" => "Workspace hash/journal audit",

@@ -338,11 +338,14 @@ fn edits_tab_renders_at_supported_sizes_and_detail_navigation_keeps_file_selecti
     }
     app.viewport = (80, 24);
     key(&mut app, root.path(), &store, KeyCode::Enter);
+    assert!(app.shell.actions_focus);
+    assert!(app.edits.overview);
+    key(&mut app, root.path(), &store, KeyCode::Esc);
+    key(&mut app, root.path(), &store, KeyCode::Tab);
     assert_eq!(app.focus, Focus::Detail);
     key(&mut app, root.path(), &store, KeyCode::Down);
     assert_eq!(app.edits.index, 0);
-    key(&mut app, root.path(), &store, KeyCode::Enter);
-    key(&mut app, root.path(), &store, KeyCode::Down);
+    key(&mut app, root.path(), &store, KeyCode::Tab);
     assert_eq!(app.edits.index, 1);
     assert!(app.export_snapshot().unwrap().text.contains("new b"));
 }
@@ -378,4 +381,110 @@ fn restore_engine_rechecks_history_under_ownership_before_applying() {
         fs::read_to_string(root.path().join("a.txt")).unwrap(),
         "candidate"
     );
+}
+
+#[test]
+fn keep_is_persistent_revision_review_without_source_git_or_permission_changes() {
+    let (root,store,session,mut app)=setup();
+    edit(root.path(),&store,&session,"a.txt",Some("original"),"candidate");
+    fs::create_dir(root.path().join(".git")).unwrap();fs::write(root.path().join(".git/index"),"unchanged index").unwrap();
+    key(&mut app,root.path(),&store,KeyCode::Char('3'));
+    assert!(!app.edits.overview);
+    let before=store.history(&session).unwrap();
+    app.keep_edits(root.path(),&store,false);
+    assert!(app.diagnostic.is_none(),"{:?}",app.diagnostic);
+    assert!(app.edits.files[0].kept);
+    assert_eq!(fs::read_to_string(root.path().join("a.txt")).unwrap(),"candidate");
+    assert_eq!(fs::read_to_string(root.path().join(".git/index")).unwrap(),"unchanged index");
+    let after=store.history(&session).unwrap();assert_eq!(after.len(),before.len()+1);
+    assert_eq!(after.last().unwrap().2,"edits.kept");
+    assert!(!after.iter().any(|e|e.2=="human.approved" || e.2=="permission.decision"));
+    let mut reopened=App::new(Some(&session.id));reopened.refresh(&store).unwrap();
+    key(&mut reopened,root.path(),&store,KeyCode::Char('3'));
+    assert!(reopened.edits.files[0].kept);
+    edit(root.path(),&store,&session,"a.txt",Some("candidate"),"candidate");
+    reopened.refresh(&store).unwrap();assert!(!reopened.edits.files[0].kept);
+    reopened.keep_edits(root.path(),&store,false);assert!(reopened.edits.files[0].kept);
+    key(&mut reopened,root.path(),&store,KeyCode::Char('u'));
+    key(&mut reopened,root.path(),&store,KeyCode::Char('y'));
+    assert_eq!(fs::read_to_string(root.path().join("a.txt")).unwrap(),"original");
+    assert!(!reopened.edits.files[0].kept);assert!(!reopened.edits.files[0].changed());
+}
+#[test]
+fn keep_all_is_not_partial_and_keep_file_does_not_check_unrelated_drift() {
+    let (root,store,session,mut app)=setup();
+    edit(root.path(),&store,&session,"a.txt",Some("original a"),"candidate a");
+    edit(root.path(),&store,&session,"b.txt",None,"candidate b");
+    key(&mut app,root.path(),&store,KeyCode::Char('3'));
+    assert!(app.edits.overview);
+    fs::write(root.path().join("b.txt"),"manual work").unwrap();
+    app.keep_edits(root.path(),&store,true);
+    assert!(app.diagnostic.as_ref().unwrap().contains("differs"));
+    assert!(!store.history(&session).unwrap().iter().any(|e|e.2=="edits.kept"));
+    app.clear_diagnostic();app.keep_edits(root.path(),&store,false);
+    assert!(app.edits.files[0].kept);assert!(!app.edits.files[1].kept);
+    assert_eq!(fs::read_to_string(root.path().join("b.txt")).unwrap(),"manual work");
+    // A manual return to the pre-edit baseline is drift, not acceptance of the candidate.
+    fs::write(root.path().join("a.txt"),"original a").unwrap();
+    app.keep_edits(root.path(),&store,false);
+    assert!(app.diagnostic.as_ref().unwrap().contains("differs"));
+    assert_eq!(store.history(&session).unwrap().iter().filter(|e|e.2=="edits.kept").count(),1);
+}
+#[test]
+fn keep_scope_and_revision_checks_reject_gaps_live_owners_and_stale_views() {
+    let (root,store,mut session,mut app)=setup();
+    edit(root.path(),&store,&session,"a.txt",Some("old"),"candidate");
+    key(&mut app,root.path(),&store,KeyCode::Char('3'));
+    let lock=store.native_write_lock().unwrap();app.keep_edits(root.path(),&store,true);
+    assert!(app.diagnostic.is_some());drop(lock);app.clear_diagnostic();
+    let owner=store.claim_execution(&session.id,None).unwrap();
+    app.keep_edits(root.path(),&store,true);assert!(app.diagnostic.is_some());
+    store.finish_execution(&session.id,&owner,None).unwrap();drop(owner);app.clear_diagnostic();app.refresh(&store).unwrap();
+    // A newly persisted event must be refreshed before the displayed revision can be kept.
+    store.event(&session,None,"user.note","new history").unwrap();
+    app.keep_edits(root.path(),&store,true);assert!(app.diagnostic.as_ref().unwrap().contains("changed"));
+    app.clear_diagnostic();app.refresh(&store).unwrap();
+    app.keep_edits(root.path(),&store,true);assert!(app.edits.files[0].kept);
+    let cutoff=store.history(&session).unwrap().last().unwrap().0;
+    session=store.session(&session.id).unwrap();store.fork(&mut session,cutoff,"evaluate").unwrap();
+    app.refresh(&store).unwrap();assert!(!app.edits.files[0].kept);
+    edit(root.path(),&store,&session,"a.txt",Some("out of band baseline"),"later candidate");
+    app.refresh(&store).unwrap();assert!(app.edits.files[0].gap);
+    app.keep_edits(root.path(),&store,true);assert!(app.diagnostic.as_ref().unwrap().contains("History gap"));
+    assert_eq!(store.history(&session).unwrap().iter().filter(|e|e.2=="edits.kept").count(),1);
+}
+#[test]
+fn edits_cycle_and_action_focus_are_separate_and_confirmations_capture_tab() {
+    let (root,store,session,mut app)=setup();
+    key(&mut app,root.path(),&store,KeyCode::Char('3'));
+    key(&mut app,root.path(),&store,KeyCode::Tab);assert!(app.edits.overview);
+    edit(root.path(),&store,&session,"a.txt",Some("old a"),"new a");app.refresh(&store).unwrap();
+    // Refresh preserves an explicitly selected All-files view; cycling opens the file.
+    key(&mut app,root.path(),&store,KeyCode::Tab);assert!(!app.edits.overview);assert_eq!(app.edits.index,0);
+    edit(root.path(),&store,&session,"b.txt",None,"new b");app.refresh(&store).unwrap();
+    key(&mut app,root.path(),&store,KeyCode::Tab);assert_eq!(app.edits.index,1);
+    key(&mut app,root.path(),&store,KeyCode::Tab);assert!(app.edits.overview);
+    key(&mut app,root.path(),&store,KeyCode::BackTab);assert!(!app.edits.overview);assert_eq!(app.edits.index,1);
+    key(&mut app,root.path(),&store,KeyCode::Enter);assert!(app.shell.actions_focus);
+    assert!(!app.edits.files[1].kept);
+    key(&mut app,root.path(),&store,KeyCode::Enter);assert!(app.edits.files[1].kept);
+    key(&mut app,root.path(),&store,KeyCode::Char('u'));assert!(app.edits.pending.is_some());
+    let selected=app.edits.index;key(&mut app,root.path(),&store,KeyCode::Tab);assert_eq!(app.edits.index,selected);
+    key(&mut app,root.path(),&store,KeyCode::Char('h'));key(&mut app,root.path(),&store,KeyCode::Char('y'));
+    assert!(root.path().join("b.txt").exists());key(&mut app,root.path(),&store,KeyCode::Esc);assert!(app.edits.pending.is_some());
+    app.viewport=(40,14);key(&mut app,root.path(),&store,KeyCode::Char('y'));assert!(app.edits.pending.is_some());
+    key(&mut app,root.path(),&store,KeyCode::Esc);assert!(app.edits.pending.is_none());
+}
+
+#[test]
+fn keep_rechecks_snapshot_bodies_even_when_the_event_revision_did_not_change() {
+    let (root,store,session,mut app)=setup();
+    edit(root.path(),&store,&session,"a.txt",Some("original"),"candidate");
+    key(&mut app,root.path(),&store,KeyCode::Char('3'));
+    // Simulate loss of a journal snapshot after the review was loaded, without a new event.
+    store.db.execute("UPDATE file_changes SET before_blob='missing-review-snapshot' WHERE session=?1",[&session.id]).unwrap();
+    app.keep_edits(root.path(),&store,false);
+    assert!(app.diagnostic.is_some());assert!(app.edits.error.is_some());
+    assert!(!store.history(&session).unwrap().iter().any(|e|e.2=="edits.kept"));
+    assert_eq!(fs::read_to_string(root.path().join("a.txt")).unwrap(),"candidate");
 }

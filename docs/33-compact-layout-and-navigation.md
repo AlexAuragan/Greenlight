@@ -53,3 +53,10 @@ Earlier PNG/SVG assets remain historical studies. Their function-key text and lo
 Later checks: every action reachable without function keys; forward/backward Tab cycles; file review ↔ actions; no accidental activation on Enter transfer; arrows and `j/k`; editor literal letters; Help return and expiry; resize; long paths/commands; mouse and keyboard focus equivalence. No model calls or code changes in this design pass.
 
 The [consolidated implementation plan](34-ui-implementation-plan.md) separates agreed direction from detailed proposals and defines the first code slice.
+
+
+## Edits review implementation — 2026-11-18
+
+Implemented All files and file views, scoped Tab/Shift+Tab cycling, quiet overview row selection, explicit diff opening and separate action focus. Keep file/all persists review intent in `edits.kept` events keyed by session/branch/path/native revision; later writes/restores invalidate the earlier mark and forked branches require their own review. Keep checks fresh snapshots and disk contents under idle-session/native-write guards, records all requested revisions in one event and never mutates source, Git or authorization state. A saved marker describes a recorded revision, not ongoing disk validation; unkept edits are already applied and are not reverted on exit. Keep all refuses conflicts rather than accepting a partial set.
+
+Revert retains the existing restore guards and explicit decision. Reverse diffs use bounded colored readers with prefixes, stale previews expire, Help captures decisions and undersized confirmations cannot activate. Actual [Ratatui captures](screenshots/README.md) cover wide/narrow lists, file diffs, saved review, drift and reverse-diff previews. Verification: 324 full-suite tests passed, one existing test ignored; 125 TUI tests passed after final presentation refinements. Offline build and Clippy completed (five existing test-code warnings). A local fixture-provider PTY check covers Tab cycling, inert focus transfer, Keep one/all and guarded single-file revert without extra inference. Session navigation refinements and the final consistency pass remain separate work.

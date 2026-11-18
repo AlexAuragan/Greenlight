@@ -122,6 +122,18 @@ impl App {
             }
             return Ok(false);
         }
+        if !typing && self.view==View::Edits && !self.blocking_surface() && !self.shell.actions_focus && self.focus!=Focus::Sessions {
+            match key.code {
+                KeyCode::Tab | KeyCode::BackTab => {
+                    self.edits.cycle(key.code==KeyCode::BackTab);
+                    self.focus=if self.edits.overview{Focus::Artifacts}else{Focus::Detail};
+                    self.detail_scroll=0;
+                    return Ok(false);
+                }
+                KeyCode::Enter => {self.shell.actions_focus=true;self.shell.action_index=0;return Ok(false);}
+                _ => {}
+            }
+        }
         if !typing
             && (!self.blocking_surface()
                 || self.details.page.is_some() && self.approval.is_none() && self.diagnostic.is_none()
@@ -213,6 +225,7 @@ impl App {
             if key.code == KeyCode::Esc && self.approval.is_some() {
                 self.deliver_checked_approval('n', store)?;
             }
+            if key.code == KeyCode::Esc && self.edits.pending.is_some() {self.edits.pending=None;self.notice="Revert cancelled; no files changed.".into();}
             return Ok(key.code == KeyCode::Char('q')
                 && self.runner.is_none()
                 && self.manager_job.is_none());

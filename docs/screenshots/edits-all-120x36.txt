@@ -1,0 +1,35 @@
+Greenlight / bar-project                                                                             ● ready · implement
+
+[1] Activity  [2] Artifacts [3] Edits                                            [f] Sessions    [c] Details  [h] Help
+
+Edits · All files
+Native journal only · shell/manual changes are outside coverage
+2 changed / 3 recorded paths · 0 Kept revision(s)
+Tab/Shift+Tab cycles views · Enter focuses actions
+› bar.py  modified · Not kept
+  startup.py  added · Not kept
+  unchanged.txt  no net change / reverted · —
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Keep saves review intent, not verification or tool approval.
+Kept revision is not a live disk check; files are already applied.
+╭──────────╮ ╭─────────────────────╮ ╭────────────────────╮ ╭──────╮
+│ Keep all │ │ Preview all reverts │ │ Open selected diff │ │ More │
+╰──────────╯ ╰─────────────────────╯ ╰────────────────────╯ ╰──────╯

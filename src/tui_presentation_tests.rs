@@ -651,3 +651,41 @@ fn human_checkpoint_and_step_result_have_distinct_review_surfaces() {
     assert_eq!(store.history(&s).unwrap().len(),before+1);
     assert!(!store.history(&s).unwrap().iter().any(|e|e.2=="human.approved" || e.2=="verification.human"));
 }
+
+#[test]
+fn edits_review_renders_all_file_keep_and_guarded_revert_states() {
+    let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();
+    let store=Store::open(root.path()).unwrap();let session=store.create("fix-bug","Review source changes","implement").unwrap();
+    for (path,before,after) in [("bar.py",Some("start_service()\n"),"start_service_async()\n"),("startup.py",None,"warm_cache()\n"),("unchanged.txt",Some("same\n"),"same\n")] {
+        std::fs::write(root.path().join(path),after).unwrap();store.add_change(&session,"implement",path,before,after).unwrap();
+    }
+    let mut app=App::new(Some(&session.id));app.shell.project="bar-project".into();app.refresh(&store).unwrap();
+    app.switch_view(View::Edits);app.refresh_edits(&store);
+    for (w,h) in [(80,24),(120,36),(40,14)] {
+        let output=text(&screen(&mut app,w,h,"edits-all"));
+        assert!(output.contains("All files"));assert!(output.contains("bar.py"));
+        if w>=80 {assert!(output.contains("2 changed / 3 recorded paths"));assert!(output.contains("Keep all"));assert!(!output.contains("start_service_async"));}
+    }
+    app.edits.cycle(false);app.focus=Focus::Detail;
+    assert!(!app.edits.overview);
+    for (w,h) in [(80,24),(120,36),(40,14)] {
+        let buffer=screen(&mut app,w,h,"edits-file");let output=text(&buffer);
+        assert!(output.contains("bar.py"));
+        if w>=80 {assert!(output.contains("+start_service_async"));assert!(buffer.content.iter().any(|c|c.fg==theme::GOOD));assert!(buffer.content.iter().any(|c|c.fg==theme::ERROR));}
+    }
+    app.viewport=(80,24);app.keep_edits(root.path(),&store,false);
+    assert!(app.edits.files[0].kept);screen(&mut app,80,24,"edits-kept");
+    app.prepare_revert(root.path(),&store,false);assert!(app.edits.pending.is_some());
+    for (w,h) in [(80,24),(40,20)] {let output=text(&screen(&mut app,w,h,"edits-revert"));assert!(output.contains("proposed"));}
+    let small=text(&screen(&mut app,40,14,"edits-revert-small"));
+    assert!(small.contains("Revert disabled"));assert!(!small.contains("Revert [y]"));
+    assert_eq!(std::fs::read_to_string(root.path().join("bar.py")).unwrap(),"start_service_async()\n");
+    app.edits.pending=None;app.viewport=(80,24);std::fs::write(root.path().join("bar.py"),"manual adjustment\n").unwrap();
+    app.keep_edits(root.path(),&store,false);
+    let output=text(&screen(&mut app,80,24,"edits-drift"));assert!(output.contains("Needs attention"));
+    assert!(app.diagnostic.as_ref().unwrap().contains("differs"));
+    app.clear_diagnostic();app.edits.overview=true;app.keep_edits(root.path(),&store,true);
+    assert_eq!(store.history(&session).unwrap().iter().filter(|e|e.2=="edits.kept").count(),1);
+    assert_eq!(std::fs::read_to_string(root.path().join("bar.py")).unwrap(),"manual adjustment\n");
+    assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,0);
+}
