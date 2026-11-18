@@ -116,7 +116,6 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), area);
         return;
     }
-    let compact = area.width < 72 || area.height < 22;
     let outer = Layout::vertical([
         Constraint::Length(4),
         Constraint::Min(if app.composer_active() && area.height < 22 {
@@ -202,6 +201,7 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         (shell::Action::Artifacts, View::Artifacts),
         (shell::Action::Edits, View::Edits),
     ] {
+        if app.session().is_none(){continue}
         let width = action.label().len() as u16 + 1;
         shell::tab(
             frame,
@@ -250,61 +250,18 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         || app.context_detail.is_some()
         || app.restart_plan.is_some()
         || !app.restart_choices.is_empty();
-    let show_sessions = app.shell.sessions || app.focus == Focus::Sessions;
+    let show_sessions = app.shell.sessions;
+    let overlay=overlay && !show_sessions;
     let widths = if !show_sessions || overlay {
         [Constraint::Length(0), Constraint::Percentage(100)]
-    } else if compact {
+    } else if area.width<100 {
         [Constraint::Percentage(100), Constraint::Length(0)]
     } else {
-        [Constraint::Length(30), Constraint::Min(1)]
+        [Constraint::Length(40), Constraint::Min(1)]
     };
     let columns = Layout::horizontal(widths).split(outer[1]);
 
-    let sessions = app.sessions.iter().map(|session| {
-        ListItem::new(format!(
-            "{}\n{} · {}",
-            inline_display(&session.goal),
-            inline_display(&session.status),
-            inline_display(&session.current_step)
-        ))
-    });
-    let sessions_list = List::new(sessions)
-        .block(
-            border(" Sessions · f/n ", app.focus == Focus::Sessions).title_bottom(format!(
-                " {}/{} · {} ",
-                app.sessions.len(),
-                app.session_total,
-                inline_display(&app.session_query)
-            )),
-        )
-        .highlight_symbol("▶ ")
-        .highlight_style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
-    let mut session_state = ListState::default();
-    if !app.sessions.is_empty() {
-        session_state.select(Some(app.session_index));
-    }
-    frame.render_stateful_widget(sessions_list, columns[0], &mut session_state);
-    for index in session_state.offset()..app.sessions.len() {
-        let y = columns[0].y + 1 + ((index - session_state.offset()) * 2) as u16;
-        if y >= columns[0].bottom().saturating_sub(1) {
-            break;
-        }
-        app.shell.hit(
-            ratatui::layout::Rect::new(
-                columns[0].x,
-                y,
-                columns[0].width,
-                2.min(columns[0].bottom().saturating_sub(1) - y),
-            ),
-            shell::Action::Session(index),
-        );
-    }
-
+    if show_sessions {navigation::draw(frame,app,columns[0]);}
     if overlay {
         app.shell.hits.borrow_mut().clear();
     }
@@ -392,20 +349,6 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         );
     } else if app.new_session.is_some() {
         compose::draw_creation(frame, app, columns[1]);
-    } else if app.searching {
-        input_panel(
-            frame,
-            app,
-            &app.session_editor,
-            &app.session_query,
-            " Find session ",
-            &format!(
-                "{} of {} sessions · ↑/↓ select · Enter keep · Esc clear",
-                app.sessions.len(),
-                app.session_total
-            ),
-            columns[1],
-        );
     } else if let Some(message) = &app.diagnostic {
         if app.diagnostic_detail {
             reader::draw_document(
@@ -453,6 +396,13 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         );
     } else if app.restart_plan.is_some() || !app.restart_choices.is_empty() {
         recovery::draw(frame, app, columns[1]);
+    } else if app.navigation.error.is_some() || app.navigation.load_error.is_some() || app.navigation.missing.is_some() || app.session().is_none() {
+        let text=if let Some(e)=&app.navigation.error {format!("Session discovery unavailable\n\n{e}\n\nRetry discovery; no new session or workflow was started.")}
+            else if let Some(e)=&app.navigation.load_error {format!("Opened session data unavailable\n\n{e}\n\nRetry or use Sessions to choose another run. No replacement was opened.")}
+            else if let Some(e)=&app.navigation.missing {format!("Opened session unavailable\n\n{e}\n\nSessions opens the browser; choose and Open another session.")}
+            else if let Some(e)=&app.navigation.setup {format!("Project setup needs attention\n\n{e}\n\nNo sessions in this project.")}
+            else {"No sessions in this project\n\nChoose New session to select a workflow and enter a goal.\nSessions opens project history; Help explains the controls.".into()};
+        frame.render_widget(Paragraph::new(safe_display(&text)).style(Style::default().fg(if app.navigation.error.is_some() || app.navigation.load_error.is_some(){theme::ERROR}else{theme::TEXT})).wrap(Wrap{trim:false}),columns[1]);
     } else if app.composer_active() {
         let context = app
             .session()
@@ -484,10 +434,6 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         edits::draw(frame, app, columns[1]);
     } else if app.result_open && app.view == View::Conversation {
         result::draw(frame, app, columns[1]);
-    } else if app.session().is_none() {
-        frame.render_widget(Paragraph::new(if app.session_query.is_empty() {
-            "No sessions selected.\n\nChoose New session to select a workflow, enter a goal and start.\nSessions opens project history; Help explains the current controls."
-        } else {"No sessions match this search.\n\nUse f to change the search, or clear it with Esc in the search field."}).wrap(Wrap{trim:false}).block(border(" Project workspace ",false)),columns[1]);
     } else if app.view == View::Artifacts {
         let panes = Layout::horizontal(if app.focus == Focus::Detail || app.inspector_open {
             if columns[1].width >= 100 {

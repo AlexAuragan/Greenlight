@@ -425,8 +425,8 @@ fn draw_content(
                 .highlight_symbol("▶ ")
                 .highlight_style(
                     Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
+                        .fg(if app.shell.sessions{theme::MUTED}else{Color::Black})
+                        .bg(if app.shell.sessions{theme::PANEL}else{Color::Cyan})
                         .add_modifier(Modifier::BOLD),
                 );
             let mut selected = ListState::default();

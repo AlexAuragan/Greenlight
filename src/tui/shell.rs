@@ -57,6 +57,11 @@ pub(super) enum Action {
     UsageAccounting,
     DetailsBack,
     UsageRequest(usize),
+    OpenCandidate,
+    CloseNavigator,
+    ClearSearch,
+    NavSearch,
+    RetryDiscovery,
     OpenEdit,
     KeepFile,
     KeepAll,
@@ -123,6 +128,11 @@ impl Action {
             Self::Copy => "Copy",
             Self::Editor => "Editor",
             Self::Filter => "Filter",
+            Self::OpenCandidate => "Open selected",
+            Self::CloseNavigator => "Back",
+            Self::ClearSearch => "Clear search",
+            Self::NavSearch => "Search [f]",
+            Self::RetryDiscovery => "Retry discovery",
             Self::OpenEdit => "Open selected diff",
             Self::KeepFile => "Keep file",
             Self::KeepAll => "Keep all",
@@ -229,7 +239,8 @@ impl App {
             self.shell.more, self.shell.menu_index, self.shell.actions_focus
         ) + &format!(":{:?}:{:?}:{:?}", self.details.page, self.details.selected, self.details.page.and(self.details.report.as_ref()).map(|r| r.calls.iter().map(|c|c.id.as_str()).collect::<Vec<_>>()))
             + &format!(":{:?}:{}:{}", self.compose.mode, self.checkpoint.reading, self.checkpoint.index)
-            + &format!(":{}",self.edits.overview)
+            + &format!(":{}:{:?}:{:?}",self.edits.overview,self.navigation.selected,self.navigation.candidates.iter().map(|s|s.id.as_str()).collect::<Vec<_>>())
+            + &format!(":{}:{}:{}",self.navigation.error.is_some(),self.navigation.load_error.is_some(),self.navigation.missing.is_some())
             + &format!(
                 ":{:?}",
                 self.sessions
@@ -251,7 +262,7 @@ impl App {
         *self.shell.stamp.borrow_mut() = self.shell_stamp();
     }
     pub(super) fn blocking_surface(&self) -> bool {
-        self.details.page.is_some()
+        self.shell.sessions || self.navigation.error.is_some() || self.navigation.load_error.is_some() || self.details.page.is_some()
             || self.help
             || self.approval.is_some()
             || self.shell.more
@@ -293,6 +304,7 @@ impl App {
             ];
         }
 
+        if self.session().is_none() {return vec![Action::New,Action::Sessions,Action::Help];}
         let mut actions = vec![
             Action::Activity,
             Action::Artifacts,
@@ -327,13 +339,17 @@ impl App {
         if self.session().is_some() {
             actions.push(Action::ManagerReplies);
         }
-        actions.extend([Action::Sessions, Action::Details, Action::Help]);
+        actions.push(Action::Sessions);
+        if self.session().is_some(){actions.push(Action::Details);}
+        actions.push(Action::Help);
         actions.extend([Action::Preview, Action::Expand]);
         actions
     }
     pub(super) fn header_actions(&self) -> Vec<Action> {
-        if self.blocking_surface() {
+        if self.blocking_surface() || self.session_total==0 {
             vec![Action::Help]
+        } else if self.session().is_none() {
+            vec![Action::Sessions,Action::Help]
         } else {
             vec![Action::Sessions, Action::Details, Action::Help]
         }
@@ -348,6 +364,18 @@ impl App {
             }
             return vec![Action::Help];
         }
+        if self.shell.sessions {
+            if self.navigation.error.is_some(){return vec![Action::RetryDiscovery,Action::CloseNavigator];}
+            let mut actions=Vec::new();
+            if self.navigation.candidate().is_some(){actions.push(Action::OpenCandidate);}
+            if !self.session_query.is_empty(){actions.push(Action::ClearSearch);}
+            if self.session_total==0{actions.push(Action::New);}
+            actions.push(Action::CloseNavigator);
+            return actions;
+        }
+        if self.navigation.error.is_some(){return vec![Action::RetryDiscovery,Action::Help];}
+        if self.navigation.load_error.is_some(){return vec![Action::Sessions,Action::RetryDiscovery,Action::Help];}
+        if self.navigation.missing.is_some(){return vec![Action::Sessions,Action::New,Action::Help];}
         if self.new_session.is_some() {
             return if self.new_session.as_ref().is_some_and(|f| f.goal.is_some()) {
                 vec![
@@ -459,7 +487,7 @@ impl App {
     }
     pub(super) fn shell_actions(&self) -> Vec<Action> {
         let mut actions = self.footer_actions();
-        if !self.blocking_surface() || self.new_session.is_some() || self.diagnostic.is_some() || self.details.page.is_some() {
+        if !self.blocking_surface() || self.new_session.is_some() || self.diagnostic.is_some() || self.details.page.is_some() || self.shell.sessions {
             actions.extend(self.header_actions());
         }
         actions
@@ -494,6 +522,7 @@ impl App {
     }
     pub(super) fn activate(&mut self, action: Action, root: &Path, store: &Store) -> Result<bool> {
         use Action::*;
+        if self.shell.sessions && matches!(action,Activity|Artifacts|Edits|Event(_)|Artifact(_)|Edit(_)|Details|Compose) {self.close_navigator();}
         self.shell.actions_focus = false;
         if self.composer_active()
             && !matches!(
@@ -688,15 +717,16 @@ impl App {
                 return Ok(false);
             }
             Sessions => {
-                self.shell.sessions = !self.shell.sessions;
-                self.focus = if self.shell.sessions {
-                    Focus::Sessions
-                } else {
-                    self.main_focus()
-                };
+                if self.shell.sessions{self.close_navigator();}else{self.open_navigator(false);}
                 return Ok(false);
             }
+            OpenCandidate => {self.open_candidate(store)?;return Ok(false);}
+            CloseNavigator => {self.close_navigator();return Ok(false);}
+            ClearSearch => {self.session_query.clear();self.session_editor.reset();self.refresh(store)?;return Ok(false);}
+            NavSearch => {self.searching=true;self.session_editor.reset();return Ok(false);}
+            RetryDiscovery => {self.refresh(store)?;return Ok(false);}
             Compose => {
+                if self.shell.sessions{self.close_navigator();}
                 self.focus_composer();
                 return Ok(false);
             }
@@ -809,10 +839,9 @@ impl App {
                 return Ok(false);
             }
             Session(i) => {
-                if i < self.sessions.len() {
-                    self.session_index = i;
-                    self.shell.sessions = false;
-                    self.focus = self.main_focus();
+                if self.shell.sessions && i<self.navigation.candidates.len() {
+                    self.navigation.index=i;self.navigation.selected=Some(self.navigation.candidates[i].id.clone());
+                    self.searching=false;self.focus=Focus::Sessions;
                 }
                 return Ok(false);
             }
@@ -996,6 +1025,9 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::Help => "Help",
             Action::InspectAttention => "Evidence",
             Action::FullDiagnostic => "Details",
+            Action::OpenCandidate => "Open",
+            Action::ClearSearch => "Clear",
+            Action::RetryDiscovery => "Retry",
             Action::OpenEdit => "Diff",
             Action::KeepAll => "Keep *",
             Action::EditAll => "All",
@@ -1343,7 +1375,9 @@ mod tests {
     fn toolbar_and_more_are_reachable_without_function_keys_and_do_not_submit_on_focus() {
         let root = tempfile::tempdir().unwrap();
         let store = Store::open(root.path()).unwrap();
-        let mut app = App::new(None);
+        let session=store.create("demo","Workspace goal","work").unwrap();
+        let mut app = App::new(Some(&session.id));
+        app.refresh(&store).unwrap();
         key(&mut app, root.path(), &store, KeyCode::BackTab);
         assert!(app.shell.actions_focus);
         assert!(app.runner.is_none());

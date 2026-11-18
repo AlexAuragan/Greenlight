@@ -1,7 +1,7 @@
 Greenlight / bar-project      ● idle · -
 
-[1] Activity  [2] Artifacts [3] Edits
                               [h] Help
+
  New session · Describe the goal
  Workflow: Baseline, optimize, benchma…
   I can supply host logs and rerun mea

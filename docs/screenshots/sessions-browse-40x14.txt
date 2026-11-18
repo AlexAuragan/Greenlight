@@ -1,0 +1,13 @@
+Greenlight / sam…  ● ready · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+╭ Sessions · browse, then Open ────────╮
+│Search goals, workflow or status…     │
+│› Review Beta authentication fix      │
+│  blocked · diagnose                  │
+│                                      │
+╰──────────────────────────────────────╯
+╭───────────────╮ ╭──────╮
+│ Open selected │ │ Back │
+╰───────────────╯ ╰──────╯

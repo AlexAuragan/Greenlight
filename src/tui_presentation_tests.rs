@@ -689,3 +689,47 @@ fn edits_review_renders_all_file_keep_and_guarded_revert_states() {
     assert_eq!(std::fs::read_to_string(root.path().join("bar.py")).unwrap(),"manual adjustment\n");
     assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,0);
 }
+
+#[test]
+fn session_navigation_renders_candidates_without_switching_the_open_workspace() {
+    let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();let store=Store::open(root.path()).unwrap();
+    let a=store.create("fix-bug","Investigate Alpha startup delay","investigate").unwrap();
+    let mut b=store.create("fix-bug","Review Beta authentication fix","diagnose").unwrap();b.status="blocked".into();store.save(&b).unwrap();
+    store.event(&a,None,"user.message","Alpha workspace evidence remains open").unwrap();
+    let mut app=App::new(Some(&a.id));app.shell.project="sample-project".into();app.refresh(&store).unwrap();app.composer="Unsent Alpha instructions".into();
+    app.open_navigator(false);app.navigation.selected=Some(b.id.clone());app.navigation.refresh(&app.sessions,&app.session_query,&app.session_activity);
+    for (w,h) in [(120,36),(80,24),(40,14)] {
+        let output=text(&screen(&mut app,w,h,"sessions-browse"));
+        assert!(output.contains("Sessions"));assert!(output.contains("Open selected"));
+        assert!(!output.contains(&a.id));assert!(!output.contains(&b.id));
+        assert_eq!(app.session().unwrap().id,a.id);assert_eq!(app.composer,"Unsent Alpha instructions");
+        assert!(output.contains("Review Beta"));
+    }
+    app.searching=true;app.session_query="does not match".into();app.refresh(&store).unwrap();
+    for (w,h) in [(80,24),(40,14)] {
+        let output=text(&screen(&mut app,w,h,"sessions-no-matches"));assert!(output.contains("No sessions match"));assert!(output.contains("Clear search"));
+        assert_eq!(app.session().unwrap().id,a.id);
+    }
+    app.activate(shell::Action::ClearSearch,root.path(),&store).unwrap();
+    app.session_query="Beta".into();app.refresh(&store).unwrap();screen(&mut app,80,24,"sessions-search");
+    app.open_candidate(&store).unwrap();assert_eq!(app.session().unwrap().id,b.id);assert!(app.composer.is_empty());
+    assert!(app.runner.is_none());assert_eq!(store.usage_report(&a,crate::usage::Scope::Session).unwrap().totals.requests,0);
+}
+#[test]
+fn empty_missing_and_discovery_failure_have_distinct_home_surfaces() {
+    let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();let store=Store::open(root.path()).unwrap();
+    let mut app=App::new(None);app.shell.project="sample-project".into();app.refresh(&store).unwrap();
+    for (w,h) in [(80,24),(40,14)] {
+        let output=text(&screen(&mut app,w,h,"home-empty"));assert!(output.contains("No sessions in this project"));assert!(output.contains("New session"));assert!(!output.contains("[1] Activity"));
+    }
+    app.requested_session=Some("missing-session".into());app.refresh(&store).unwrap();
+    let output=text(&screen(&mut app,80,24,"session-missing"));assert!(output.contains("Opened session unavailable"));assert!(!output.contains("No sessions in this project"));
+    store.db.execute("ALTER TABLE sessions RENAME TO hidden_sessions",[]).unwrap();app.refresh(&store).unwrap();
+    let output=text(&screen(&mut app,80,24,"sessions-error"));assert!(output.contains("Session discovery unavailable"));assert!(output.contains("Retry discovery"));
+    assert!(!output.contains("No sessions in this project"));
+    store.db.execute("ALTER TABLE hidden_sessions RENAME TO sessions",[]).unwrap();
+    assert!(store.list().unwrap().is_empty());
+    let no_setup=tempfile::tempdir().unwrap();let unconfigured=Store::open(no_setup.path()).unwrap();
+    let mut app=App::new(None);app.refresh(&unconfigured).unwrap();
+    let output=text(&screen(&mut app,80,24,"home-setup"));assert!(output.contains("Project setup needs attention"));assert!(output.contains("configuration unavailable"));
+}

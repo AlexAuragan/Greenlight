@@ -122,6 +122,44 @@ impl App {
             }
             return Ok(false);
         }
+        if self.shell.sessions && self.approval.is_none() && self.new_session.is_none() {
+            let actions=self.shell_actions();
+            match key.code {
+                KeyCode::Esc if self.shell.actions_focus => self.shell.actions_focus=false,
+                KeyCode::Esc => self.close_navigator(),
+                KeyCode::Tab | KeyCode::BackTab => {
+                    if self.shell.actions_focus {self.shell.action_index=(self.shell.action_index+if key.code==KeyCode::BackTab{actions.len()-1}else{1})%actions.len();}
+                    else{self.shell.actions_focus=true;self.shell.action_index=if key.code==KeyCode::BackTab{actions.len()-1}else{0};}
+                }
+                KeyCode::Enter if self.shell.actions_focus => {
+                    if let Some(action)=actions.get(self.shell.action_index).copied(){return self.activate(action,root,store);}
+                }
+                KeyCode::Left | KeyCode::Right if self.shell.actions_focus => {
+                    self.shell.action_index=(self.shell.action_index+if key.code==KeyCode::Left{actions.len()-1}else{1})%actions.len();
+                }
+                _ if self.shell.actions_focus => {}
+                KeyCode::Char('q') if !self.searching => {
+                    if self.runner.is_none() && self.manager_job.is_none(){return Ok(true)}
+                    self.notice="Worker or manager is active; stop or wait before exiting.".into();
+                }
+                KeyCode::Enter => self.open_candidate(store)?,
+                KeyCode::PageDown => self.navigation.select(5),
+                KeyCode::PageUp => self.navigation.select(-5),
+                KeyCode::Left if !self.searching => self.close_navigator(),
+                KeyCode::Char('i') if !self.searching => {self.close_navigator();self.focus_composer();}
+                KeyCode::Down => self.navigation.select(1),
+                KeyCode::Up => self.navigation.select(-1),
+                KeyCode::Char('j') if !self.searching => self.navigation.select(1),
+                KeyCode::Char('k') if !self.searching => self.navigation.select(-1),
+                KeyCode::Home if !self.searching => self.navigation.select(isize::MIN),
+                KeyCode::End if !self.searching => self.navigation.select(isize::MAX),
+                KeyCode::Char('f') if !self.searching => {self.searching=true;self.session_editor.reset();}
+                KeyCode::Char('n') if !self.searching => {self.close_navigator();return self.on_key(key,root,store);}
+                _ if self.searching => {self.session_editor.key(&mut self.session_query,key,false,256);self.refresh(store)?;}
+                _ => {}
+            }
+            return Ok(false);
+        }
         if !typing && self.view==View::Edits && !self.blocking_surface() && !self.shell.actions_focus && self.focus!=Focus::Sessions {
             match key.code {
                 KeyCode::Tab | KeyCode::BackTab => {
@@ -136,6 +174,7 @@ impl App {
         }
         if !typing
             && (!self.blocking_surface()
+                || (self.navigation.error.is_some() || self.navigation.load_error.is_some()) && self.approval.is_none()
                 || self.details.page.is_some() && self.approval.is_none() && self.diagnostic.is_none()
                 || self.diagnostic.is_some()
                     && self.approval.is_none()
@@ -720,12 +759,7 @@ impl App {
                 self.activity_filtering = true;
                 self.filter_editor.reset();
             }
-            KeyCode::Char('f') => {
-                self.searching = true;
-                self.session_editor.reset();
-                self.shell.sessions = true;
-                self.focus = Focus::Sessions;
-            }
+            KeyCode::Char('f') => self.open_navigator(true),
             KeyCode::Char('n') => {
                 if self.runner.is_some() {
                     self.notice =
@@ -804,8 +838,7 @@ impl App {
                 } else if self.focus == Focus::Detail {
                     self.focus_left();
                 } else if self.focus == Focus::Sessions {
-                    self.shell.sessions = false;
-                    self.focus = self.main_focus();
+                    self.open_candidate(store)?;
                 } else {
                     self.inspector_open = true;
                     self.focus = Focus::Detail;

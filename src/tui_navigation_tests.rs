@@ -82,8 +82,9 @@ fn drafts_follow_session_ids_through_filtering_and_reordering() {
     assert_eq!(app.composer, "Alpha instructions\n第二行");
     app.session_query = "no matches".into();
     app.refresh(&store).unwrap();
-    assert!(app.session().is_none());
-    assert!(app.composer.is_empty());
+    assert_eq!(app.session().unwrap().id,a.id);
+    assert_eq!(app.composer,"Alpha instructions\n第二行");
+    assert!(app.navigation.candidates.is_empty());
     app.session_query.clear();
     app.requested_session = Some(a.id);
     app.refresh(&store).unwrap();
@@ -299,7 +300,6 @@ fn compact_layout_shows_picker_then_activity_and_handles_zero_size() {
     app.refresh(&store).unwrap();
     assert!(app.shell_actions().contains(&shell::Action::Sessions));
     key(&mut app, &store, root.path(), KeyCode::Char('f'));
-    key(&mut app, &store, root.path(), KeyCode::Enter);
     key(&mut app, &store, root.path(), KeyCode::Enter);
     assert!(screen(&mut app, 60, 20).contains("Activity evidence"));
     for (w, h) in [(0, 0), (1, 1), (30, 10)] {

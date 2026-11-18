@@ -462,7 +462,9 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ),
         Line::styled(status, Style::default().fg(theme::MUTED)),
         Line::styled(
-            if app.shell.actions_focus {
+            if app.shell.sessions {
+                "Workspace remains open · session browser owns navigation"
+            } else if app.shell.actions_focus {
                 "Actions · Esc returns to file review"
             } else {
                 "Tab/Shift+Tab cycles views · Enter focuses actions"

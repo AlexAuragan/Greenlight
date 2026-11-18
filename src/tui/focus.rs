@@ -42,29 +42,18 @@ impl App {
         self.focus = Focus::Compose;
     }
     pub(super) fn focus_left(&mut self) {
-        self.focus = match self.focus {
-            Focus::Sessions => {
-                self.shell.sessions = false;
-                self.main_focus()
-            }
+        match self.focus {
+            Focus::Sessions => self.close_navigator(),
             Focus::Detail => {
-                self.inspector_open = false;
-                if self.attention_return {
-                    self.blocker_card = self.attention.is_some();
-                    self.attention_return = false;
-                }
-                self.main_focus()
+                self.inspector_open=false;
+                if self.attention_return{self.blocker_card=self.attention.is_some();self.attention_return=false;}
+                self.focus=self.main_focus();
             }
-            Focus::Events | Focus::Artifacts => {
-                self.shell.sessions = !self.shell.sessions;
-                if self.shell.sessions {
-                    Focus::Sessions
-                } else {
-                    self.main_focus()
-                }
+            Focus::Events|Focus::Artifacts => {
+                if self.shell.sessions{self.close_navigator();}else{self.open_navigator(false);}
             }
-            other => other,
-        };
+            _=>{}
+        }
     }
     pub(super) fn scroll_detail(&mut self, delta: i16) {
         let current = self
@@ -108,18 +97,7 @@ impl App {
     pub(super) fn navigate(&mut self, delta: isize) {
         match self.focus {
             Focus::Compose | Focus::Detail => (),
-            Focus::Sessions => {
-                let next = move_index(self.session_index, delta, self.sessions.len());
-                if next != self.session_index {
-                    self.session_index = next;
-                    self.events.clear();
-                    self.event_index = 0;
-                    self.artifacts.clear();
-                    self.artifact_index = 0;
-                    self.detail_scroll = 0;
-                    self.diff = None;
-                }
-            }
+            Focus::Sessions => self.navigation.select(delta),
             Focus::Events => {
                 self.follow_activity = false;
                 let next = move_index(self.event_index, delta, self.events.len());
@@ -145,22 +123,7 @@ impl App {
     pub(super) fn select_end(&mut self, last: bool) {
         match self.focus {
             Focus::Compose | Focus::Detail => (),
-            Focus::Sessions => {
-                let next = if last {
-                    self.sessions.len().saturating_sub(1)
-                } else {
-                    0
-                };
-                if next != self.session_index {
-                    self.session_index = next;
-                    self.events.clear();
-                    self.event_index = 0;
-                    self.artifacts.clear();
-                    self.artifact_index = 0;
-                    self.detail_scroll = 0;
-                    self.diff = None;
-                }
-            }
+            Focus::Sessions => self.navigation.select(if last{isize::MAX}else{isize::MIN}),
             Focus::Events => {
                 self.follow_activity = last;
                 self.event_index = if last {

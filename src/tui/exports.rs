@@ -15,6 +15,8 @@ impl App {
     pub(super) fn export_snapshot(&self) -> Result<Snapshot> {
         let (label, text) = if self.help {
             ("keyboard help".into(), HELP.into())
+        } else if self.shell.sessions {
+            ("session browser snapshot · candidates only".into(),format!("Session candidates · query {}\n{}",self.session_query,self.navigation.candidates.iter().map(|s|format!("{} · {} · {}",s.goal,s.status,s.current_step)).collect::<Vec<_>>().join("\n")))
         } else if self.human_review().is_some() {
             ("human review · selected recorded evidence".into(),self.review_document_text().unwrap_or_default())
         } else if let Some(text) = &self.diagnostic {

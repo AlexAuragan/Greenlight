@@ -1,0 +1,23 @@
+Greenlight / sample-project                                ● ready · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+╭ Sessions · browse, then Open ────────────────────────────────────────────────╮
+│┌ Search · f edits ──────────────────────────────────────────────────────────┐│
+││Search goals, workflow or status…                                           ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+│› Review Beta authentication fix                                              │
+│  blocked · diagnose                                                          │
+│  Last: 2026-11-18 08:48:23 UTC                                               │
+│  Investigate Alpha startup delay                                             │
+│  ready · investigate · open                                                  │
+│  Last: 2026-11-18 08:48:23 UTC                                               │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│2 of 2 sessions                                                               │
+│Browse only · Open switches workspace.                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────╮ ╭──────╮
+│ Open selected │ │ Back │
+╰───────────────╯ ╰──────╯

@@ -1,0 +1,23 @@
+Greenlight / sample-project                                           ● idle · -
+
+                                                                      [h] Help
+
+Opened session unavailable
+
+Opened session is no longer available. Choose another session explicitly; no
+replacement was opened.
+
+Sessions opens the browser; choose and Open another session.
+
+
+
+
+
+
+
+
+
+
+╭──────────────╮ ╭─────────────╮ ╭──────────╮
+│ [f] Sessions │ │ New session │ │ [h] Help │
+╰──────────────╯ ╰─────────────╯ ╰──────────╯

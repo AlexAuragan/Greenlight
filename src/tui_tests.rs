@@ -184,7 +184,7 @@ fn focus_moves_across_panes_and_arrows_scroll_detail() {
         &store,
     )
     .unwrap();
-    assert_eq!(app.focus, Focus::Sessions);
+    assert_eq!(app.focus, Focus::Artifacts);
 }
 
 #[test]

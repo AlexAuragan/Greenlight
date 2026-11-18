@@ -65,6 +65,19 @@ Edits captures cover native journal revisions only. Keep is saved review intent;
 | Manual drift | [PNG](edits-drift-80x24.png) | — | — |
 | Reverse-diff preview | [PNG](edits-revert-80x24.png) | [40×20](edits-revert-40x20.png) | [Safe fallback](edits-revert-small-40x14.png) |
 
+
+Session navigation captures keep an opened Alpha workspace while browsing Beta as a candidate. Empty/setup/missing/error states are separate fixtures; browsing and retry do not dispatch requests.
+
+| View | 80×24 | 120×36 | 40×14 |
+| --- | --- | --- | --- |
+| Candidate browser | [PNG](sessions-browse-80x24.png) | [PNG](sessions-browse-120x36.png) | [PNG](sessions-browse-40x14.png) |
+| No search matches | [PNG](sessions-no-matches-80x24.png) | — | [PNG](sessions-no-matches-40x14.png) |
+| Empty project | [PNG](home-empty-80x24.png) | — | [PNG](home-empty-40x14.png) |
+| Focused search | [PNG](sessions-search-80x24.png) | — | — |
+| Opened session unavailable | [PNG](session-missing-80x24.png) | — | — |
+| Discovery failure | [PNG](sessions-error-80x24.png) | — | — |
+| Setup needs attention | [PNG](home-setup-80x24.png) | — | — |
+
 Regenerate from the repository root:
 
 ```bash

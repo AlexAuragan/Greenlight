@@ -1,0 +1,23 @@
+Greenlight / sample-project                                           ● idle · -
+
+                                                                      [h] Help
+
+Session discovery unavailable
+
+Session discovery unavailable: no such table: sessions: Error code 1: SQL error
+or missing database
+
+Retry discovery; no new session or workflow was started.
+
+
+
+
+
+
+
+
+
+
+╭─────────────────╮ ╭──────────╮
+│ Retry discovery │ │ [h] Help │
+╰─────────────────╯ ╰──────────╯

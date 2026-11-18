@@ -22,6 +22,7 @@ mod attention;
 mod compose;
 mod checkpoint;
 mod details;
+mod navigation;
 mod editor;
 mod edits;
 mod exports;
@@ -91,6 +92,7 @@ struct App {
     result_key: Option<(String,String,i64)>,
     sessions: Vec<Session>,
     session_index: usize,
+    navigation: navigation::Navigation,
     events: Vec<std::sync::Arc<EventRow>>,
     activity_rows:Vec<std::sync::Arc<EventRow>>,
     event_index: usize,
@@ -171,6 +173,7 @@ impl App {
             result_key: None,
             sessions: Vec::new(),
             session_index: 0,
+            navigation: navigation::Navigation::default(),
             events: Vec::new(),
             activity_rows:Vec::new(),
             event_index: 0,
@@ -280,19 +283,29 @@ impl App {
         let old_artifact = self.artifact().map(|a| a.name.clone());
         let following_tail = self.follow_activity;
 
-        self.sessions = store.list()?;
-        self.session_total = self.sessions.len();
-        self.session_activity = store.session_activity()?;
-        crate::session_picker::filter_and_sort(
-            &mut self.sessions,
-            &self.session_query,
-            &self.session_activity,
-        );
-        let desired_session = self.requested_session.take().or(old_session.clone());
-        if let Some(id) = desired_session {
-            self.session_index = self.sessions.iter().position(|s| s.id == id).unwrap_or(0);
-        } else {
-            self.session_index = 0;
+        match store.list().and_then(|sessions|Ok((sessions,store.session_activity()?))) {
+            Ok((sessions,activity))=>{self.sessions=sessions;self.session_activity=activity;self.navigation.error=None;}
+            Err(error)=>{self.sessions.clear();self.session_activity.clear();self.navigation.error=Some(format!("Session discovery unavailable: {error:#}"));}
+        }
+        self.navigation.load_error=None;
+        self.session_total=self.sessions.len();
+        crate::session_picker::filter_and_sort(&mut self.sessions,"",&self.session_activity);
+        let desired_session=self.requested_session.take().or(old_session.clone()).or(self.navigation.opened.clone());
+        self.session_index=if let Some(id)=desired_session {
+            self.navigation.opened=Some(id.clone());
+            self.sessions.iter().position(|s|s.id==id).unwrap_or(usize::MAX)
+        }else{0};
+        if let Some(s)=self.sessions.get(self.session_index){self.navigation.opened=Some(s.id.clone());}
+        self.navigation.missing=if self.navigation.error.is_none() && self.navigation.opened.is_some() && self.sessions.get(self.session_index).is_none(){Some("Opened session is no longer available. Choose another session explicitly; no replacement was opened.".into())}else{None};
+        self.navigation.refresh(&self.sessions,&self.session_query,&self.session_activity);
+        self.navigation.setup=None;
+        if self.session_total==0 && self.navigation.error.is_none() {
+            if let Some(root)=store.directory.parent().and_then(Path::parent) {
+                self.navigation.setup=match crate::config::load_config(root) {
+                    Err(_)=>Some("Project configuration unavailable. Run greenlight init or inspect the project configuration before starting.".into()),
+                    Ok(_)=>match crate::session_picker::NewSession::discover(root){Ok(f) if f.workflows.is_empty()=>Some("No workflows available. Run greenlight init or add a workflow before starting.".into()),Ok(f) if f.workflows.iter().all(|w|w.error.is_some())=>Some("No valid workflows available. Inspect workflow definitions before starting.".into()),Err(e)=>Some(format!("Workflow discovery unavailable: {e:#}")),_=>None},
+                };
+            }
         }
         let loaded_session_changed =
             self.workspace_session.as_deref() != self.session().map(|s| s.id.as_str());
@@ -301,7 +314,17 @@ impl App {
         let old_artifact_version = self.artifact().map(|a| a.event_id);
         let changed_session = old_session.as_deref() != self.session().map(|s| s.id.as_str());
         if let Some(session) = self.session().cloned() {
-            let history = store.history(&session)?;
+            let history = match store.history(&session) {
+                Ok(h)=>h,
+                Err(e)=>{
+                    self.navigation.load_error=Some(format!("Opened session history unavailable: {e:#}"));
+                    self.clear_diagnostic();
+                    self.workspace=None;self.events.clear();self.activity_rows.clear();self.artifacts.clear();
+                    self.result_open=false;self.details.close();self.artifact_browser=None;self.context_detail=None;
+                    self.edits=edits::Edits::default();
+                    return Ok(());
+                }
+            };
             let session_changed = self.workspace_session.as_deref() != Some(session.id.as_str());
             let old_primary = self.workspace.as_ref().map(|w| w.primary);
             let old_blocker = self
@@ -602,6 +625,8 @@ impl App {
                     self.artifact_browser=None;
                     self.help=false;
                     self.searching=false;
+                    self.shell.sessions=false;
+                    self.focus=self.main_focus();
                     self.session_query.clear();
                     self.new_session=None;
                     if let Some(id) = runner.session_id.as_ref() {

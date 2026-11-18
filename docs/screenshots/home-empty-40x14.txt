@@ -1,0 +1,13 @@
+Greenlight / sample-project   ● idle · -
+
+                              [h] Help
+
+No sessions in this project
+
+Choose New session to select a workflow
+and enter a goal.
+Sessions opens project history; Help
+explains the controls.
+╭─────────────╮ ╭──────╮
+│ New session │ │ More │
+╰─────────────╯ ╰──────╯
