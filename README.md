@@ -112,7 +112,7 @@ The [running-screen design and static mockups](docs/24-running-screen-design.md)
 
 ## Roadmap / TODO
 
-> **Status (2026-11-13):** this checklist tracks **remaining** work, not all ideas ever discussed. The TUI, workspace manifests, Markdown preview and Greenlight rename landed in PRs #6–#9. For rationale and proposed designs see [the dated TUI UX analysis](docs/12-tui-ux-analysis.md); for settled decisions see [the decision log](docs/16-decision-log.md), and for a repeatable manual exercise see [the smoke-test guide](docs/17-smoke-test.md). The current executable behavior is described in the specialized docs and Rust sources.
+> **Status (2026-11-19):** this checklist tracks **remaining** work, not all ideas ever discussed. The TUI, workspace manifests, Markdown preview and Greenlight rename landed in PRs #6–#9. For rationale and proposed designs see [the dated TUI UX analysis](docs/12-tui-ux-analysis.md); for settled decisions see [the decision log](docs/16-decision-log.md), and for a repeatable manual exercise see [the smoke-test guide](docs/17-smoke-test.md). The current executable behavior is described in the specialized docs and Rust sources.
 
 ### Implemented baseline (not the finished UX)
 
@@ -141,7 +141,7 @@ The [running-screen design and static mockups](docs/24-running-screen-design.md)
 - [x] Discover default on-demand token rates from DeepInfra's authoritative public catalog, with local caching, explicit overrides and automatic freshness warnings. Support explicit whole-request context tiers and cache-creation/TTL rates without double billing. Unsupported providers/billing modes stay unknown; no guessed rates or historical repricing. See [pricing discovery and limits](docs/18-token-usage-and-pricing.md#public-pricing-discovery-and-freshness). Budgets remain P2.
 - [x] Replace the raw log-centric layout with a session workspace: **status + stepper + context + primary action**, projected from persisted attempts, input manifests, verification events and execution ownership. `c` / `/context` shows saved attempt context; legacy gaps remain explicit.
 - [x] Add a session picker with goal names, blocked-first sorting, last recorded activity (UTC), case-insensitive search (`f`) and an in-TUI creation flow (`n`). Choose a validated workflow and editable goal; Enter creates and starts the session through the existing engine. Active input fields use blinking carets, and TUI-owned model requests show a separate live streaming preview. Selection stays stable as activity reorders the list.
-- [x] Implement contextual blocked-state cards with recorded reason/evidence and guarded resume/restart guidance. `e` opens the exact blocker, `h` opens history, `2` opens artifacts, and `i` / `r` use the existing resume/restart controls. Interrupted ownership and pending writes require recovery first.
+- [x] Implement contextual blocked-state cards with recorded reason/evidence and guarded resume/restart guidance. `e` opens the exact blocker, `h` opens Help, `2` opens artifacts, and `i` / `r` use the existing resume/restart controls. Interrupted ownership and pending writes require recovery first.
 - [x] Extend pane/focus navigation with scrollable `?` / `/help`, explicit activity follow/pause (`End` resumes), per-session in-memory drafts, wrapped-content scroll bounds and compact/resize behavior. Arrows and `j/k` remain primary scrolling keys; optional PgUp/PgDn and Home/End work in reading panels. Drafts are not persisted across exits.
 - [x] Harden Markdown and literal artifact previews: visibly escape terminal/bidirectional controls, align ordinary tables by terminal width, handle longer fences, and bound preview bytes/lines/table padding with explicit truncation. Tests cover ANSI/OSC/C1 controls, CJK/combining/emoji widths, malformed markup and oversized documents. Stored source stays unchanged; full CommonMark/GFM and inline images are not a goal.
 - [x] Persist exact selected-input versions and approval references per attempt; human gates approve displayed versions and downstream consumers require reapproval after changes.
@@ -157,6 +157,8 @@ The [running-screen design and static mockups](docs/24-running-screen-design.md)
 - [x] Preserve per-session drafts and per-session/branch tab selections, scroll, follow state and journal-diff reading in memory. `F` filters activity metadata/summaries; `C` sends full selected text to a local clipboard utility; `E` opens a private temporary review snapshot in VISUAL/EDITOR, without importing edits. New artifact versions reset stale offsets. See [TUI reading/export controls](docs/11-tui.md#reading-state-filtering-and-export).
 
 - [x] Offer a live workflow **Retry request / Stop for now** provider popup, preserving exact prepared messages, attempt and branch without replaying tools. Respect remaining provider cooldowns and expose possible duplicate billing. Stopped provider failures expose **Continue step** with fresh-attempt semantics. See [manual provider retry](docs/19-provider-failures.md#explicit-retry-in-the-workflow-tui).
+
+- [x] Add bounded native directory discovery and filename/path filtering through the existing read capability, with read-policy enforcement and private/state/cache/symlink exclusions. Accept a single unambiguous fenced action with surrounding commentary, preserve literal contents and reject multiple actions; repair missing required fields before dispatch. See [discovery](docs/36-native-file-discovery.md) and [the action contract](docs/13-agent-action-protocol.md).
 
 ### P2 — supervised intelligence and stronger recovery
 
@@ -197,11 +199,13 @@ The [running-screen design and static mockups](docs/24-running-screen-design.md)
 
 **Prioritization rule:** build and validate one feature at a time. Harden native-write crash consistency, and evaluate recorded workspace manifests against the native journal before expanding restoration; broader rollback can wait for real coverage evidence. Keep the ambitious TUI direction, but distinguish execution facts from model-authored UI titles, preserve saved grants while dropping pending requests after crashes, and keep the existing native-write rollback scope explicit. Models may coordinate, summarize and propose; the harness applies permissions, verification and transitions.
 
+Latest P0/P1 verification and acceptance steps: [pre-merge review](docs/37-premerge-review.md).
+
 ## Caveats (read before use)
 
-This MVP has deliberately limited capabilities: no cross-platform shell sandbox, no full Git checkpoint/restore, no parallel/subworkflow execution, no remote Discord decisions, no MCP, no streaming, no provider-specific reasoning parameters, no adaptive context compaction, and no transactional code edits. The YAML protocol is a best-effort model instruction validated by the runtime, not a guarantee that every model responds correctly. Bubblewrap does not provide resource quotas, comprehensive project-source secret scanning or immunity from kernel vulnerabilities.
+This MVP has deliberately limited capabilities: no cross-platform shell sandbox, no full Git checkpoint/restore, no parallel/subworkflow execution, no remote Discord decisions, no MCP, no provider-specific reasoning parameters, no adaptive context compaction, and no atomic multi-file edits. The YAML protocol is a best-effort model instruction validated by the runtime, not a guarantee that every model responds correctly. Bubblewrap does not provide resource quotas, comprehensive project-source secret scanning or immunity from kernel vulnerabilities.
 
-The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the prompts, workflow files and *model-generated structured actions* use YAML. The latter is not JSON on the agent-facing surface.
+The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the prompts, workflow files and *model-generated structured actions* use YAML. The action interface requests YAML mappings; its parser also accepts YAML’s JSON-compatible mapping syntax.
 
 The `optimize-performance` example loops on `target_not_met` and stops on regressions; automatic code rollback is intentionally **not** implemented. For safe rollback, restore the repository from a known Git checkpoint before resuming.
 
@@ -225,7 +229,7 @@ The [compact layout/navigation revision](docs/33-compact-layout-and-navigation.m
 
 Start with the [consolidated UI implementation plan](docs/34-ui-implementation-plan.md) for the current design references, agreed choices and first implementation slice.
 
-The first compact TUI slice is implemented; see [current controls and remaining scope](docs/11-tui.md). Older static studies remain design references for later slices.
+The major compact TUI slices and consistency pass are implemented; see [current controls](docs/11-tui.md) and [the implementation record](docs/34-ui-implementation-plan.md). Older static studies are historical design references.
 
 Review [actual Ratatui screen captures](docs/screenshots/README.md) for the implemented result/artifact presentation at 80×24 and 120×36. These replace proportional mockups as the visual review reference for those surfaces.
 

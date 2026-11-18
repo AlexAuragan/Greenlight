@@ -18,10 +18,14 @@ pub fn tool_help(tools: &[String]) -> String {
             text.push_str(&format!("\nIllustrative {tool} syntax; substitute your intended fields:\n```yaml\n{example}\n```\n"));
         }
     }
+    if tools.iter().any(|t|t=="read") {text.push_str("\nNative file discovery: read with path: . recursively lists project paths without shell. To find filenames/paths, add input: clock (literal case-sensitive substring). Read a returned file path separately to inspect its contents. Directory listings are bounded and report truncation; narrow path/input when needed.\n");}
     text
 }
 pub fn correction(error: &anyhow::Error, tools: &[String]) -> String {
-    format!("Invalid YAML action (protocol format error): {error:#}\nThis response was rejected before tool dispatch; no tool was attempted. This is NOT evidence that tools are unavailable. Valid action names: tool, artifact, deviation, finish. Tool names read/write/shell/web must appear under tool:, never action:.\nRe-emit exactly one valid YAML action for your original intended operation, using its original arguments/path/content. Do not copy example fields blindly or bypass a denial.\n\n{}",tool_help(tools))
+    let detail=format!("{error:#}");
+    let mut excerpt=detail.chars().take(1200).collect::<String>();
+    if excerpt.len()<detail.len() {excerpt.push_str(" [error excerpt; original response remains recorded]");}
+    format!("Invalid YAML action (protocol format error): {excerpt}\nThis response was rejected before tool dispatch; no tool was attempted. This is NOT evidence that tools are unavailable. Valid action names: tool, artifact, deviation, finish. Tool names read/write/shell/web must appear under tool:, never action:.\nRe-emit exactly one valid YAML action for your original intended operation, using its original arguments/path/content. Return no commentary or extra action blocks. For values containing colon-space or multiline text, use YAML literal block scalars such as input: | followed by the indented original text. Do not copy example fields blindly or bypass a denial.\n\n{}",tool_help(tools))
 }
 
 #[cfg(test)]
@@ -34,7 +38,7 @@ mod tests {
             .skip(1)
             .map(|text| text.split("```").next().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(examples.len(), 7);
+        assert_eq!(examples.len(), 8);
         for example in examples {
             crate::tools::parse_action(example).unwrap();
         }

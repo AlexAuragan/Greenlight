@@ -1,3 +1,5 @@
+mod action_envelope;
+mod file_discovery;
 mod conversation_dump;
 mod approvals;
 mod changes;

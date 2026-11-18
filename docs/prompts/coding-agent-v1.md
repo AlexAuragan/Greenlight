@@ -12,6 +12,14 @@ tool: read
 path: path/to/file
 ```
 
+Discover project files before guessing filenames (if read is enabled):
+```yaml
+action: tool
+tool: read
+path: .
+```
+Directory reads return a bounded recursive listing of project-relative file and directory paths, not file contents. Read a returned file path to inspect it. To narrow a directory listing, set path to a subdirectory and/or add input with a literal case-sensitive filename/path substring. Check truncated and unreadable_entries before claiming that a file does not exist. Shell permission is not needed for discovery; the normal read policy still applies.
+
 Write a complete project file (if write is enabled; normal host permissions apply):
 ```yaml
 action: tool

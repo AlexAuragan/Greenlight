@@ -6,12 +6,12 @@ Scope: *one model response describing one action*. This document is **not** the 
 
 ## 1. Wire format and validation
 
-- Each coding-agent response is **one YAML mapping**. A plain mapping or a ```yaml / ```yml fenced mapping is recognized. **No JSON or explanatory prose outside YAML** is the agent prompt contract.
+- Each coding-agent response describes **one YAML mapping**. The prompt requests a plain mapping or one `yaml` / `yml` fence without surrounding prose. The runtime also recognizes an unlabeled fence. For compatibility, the runtime can extract one unambiguous fenced mapping surrounded by ordinary commentary; it never searches prose for a bare action. The YAML parser also accepts its JSON-compatible mapping syntax, but a `json` fence is not part of the contract.
 - `action` is required. It must be one of **`tool`**, **`artifact`**, **`deviation`**, **`finish`**. There is no fifth action called `thought`, `plan`, `message` or `progress`.
-- All other defined properties are optional **strings at deserialization time**. The engine/tool handler enforces presence when needed for a particular action. `activity_title` also enforces the bounded plain-text rules in section 4 during parsing; non-string values are rejected rather than coerced.
+- All other defined properties are optional **strings at deserialization time**. The parser checks required tool/action fields before dispatch: nonempty tool/path/input/name/deviation ID where applicable, and present content for writes/artifacts (empty content is allowed). Host policies, paths and workflow enablement are still checked by their normal handlers. `activity_title` also enforces the bounded plain-text rules in section 4 during parsing; non-string values are rejected rather than coerced.
 - **Unknown property names are rejected** by `serde(deny_unknown_fields)`. Currently, extra *known* property names on the wrong action type may deserialize but be ignored (for example, `tool: read` on a `finish`). **Do not rely on this**. A stricter action-specific union/schema is a future compatibility improvement.
-- The parser takes the first closing fence when parsing fenced output; strict rejection of text *after* the closing fence is not yet enforced. That is a parser gap, not permission to append commentary.
-- A malformed/unknown action produces a recorded `protocol.error`; the model is asked to emit a valid action. There is no fixed response-count cutoff; cancellation and provider failures still stop execution. A syntactically valid action with missing runtime-required fields can result in a step error or a returned tool error, depending on the handler.
+- Fences close on their own unindented delimiter line. Indented fences inside YAML literal file/artifact content remain data. Multiple fenced blocks, action-like mappings outside the fence, multiple YAML documents and unfinished thought/analysis wrappers around an action are rejected as ambiguous. Raw responses remain recorded unchanged; only the selected mapping is dispatched.
+- A malformed/unknown action produces a recorded `protocol.error`; the model is asked to emit a valid action. There is no fixed response-count cutoff; cancellation and provider failures still stop execution. Missing required fields now enter the same correction path before any tool dispatch. Corrections distinguish format rejection from authorization/execution failures, recommend literal block scalars for colon-containing/multiline strings, and bound echoed error detail while retaining the full original response.
 - There is **no protocol version field** currently. `schema_version`, `title`, `confidence`, `reasoning`, etc. are **not accepted**. The optional `activity_title` annotation is supported as specified below.
 
 ### Complete list of currently permitted top-level fields
@@ -21,14 +21,16 @@ Scope: *one model response describing one action*. This document is **not** the 
 | `action` | string | **Every response** | Discriminator: `tool`, `artifact`, `deviation` or `finish` |
 | `activity_title` | string or null | Optional on **any action** | Bounded model-authored intent annotation, never permission or proof of execution; see section 4 |
 | `tool` | string | `action: tool` | Tool name: `read`, `write`, `shell`, `web`; also must be enabled by the step and host policy |
-| `input` | string | `tool: shell` or `tool: web` | Exact shell command or web-search query |
-| `path` | string | `tool: read` or `tool: write` | Project-relative file path, subject to path checks |
+| `input` | string | Required for shell/web; optional directory-read filter | Exact shell command, web-search query, or literal directory-path substring filter |
+| `path` | string | `tool: read` or `tool: write` | Project-relative file or directory path (`.` for root on reads), subject to path checks |
 | `content` | string | `tool: write` or `action: artifact` | Full replacement file content for a native write, or the complete registered artifact body |
 | `name` | string | `action: artifact` | Session artifact name (relative name/path with no `..` or absolute components) |
 | `summary` | string | Optional for `finish`, `deviation` | Human-readable completion summary or blocker/evidence narrative; an omitted value becomes empty in current handling |
 | `deviation_id` | string | `action: deviation` | Named deviation; it should match a configured rule for normal handling |
 
 **Only these nine keys are currently recognized.** Requiredness in the table is **semantic**, not an independent per-action serde schema.
+
+For directory discovery through `read`, including filtering, privacy rules and limits, see [native file discovery](36-native-file-discovery.md).
 
 ## 2. Actions
 

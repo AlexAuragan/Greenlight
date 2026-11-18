@@ -318,3 +318,9 @@ Tool approvals and persistent-grant confirmations are modal popups. Their valid 
 ### D-015 — Separate retrying a provider request from restarting a workflow step (2026-11-18)
 
 Live TUI workflow workers pause on provider failures after bounded automatic recovery, retaining the exact prepared messages and Rust call frame. A typed Retry request / Stop for now popup owns the decision; Esc hides without answering. Manual retries respect remaining provider cooldowns and retain per-dispatch usage/billing uncertainty. They do not replay prior tools, create a branch or begin another step attempt. Already-stopped sessions instead expose Continue step with its fresh-attempt/repeated-tool implications visible. Tool-call retries require a separate design covering side effects and permissions and remain TODO, alongside durable continuations and independent manager-request recovery.
+
+### D-016 — Discover files through read and repair action envelopes without guessing (2026-11-19)
+
+Directory reads reuse the existing read policy and workflow allowlist, so existing projects gain native discovery without new shell grants or configuration. Return bounded project-relative paths and literal substring filtering, omit private state/settings, secrets, caches and symlinks, and report incomplete scans. File bodies remain separate regular-file reads with a bounded allocation.
+
+Action handling accepts one unambiguous fenced mapping with ordinary surrounding commentary, retains original raw output, and preserves nested fences in literal content. It rejects multiple actions and unfinished thought/analysis envelopes, and validates required fields before dispatch. Format repair never grants tools, rewrites commands or bypasses workflow/host checks.

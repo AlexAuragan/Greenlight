@@ -17,9 +17,12 @@ pub struct Provider {
     pub script: Option<std::sync::Arc<std::sync::Mutex<Script>>>,
 }
 #[cfg(test)]
+type ScriptResponder = fn(&[Value]) -> std::result::Result<String, String>;
+
+#[cfg(test)]
 #[derive(Default)]
 pub struct Script {
-    pub responder: Option<fn(&[Value]) -> std::result::Result<String, String>>,
+    pub responder: Option<ScriptResponder>,
     pub responses: std::collections::VecDeque<Result<String, String>>,
     pub requests: Vec<Vec<Value>>,
     pub usages: std::collections::VecDeque<Option<Value>>,

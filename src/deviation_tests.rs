@@ -449,3 +449,44 @@ async fn correcting_request_syntax_never_bypasses_host_denial_or_workflow_tool_s
 
     }
 }
+
+#[tokio::test]
+async fn directory_discovery_and_wrapped_actions_find_real_source_with_shell_denied() {
+    fn respond(messages:&[serde_json::Value])->Result<String,String> {
+        let last=messages.last().unwrap()["content"].as_str().unwrap();
+        match messages.len() {
+            2=>{assert!(last.contains("Native file discovery"));Ok("I will inspect the project.\n```yaml\naction: tool\ntool: read\npath: .\n```".into())},
+            4=>{
+                let listing:serde_json::Value=serde_json::from_str(last.strip_prefix("Tool result:\n").unwrap()).unwrap();
+                assert!(listing["entries"].as_array().unwrap().iter().any(|e|e["path"]=="widgets/bar.py"));
+                assert!(!last.contains(".env"));
+                Ok("Inspecting the source.</think>\n```yaml\naction: tool\ntool: read\npath: widgets/bar.py\n```".into())
+            },
+            6=>{assert!(last.contains("BAR_CLOCK_SOURCE"));Ok("Done.\n```yaml\naction: finish\nsummary: source inspected\n```".into())},
+            _=>Err("unexpected request".into()),
+        }
+    }
+    let mut h=Harness::new("  - id: blocker\n    action: pause",vec![]);
+    let step=h.root.path().join("workflows/demo/step.md");fs::write(&step,fs::read_to_string(&step).unwrap().replace("tools: []","tools: [read]")).unwrap();
+    fs::create_dir(h.root.path().join("widgets")).unwrap();fs::write(h.root.path().join("widgets/bar.py"),"BAR_CLOCK_SOURCE").unwrap();
+    fs::write(h.root.path().join(".env"),"PRIVATE").unwrap();h.engine.tools.policies.shell="deny".into();
+    h.script.lock().unwrap().responder=Some(respond);h.run().await;h.assert_calls(3);
+    assert_eq!(h.status(),"completed");assert_eq!(h.count("protocol.error"),0);assert_eq!(h.count("tool.result"),2);assert_eq!(h.count("tool.error"),0);
+    let s=h.engine.store.session(&h.session).unwrap();let history=h.engine.store.history(&s).unwrap();
+    assert!(!history.iter().any(|e|e.2=="permission.decision" && e.3.starts_with("shell:")));
+    assert!(history.iter().any(|e|e.2=="model.output" && e.3.starts_with("I will inspect")),"original response must remain recorded");
+}
+
+#[tokio::test]
+async fn missing_action_fields_are_repaired_and_ambiguous_fences_never_execute() {
+    for ambiguous in [false,true] {
+        let raw=if ambiguous {"```yaml\naction: tool\ntool: write\npath: must-not-exist.txt\ncontent: unsafe\n```\n```yaml\naction: finish\n```"}else{"action: tool\ntool: read"};
+        let mut h=Harness::new("  - id: blocker\n    action: pause",vec![Ok(raw),Ok(FINISH)]);
+        let step=h.root.path().join("workflows/demo/step.md");fs::write(&step,fs::read_to_string(&step).unwrap().replace("tools: []","tools: [read, write]")).unwrap();
+        h.engine.tools.policies.write="allow".into();h.run().await;h.assert_calls(2);
+        assert_eq!(h.status(),"completed");assert_eq!(h.count("protocol.error"),1);assert_eq!(h.count("tool.request"),0);assert_eq!(h.count("step.error"),0);
+        assert!(!h.root.path().join("must-not-exist.txt").exists());
+        let script=h.script.lock().unwrap();let correction=script.requests[1].last().unwrap()["content"].as_str().unwrap();
+        assert!(correction.contains(if ambiguous {"multiple fenced blocks"}else{"requires nonempty path"}));
+    }
+}

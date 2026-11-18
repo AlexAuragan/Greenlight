@@ -22,18 +22,28 @@ pub struct AgentAction {
 }
 
 pub fn parse_action(text:&str)->Result<AgentAction> {
-    let trimmed=text.trim();
-    let yaml=if trimmed.starts_with("```yaml") || trimmed.starts_with("```yml") {
-        let start=trimmed.find('\n').context("malformed YAML fence")?+1;
-        let end=trimmed[start..].find("```").context("missing YAML fence end")?+start;
-        &trimmed[start..end]
-    } else { trimmed };
+    let yaml=crate::action_envelope::yaml(text)?;
     let action:AgentAction=serde_yaml::from_str(yaml).context("model output must be a single YAML action")?;
     if !["tool","artifact","finish","deviation"].contains(&action.action.as_str()) {
         if let Some(example)=crate::agent_protocol::tool_example(&action.action) {
             bail!("unknown action {}: this is a tool name, not an action. Syntax example (not a permission grant):\n{example}",action.action);
         }
         bail!("unknown action {}. Valid action names: tool, artifact, deviation, finish",action.action);
+    }
+    let required=|field:Option<&str>,name:&str|->Result<()> {if field.is_none_or(|s|s.trim().is_empty()) {bail!("{} requires nonempty {name}",action.action);}Ok(())};
+    match action.action.as_str() {
+        "tool"=>{
+            required(action.tool.as_deref(),"tool")?;
+            match action.tool.as_deref().unwrap() {
+                "read"=>required(action.path.as_deref(),"path")?,
+                "write"=>{required(action.path.as_deref(),"path")?;if action.content.is_none(){bail!("write requires content (an empty string is allowed)");}},
+                "shell"|"web"=>required(action.input.as_deref(),"input")?,
+                _=>bail!("unknown tool; supported tool names are read, write, shell, web"),
+            }
+        }
+        "artifact"=>{required(action.name.as_deref(),"name")?;if action.content.is_none(){bail!("artifact requires content (an empty string is allowed)");}},
+        "deviation"=>required(action.deviation_id.as_deref(),"deviation_id")?,
+        _=>{},
     }
     Ok(action)
 }
@@ -296,8 +306,16 @@ impl Tools {
             "read"=>{
                 let path=action.path.as_deref().context("read path required")?;
                 self.permission("read",path)?;
-                let file=self.safe_path(path)?;
-                let bytes=tokio::fs::read(file).await?;
+                let file=if matches!(path,"."|"./") {self.root.canonicalize()?}else{self.safe_path(path.strip_prefix("./").unwrap_or(path))?};
+                let metadata=tokio::fs::metadata(&file).await.with_context(||format!("Could not read {path:?}; use read path: . to discover project files"))?;
+                if metadata.is_dir() {return crate::file_discovery::list(&self.root,&file,action.input.as_deref());}
+                if action.input.as_ref().is_some_and(|f|!f.is_empty()) {bail!("read input filters apply to directories, not file contents");}
+                if !metadata.is_file() {bail!("read only supports regular UTF-8 files and directory discovery");}
+                if metadata.len()>100_000 {bail!("file exceeds read limit (100KB)");}
+                use tokio::io::AsyncReadExt;
+                let file=tokio::fs::File::open(&file).await?;
+                let mut bytes=Vec::new();
+                file.take(100_001).read_to_end(&mut bytes).await?;
                 if bytes.len()>100_000 {bail!("file exceeds read limit (100KB)");}
                 Ok(String::from_utf8(bytes).context("read only supports UTF-8 files")?)
             },
@@ -422,8 +440,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(root.path()).unwrap();
         let session = store.create("demo", "goal", "edit").unwrap();
-        let mut policies = Permissions::default();
-        policies.write = "allow".into();
+        let policies = Permissions {write:"allow".into(),..Default::default()};
         let mut tools = Tools::new(root.path().to_path_buf(), policies).unwrap();
         let action = parse_action("action: tool\ntool: write\npath: file.txt\ncontent: new contents").unwrap();
         tools.call_journaled(&action, &store, &session, "edit").await.unwrap();
@@ -516,8 +533,7 @@ mod tests {
     async fn sensitive_symlink_targets_are_denied_for_reads_and_writes() {
         use std::{fs, os::unix::fs::symlink};
         let root = tempfile::tempdir().unwrap();
-        let mut policies = Permissions::default();
-        policies.write = "allow".into();
+        let policies = Permissions {write:"allow".into(),..Default::default()};
         let mut tools = Tools::new(root.path().to_path_buf(), policies).unwrap();
         fs::write(root.path().join(".env"), "fixture secret").unwrap();
         fs::create_dir(root.path().join(".git")).unwrap();
@@ -556,8 +572,7 @@ mod tests {
     #[test]
     fn deny_policy_overrides_persistent_approval() {
         let d = tempfile::tempdir().unwrap();
-        let mut policy = Permissions::default();
-        policy.shell = "deny".into();
+        let policy = Permissions {shell:"deny".into(),..Default::default()};
         let mut tools = Tools::new(d.path().to_path_buf(), policy).unwrap();
         tools.approvals.grant(Scope::Project, "shell", "ls").unwrap();
         assert!(tools.permission("shell", "ls").is_err());
@@ -573,5 +588,24 @@ mod tests {
         assert_eq!(tools.decisions.len(), 2);
         assert!(tools.decisions[0].contains("Project whitelist"));
         assert!(tools.decisions[1].contains("Project whitelist"));
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    #[tokio::test]
+    async fn directory_reads_use_read_permissions_and_keep_file_write_guards() {
+        let root=tempfile::tempdir().unwrap();std::fs::write(root.path().join("notes.txt"),"file body").unwrap();
+        let mut tools=Tools::new(root.path().to_owned(),Permissions{shell:"deny".into(),..Default::default()}).unwrap();
+        let list=parse_action("action: tool\ntool: read\npath: .\ninput: notes").unwrap();
+        let text=tools.call(&list).await.unwrap();assert!(text.contains("notes.txt"));assert!(!text.contains("file body"));
+        assert!(tools.safe_path(".").is_err(),"writes must still reject the root");
+        assert!(tools.call(&parse_action("action: tool\ntool: read\npath: ./notes.txt").unwrap()).await.unwrap().contains("file body"));
+        assert_eq!(tools.call(&parse_action("action: tool\ntool: read\npath: notes.txt\ninput: ''").unwrap()).await.unwrap(),"file body");
+        let large=std::fs::File::create(root.path().join("large.txt")).unwrap();large.set_len(1024*1024*1024).unwrap();
+        assert!(tools.call(&parse_action("action: tool\ntool: read\npath: large.txt").unwrap()).await.unwrap_err().to_string().contains("100KB"));
+        tools.policies.read="deny".into();assert!(format!("{:#}",tools.call(&list).await.unwrap_err()).contains("forbidden by policy"));
+        assert!(!tools.decisions.iter().any(|d|d.starts_with("shell:")));
     }
 }

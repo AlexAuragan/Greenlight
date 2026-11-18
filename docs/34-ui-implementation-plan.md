@@ -1,5 +1,8 @@
 # UI redesign — consolidated decisions and implementation plan
 
+**Implementation status, 2026-11-19:** the major planned UI slices and consistency pass are implemented; the dated sections below record their progression. The original handoff sections are historical. Later permission-popup and provider-retry decisions supersede their earlier interaction details; [runtime controls](11-tui.md), [decision log](16-decision-log.md) and [README checklist](../README.md#roadmap--todo) describe current behavior. Generating all Help text from a shared registry remains a refinement, rather than an unfinished P0/P1 feature.
+
+
 **Status:** planning only, 2026-11-17, Europe/Paris. The user approved the compact visual direction and requested continuation. This document makes the proposed implementation concrete; it does not implement the app or treat every prior sketch as an approved interaction contract.
 
 ## 1. Current design reference
