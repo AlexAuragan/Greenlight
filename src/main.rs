@@ -1,3 +1,4 @@
+mod conversation_dump;
 mod approvals;
 mod changes;
 mod config;
@@ -105,6 +106,8 @@ enum Commands {
     WorkspaceBenchmark { #[arg(long, default_value_t=5, value_parser=clap::value_parser!(u8).range(1..=20))] runs:u8, #[arg(long)] json:bool },
     /// Show event history, including current branch ancestry
     History { session: String },
+    /// Export complete recorded conversation, protocol corrections and tool evidence
+    Dump { session:String, #[arg(long)] branch:Option<String>, #[arg(long, conflicts_with="branch")] all_branches:bool, #[arg(long)] json:bool, #[arg(long)] output:Option<PathBuf> },
     /// List session branches and their fork points
     Branches { session: String },
     /// Select a historical branch (manual step choice; does NOT restore files)
@@ -290,6 +293,13 @@ async fn main() -> Result<()> {
                     s.id, s.workflow, s.status, s.current_step, s.goal
                 );
             }
+        }
+        Commands::Dump {session,branch,all_branches,json,output} => {
+            let store=store::Store::open(&root)?;
+            let dump=conversation_dump::Dump::load(&store,&session,branch.as_deref(),all_branches)?;
+            if let Some(path)=output {dump.save(&path,json)?; println!("Saved conversation dump: {}",path.display());}
+            else if json {println!("{}",serde_json::to_string_pretty(&dump)?);}
+            else {println!("{}",dump.markdown().chars().flat_map(|c| if c.is_control() && c!='\n' && c!='\t' {c.escape_default().collect::<Vec<_>>()}else{vec![c]}).collect::<String>());}
         }
         Commands::History { session } => {
             let engine = engine::Engine::open(&root)?;

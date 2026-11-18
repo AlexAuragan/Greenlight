@@ -437,5 +437,15 @@ async fn correcting_request_syntax_never_bypasses_host_denial_or_workflow_tool_s
         let last=script.requests[2].last().unwrap()["content"].as_str().unwrap();
         assert!(!last.contains("MUST_NOT_REACH_MODEL"));assert!(last.contains("action format was accepted"));assert!(last.contains("Do not bypass a permission denial"));
         assert!(last.contains(if denied_by_host {"read forbidden by policy"}else{"not enabled for this step"}));
+        let dump=crate::conversation_dump::Dump::load(&h.engine.store,&h.session,None,false).unwrap();
+        let recorded=dump.events.iter().filter(|e|e.kind=="model.request").map(|e|{
+            let value:serde_json::Value=serde_json::from_str(&e.data).unwrap();
+            value["messages"].as_array().unwrap().iter().map(|id|dump.messages[id.as_str().unwrap()].clone()).collect::<Vec<_>>()
+        }).collect::<Vec<_>>();
+        assert_eq!(recorded,script.requests);
+        assert!(dump.markdown().contains(if denied_by_host {"read forbidden by policy"}else{"not enabled for this step"}));
+        assert!(dump.diagnostics.iter().any(|d|d.contains("protocol parser")));
+        assert!(dump.diagnostics.iter().any(|d|d.contains("Tool action failed")));
+
     }
 }

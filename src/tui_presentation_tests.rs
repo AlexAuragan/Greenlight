@@ -806,3 +806,28 @@ fn footer_shortcuts_work_and_active_overview_is_distinct_from_keyboard_focus() {
     assert_eq!(app.composer,".");assert!(!app.shell.more);
     assert_eq!(store.history(&session).unwrap().len(),before);assert!(app.runner.is_none());assert!(app.manager_job.is_none());
 }
+
+#[test]
+fn conversation_dump_has_visible_refresh_and_full_export_controls_at_both_widths() {
+    let (root,store,session,mut app,_)=fixture();
+    store.event(&session,Some("baseline"),"model.output","action: shell\ninput: systemctl --user status pure-black").unwrap();
+    store.event(&session,Some("baseline"),"protocol.error","Invalid YAML action: unknown action shell. Re-emit action: tool, tool: shell.").unwrap();
+    assert!(app.more_actions().contains(&shell::Action::ConversationDump));
+    app.activate(shell::Action::ConversationDump,root.path(),&store).unwrap();
+    for (w,h) in [(80,24),(120,35)] {
+        let mut output=String::new();
+        for _ in 0..100 {
+            output=text(&screen(&mut app,w,h,"conversation-dump"));
+            if output.contains("Conversation snapshot") {break;}
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(output.contains("Conversation snapshot"),"{output}");
+        for label in ["[R] Refresh","[w] Save full dump"] {assert!(output.contains(label),"{output}");}
+    }
+    let before=store.history(&session).unwrap();
+    app.on_key(KeyEvent::new(KeyCode::Char('h'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.help);
+    app.on_key(KeyEvent::new(KeyCode::Char('w'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(!store.directory.parent().unwrap().join("exports").exists());
+    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();assert!(!app.help);
+    app.on_key(KeyEvent::new(KeyCode::Char('w'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.notice.starts_with("Saved full conversation dump:"));
+    assert_eq!(store.history(&session).unwrap(),before);
+}

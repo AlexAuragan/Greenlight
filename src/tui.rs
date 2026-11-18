@@ -730,6 +730,11 @@ impl App {
             self.composer.clear();
             return;
         }
+        if instruction == "/dump" {
+            self.open_conversation_dump(store);
+            self.composer.clear();
+            return;
+        }
         if instruction == "/usage" {
             self.open_run_details(details::Page::Usage, store);
             self.composer.clear();

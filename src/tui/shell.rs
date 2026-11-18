@@ -9,6 +9,10 @@ use std::cell::RefCell;
 pub(super) enum Action {
     InspectAttention,
     FullDiagnostic,
+    ConversationDump,
+    RefreshDump,
+    SaveDump,
+    CopyDump,
     RecordedActivity,
     GiveInstructions,
     AskManager,
@@ -88,6 +92,10 @@ impl Action {
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::InspectAttention => "Inspect evidence",
+            Self::ConversationDump => "Conversation dump",
+            Self::RefreshDump => "[R] Refresh",
+            Self::CopyDump => "[C] Copy full dump",
+            Self::SaveDump => "[w] Save full dump",
             Self::FullDiagnostic => "Full diagnostic",
             Self::RecordedActivity => "Recorded activity",
             Self::GiveInstructions => "Give instructions",
@@ -287,6 +295,7 @@ impl App {
                 Action::RecordedActivity,
                 Action::AskManager,
                 Action::FullDiagnostic,
+                Action::ConversationDump,
             ];
             if (self.diagnostic.is_none() || self.diagnostic_attention)
                 && self.attention.as_ref().is_some_and(|s| s.resumable)
@@ -298,6 +307,7 @@ impl App {
 
         if self.artifact_browser.is_some() {
             let mut actions=vec![
+                Action::ConversationDump,
                 Action::Versions,
                 Action::Provenance,
                 Action::Compare,
@@ -315,6 +325,7 @@ impl App {
             Action::Edits,
             Action::New,
             Action::Usage,
+            Action::ConversationDump,
         ];
         if self.session().is_some_and(|s|s.status=="completed") && !(self.result_open && self.view==View::Conversation) {
             actions.insert(0,Action::Overview);
@@ -564,6 +575,14 @@ impl App {
                 self.inspect_attention();
                 return Ok(false);
             }
+            ConversationDump => {
+                self.diagnostic=None;self.diagnostic_attention=false;
+                self.open_conversation_dump(store);
+                return Ok(false);
+            }
+            CopyDump => {self.start_copy();return Ok(false);}
+            RefreshDump => {self.reload_conversation_dump(store);return Ok(false);}
+            SaveDump => {self.save_conversation_dump(store);return Ok(false);}
             FullDiagnostic => {
                 if self.diagnostic_attention
                     || self.diagnostic.is_none() && self.attention_visible()

@@ -422,3 +422,37 @@ async fn any_verification_still_accepts_later_check_after_a_genuine_rejection() 
         .iter()
         .any(|e| e.2 == "verification.passed"));
 }
+
+#[tokio::test]
+async fn conversation_dump_matches_exact_dispatched_messages_for_every_model_purpose() {
+    let (_root,engine,s)=fixture(vec![success(),success(),success(),success()]);
+    let messages=vec![serde_json::json!({"role":"system","content":"protocol"}),serde_json::json!({"role":"user","content":"Tool error: shell is disabled\nRetry with read"})];
+    for purpose in ["coding","verification","deviation-detector","manager"] {
+        engine.model_call(&s,"work",purpose,"fixture",&messages).await.unwrap();
+    }
+    let dump=crate::conversation_dump::Dump::load(&engine.store,&s.id,None,false).unwrap();
+    let recorded=dump.events.iter().filter(|e|e.kind=="model.request").map(|e|{
+        let event:serde_json::Value=serde_json::from_str(&e.data).unwrap();
+        event["messages"].as_array().unwrap().iter().map(|id|dump.messages[id.as_str().unwrap()].clone()).collect::<Vec<_>>()
+    }).collect::<Vec<_>>();
+    assert_eq!(recorded,engine.provider.script.as_ref().unwrap().lock().unwrap().requests);
+    assert_eq!(dump.events.iter().filter(|e|e.kind=="model.response").count(),4);
+    assert_eq!(dump.messages.len(),3);
+    assert!(!dump.diagnostics.iter().any(|d|d.contains("Legacy run") || d.contains("no response trace")));
+}
+
+#[tokio::test]
+async fn failed_trace_persistence_prevents_http_dispatch() {
+    let (root,engine,s)=fixture(vec![success()]);
+    let blobs=engine.store.directory.join("blobs");
+    if blobs.exists() {std::fs::remove_dir(&blobs).unwrap();}
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.path(),&blobs).unwrap();
+    #[cfg(not(unix))]
+    std::fs::write(&blobs,"not a directory").unwrap();
+    let error=engine.model_call(&s,"work","coding","fixture",&[serde_json::json!({"role":"user","content":"test"})]).await.unwrap_err();
+    assert!(format!("{error:#}").contains("request not sent"));
+    assert!(engine.provider.script.as_ref().unwrap().lock().unwrap().requests.is_empty());
+    let report=engine.store.usage_report(&s,Scope::Session).unwrap();
+    assert_eq!(report.calls[0].status,"not-sent");
+}

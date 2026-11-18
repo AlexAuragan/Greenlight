@@ -103,3 +103,5 @@ python tests/render_tui_captures.py /tmp/greenlight-captures docs/screenshots
 The optional PNG renderer uses Python Pillow and the DejaVu Sans Mono system font; neither is a Greenlight runtime dependency. Cargo tests require neither. Intermediate JSON stays outside the repository. The text fixtures for the 80×24 result/artifact list also serve as rendering regression baselines.
 
 The explicit update flag skips only the two text-baseline comparisons while producing replacement captures. Review the generated files, then rerun tests without that flag to verify the checked-in baselines. Other render/focus assertions still run during capture updates.
+
+Conversation-dump snapshots: [80×24 PNG](conversation-dump-80x24.png) · [text](conversation-dump-80x24.txt) · [120×35 PNG](conversation-dump-120x35.png). These show the real bounded reader and its Refresh, Save full dump and Copy controls; complete exports retain bodies beyond the on-screen preview.

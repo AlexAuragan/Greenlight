@@ -10,6 +10,7 @@ pub(super) enum Page {
     Requests,
     Request,
     Accounting,
+    Conversation,
 }
 #[derive(Default)]
 pub(super) struct Details {
@@ -18,6 +19,7 @@ pub(super) struct Details {
     pub selected: Option<String>,
     pub configured_model: Option<String>,
     pub text: String,
+    pub dump: Option<crate::conversation_dump::Dump>,
     pub revision: u64,
     scope: Option<(String, String)>,
     back: Vec<(Page, u16)>,
@@ -26,6 +28,7 @@ pub(super) struct Details {
 impl Details {
     pub fn close(&mut self) {
         self.page = None;
+        self.dump = None;
         self.back.clear();
         self.scope = None;
     }
@@ -39,6 +42,7 @@ impl Details {
     pub fn actions(&self) -> Vec<shell::Action> {
         use shell::Action::*;
         match self.page {
+            Some(Page::Conversation) => vec![Close, RefreshDump, SaveDump, CopyDump],
             Some(Page::Run) => vec![DetailsBack, Usage, Technical],
             Some(Page::Technical) => vec![DetailsBack, Usage, Copy],
             Some(Page::Usage) => {
@@ -156,6 +160,34 @@ fn request_text(call: &Call) -> String {
     text
 }
 impl App {
+    pub(super) fn open_conversation_dump(&mut self, store: &Store) {
+        self.open_run_details(Page::Conversation, store);
+        self.reload_conversation_dump(store);
+    }
+    pub(super) fn reload_conversation_dump(&mut self, store: &Store) {
+        if self.details.page != Some(Page::Conversation) { return; }
+        let Some(session)=self.session().cloned() else {return;};
+        match crate::conversation_dump::Dump::load(store,&session.id,Some(&session.active_branch),false) {
+            Ok(mut dump)=>{
+                if let Some(live)=self.runner.as_ref().filter(|r|r.session_id.as_deref()==Some(session.id.as_str())).and_then(|r|r.live.as_ref()).and_then(|l|l.lock().ok()) {
+                    dump.live_preview=Some(format!("{} · {}\nBuffer snapshot; not linked to a specific durable call. {}\n{}",live.model,live.state,if live.truncated {"Earlier stream text was truncated."}else{""},live.text));
+                }
+                self.details.dump=Some(dump);self.detail_scroll=0;self.refresh_run_details(store);}
+            Err(e)=>{self.details.dump=None;self.details.text=format!("Conversation dump unavailable: {e:#}");self.notice=self.details.text.clone();}
+        }
+    }
+    pub(super) fn save_conversation_dump(&mut self, store: &Store) {
+        let result=(|| -> Result<std::path::PathBuf> {
+            let dump=self.details.dump.as_ref().context("No conversation snapshot loaded")?;
+            let directory=store.directory.parent().context("Missing project state directory")?.join("exports");
+            std::fs::create_dir_all(&directory)?;
+            if !std::fs::symlink_metadata(&directory)?.file_type().is_dir() {bail!("Export directory must be a real directory");}
+            let path=directory.join(format!("conversation-{}.md",uuid::Uuid::new_v4()));
+            dump.save(&path,false)?;
+            Ok(path)
+        })();
+        match result {Ok(path)=>self.notice=format!("Saved full conversation dump: {}",path.display()),Err(e)=>self.notice=format!("Cannot save conversation dump: {e:#}")}
+    }
     pub(super) fn open_run_details(&mut self, page: Page, store: &Store) {
         self.remember_reading();
         if self.details.page.is_none() {
@@ -262,6 +294,7 @@ impl App {
             }
         };
         let text = match page {
+            Page::Conversation => self.details.dump.as_ref().map(|d|format!("Conversation snapshot · previews limited to 800 characters per body\n[R] Refresh · [w] Save full dump · [C] Copy full dump\n\n{}",d.preview())).unwrap_or_else(||"Conversation dump not loaded; R refreshes the snapshot.".into()),
             Page::Run => {
                 let mut text = format!("Run details · this session / active branch\n\nGoal\n{}\n\nWorkflow and current state\n{} · {} · {}\n", session.goal, session.workflow, session.status, session.current_step);
                 if let Some(w) = workspace {
@@ -781,4 +814,50 @@ mod tests {
         .unwrap();
         assert_eq!(app.details.page, Some(Page::Request));
     }
+    #[test]
+    fn conversation_snapshot_is_read_only_refreshable_complete_on_export_and_scoped() {
+        let (_root,store,session,mut app)=fixture();
+        let raw=format!("{}FULL_RESPONSE_END", "visible response ".repeat(300));
+        store.event(&session,Some("investigate"),"model.output",&raw).unwrap();
+        let before=store.history(&session).unwrap();
+        app.open_conversation_dump(&store);
+        assert_eq!(app.details.page,Some(Page::Conversation));
+        assert!(!app.details.text.contains("FULL_RESPONSE_END"));
+        assert!(app.export_snapshot().unwrap().text.contains(&raw));
+        app.save_conversation_dump(&store);
+        assert!(app.notice.starts_with("Saved full conversation dump:"));
+        let exports=store.directory.parent().unwrap().join("exports");
+        let path=std::fs::read_dir(exports).unwrap().next().unwrap().unwrap().path();
+        assert!(std::fs::read_to_string(path).unwrap().contains(&raw));
+        assert_eq!(store.history(&session).unwrap(),before);
+        assert_eq!(store.session(&session.id).unwrap().status,"ready");
+        store.event(&session,Some("investigate"),"protocol.error","unknown action shell").unwrap();
+        assert!(!app.details.text.contains("unknown action shell"));
+        app.reload_conversation_dump(&store);
+        assert!(app.details.text.contains("unknown action shell"));
+        let other=store.create("fix-bug","different session","investigate").unwrap();
+        app.requested_session=Some(other.id.clone());app.refresh(&store).unwrap();
+        assert!(app.details.page.is_none());
+        assert!(app.details.dump.is_none());
+    }
+
+    #[test]
+    fn conversation_live_buffer_is_explicit_and_never_leaks_between_sessions() {
+        let (_root,store,session,mut app)=fixture();
+        let live=std::sync::Arc::new(std::sync::Mutex::new(crate::provider::stream::LiveOutput {
+            model:"fixture".into(),text:"PARTIAL_VISIBLE_TEXT".into(),state:"Receiving model output…".into(),truncated:true,
+        }));
+        app.runner=Some(Runner {live:Some(live),cancel_retry:None,session_id:Some(session.id.clone()),prompts:std::sync::mpsc::channel().1,finished:std::sync::mpsc::channel().1,answers:std::sync::mpsc::channel().0});
+        app.open_conversation_dump(&store);
+        let dump=app.details.dump.as_ref().unwrap();
+        assert!(dump.live_preview.as_ref().unwrap().contains("PARTIAL_VISIBLE_TEXT"));
+        assert!(dump.live_preview.as_ref().unwrap().contains("truncated"));
+        assert!(dump.markdown().contains("not validated or executed evidence"));
+        assert!(crate::conversation_dump::Dump::load(&store,&session.id,None,false).unwrap().live_preview.is_none());
+        let other=store.create("fix-bug","other","investigate").unwrap();
+        app.requested_session=Some(other.id);app.refresh(&store).unwrap();app.open_conversation_dump(&store);
+        assert!(app.details.dump.as_ref().unwrap().live_preview.is_none());
+        assert!(!app.export_snapshot().unwrap().text.contains("PARTIAL_VISIBLE_TEXT"));
+    }
+
 }

@@ -64,6 +64,8 @@ greenlight attempts SESSION_ID  # durable step attempts on the active branch
 greenlight tui                  # interactive session conversation
 greenlight tui SESSION_ID       # focus on a session, resume or restart
 greenlight history SESSION_ID
+greenlight dump SESSION_ID --output conversation.md
+greenlight dump SESSION_ID --json --output conversation.json
 greenlight workspace-status SESSION_ID  # compare step-boundary file hashes
 greenlight branches SESSION_ID
 greenlight switch SESSION_ID --branch BRANCH_ID --step implement
@@ -85,6 +87,8 @@ Without `--root`, commands discover the nearest initialized project from the cur
 **Renamed from Stepwright:** The Cargo package and installed command are now `greenlight`. Existing `stepwright.yaml` files remain readable as a fallback, but `greenlight.yaml` takes precedence. On first use, the local `.stepwright/state` directory is moved to `.greenlight/state` (including session history, blobs, approvals and cache). If both exist, Greenlight stops instead of choosing one. See [migration notes](docs/15-name-migration.md).
 
 Use `greenlight tui` to open a session conversation, send instructions to resume blocked work, approve tools and human gates, inspect edit diffs, browse workflow artifacts in the **[2] Artifacts** tab, and restart an earlier workflow step. The TUI polls the existing event database, so it can also observe a workflow running in another terminal. To restart, type `/restart`, choose a recorded step and confirm the guarded workspace restore before forking; see `docs/11-tui.md`.
+
+For complete model/tool evidence, use [conversation dumps](docs/35-conversation-dump.md) (TUI: More → Conversation dump). New calls retain exact prepared messages; legacy gaps remain labelled.
 
 When execution blocks, use `history`, inspect artifacts and then `resume --instruction`. If an attempt should be superseded without losing history, use `fork` from the desired event. Forking offers to restore **tracked native edits** first. Shell-only or manual changes cannot be reconstructed; preview with `restore --dry-run`.
 

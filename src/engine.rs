@@ -276,7 +276,15 @@ impl Engine {
             let mut call=crate::usage::Call::new(s,step,purpose,model,&provider,metadata,messages);
             if let Some((message,snapshot))=interaction {call.manager_message_id=Some(message.into());call.manager_snapshot_id=Some(snapshot.into());}
             self.store.begin_model_call(s,&mut call)?;
+            if let Err(error)=crate::conversation_dump::record_request(&self.store,s,step,&call.id,purpose,model,messages) {
+                call.status="not-sent".into();
+                call.counts.notes.push("Trace persistence failed; no HTTP request sent.".into());
+                self.store.finish_model_call(s,&call)?;
+                return Err(error.context("Cannot persist prepared conversation; request not sent"));
+            }
+            let started=std::time::Instant::now();
             let result=self.provider.complete(model,messages).await;
+            let elapsed=started.elapsed().as_millis();
             let failure=match &result {
                 Ok(response)=>{call.finish(response);response.failure.clone()},
                 Err(error)=>{call.status="failed-or-unknown-billing".into();error.downcast_ref::<Failure>().cloned()},
@@ -287,6 +295,7 @@ impl Engine {
                 if failure.billing_uncertain {call.estimated_cost=None;}
             }
             self.store.finish_model_call(s,&call).context("could not persist model usage; initial request record retained")?;
+            crate::conversation_dump::record_response(&self.store,s,&call,elapsed,result.as_ref().ok().and_then(|r|r.content.as_ref().ok()).map(String::as_str)).context("Cannot persist returned conversation; inspect usage before retrying")?;
             if let Some(failure)=failure {
                 if purpose!="manager" {console_eprintln!(self,"[provider] {failure}");}
                 self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"purpose":purpose,"request_number":attempt,"failure":failure}))?)?;

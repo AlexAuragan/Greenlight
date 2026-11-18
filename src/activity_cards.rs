@@ -283,6 +283,8 @@ pub fn is_protocol(kind: &str) -> bool {
             | "permission.decision"
             | "model.call-started"
             | "model.usage"
+            | "model.request"
+            | "model.response"
             | "workspace.manifest.before"
             | "workspace.manifest.after"
             | "manager.snapshot"

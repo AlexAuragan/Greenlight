@@ -22,7 +22,7 @@ impl App {
         } else if let Some(text) = &self.diagnostic {
             ("diagnostic".into(), text.clone())
         } else if let Some(page) = self.details.page {
-            (format!("{page:?} · selected session/branch snapshot"), self.details.text.clone())
+            (format!("{page:?} · selected session/branch snapshot"), if page==details::Page::Conversation {self.details.dump.as_ref().map(|d|d.markdown()).unwrap_or_else(||self.details.text.clone())}else{self.details.text.clone()})
         } else if let Some(text) = &self.context_detail {
             ("attempt context".into(), text.clone())
         } else if let Some(browser) = &self.artifact_browser {

@@ -477,6 +477,8 @@ impl App {
         if self.details.page.is_some() && self.approval.is_none() && self.diagnostic.is_none() {
             match key.code {
                 KeyCode::Esc => self.back_run_details(store),
+                KeyCode::Char('R') if self.details.page == Some(details::Page::Conversation) => self.reload_conversation_dump(store),
+                KeyCode::Char('w') if self.details.page == Some(details::Page::Conversation) => self.save_conversation_dump(store),
                 KeyCode::Char('C') => self.start_copy(),
                 KeyCode::Char('E') => self.request_editor(),
                 KeyCode::Down | KeyCode::Char('j') if self.details.page == Some(details::Page::Requests) => self.move_usage_request(1, store),
