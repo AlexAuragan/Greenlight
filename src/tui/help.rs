@@ -34,6 +34,9 @@ Edits: Tab cycles All files/files; Enter focuses actions; Esc returns.
 Keep saves review intent for already-applied files, not tool grants or Git staging.
 e opens blocker evidence; b opens its card; r previews restart.
 End/G follows latest activity; Home/g pauses at the first record.
+Running Activity uses a compact list beside the larger model/tool output pane.
+Enter/click opens an event there; Live output returns to the stream.
+Narrow screens stack activity above output. P hides output; Z toggles full width.
 Stop requests cancels retry waits; an in-flight request may finish.
 
 Text editing

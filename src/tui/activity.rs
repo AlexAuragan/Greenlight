@@ -256,6 +256,13 @@ pub(super) fn invalid_event_payload(kind: &str, data: &str) -> Option<String> {
     result.err().map(|error| format!("{error:#}"))
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum Pane {
+    Activity,
+    CompactActivity,
+    Detail,
+}
+
 pub(super) fn draw(
     frame: &mut Frame,
     app: &App,
@@ -266,25 +273,31 @@ pub(super) fn draw(
     {
         let panes = Layout::horizontal([Constraint::Percentage(48), Constraint::Percentage(52)])
             .split(area);
-        draw_content(frame, app, workspace, panes[0], false);
-        draw_content(frame, app, workspace, panes[1], true);
+        draw_content(frame, app, workspace, panes[0], Pane::Activity);
+        draw_content(frame, app, workspace, panes[1], Pane::Detail);
     } else {
         draw_content(
             frame,
             app,
             workspace,
             area,
-            app.focus == Focus::Detail || app.inspector_open,
+            if app.focus == Focus::Detail || app.inspector_open {
+                Pane::Detail
+            } else {
+                Pane::Activity
+            },
         );
     }
 }
-fn draw_content(
+pub(super) fn draw_content(
     frame: &mut Frame,
     app: &App,
     workspace: Option<&crate::workspace_view::SessionWorkspace>,
     area: ratatui::layout::Rect,
-    show_detail: bool,
+    pane: Pane,
 ) {
+    let show_detail = matches!(pane, Pane::Detail);
+    let compact_list = matches!(pane, Pane::CompactActivity);
     if app.blocker_card
         && workspace.is_some_and(|w| {
             w.blocker.is_some()
@@ -321,7 +334,18 @@ fn draw_content(
         let right = [ratatui::layout::Rect::default(), area];
         if show_detail {
             let detail = app.detail();
-            let title = if app.diff.is_some() {
+            let title = if app.workflow_live_output().is_some() && app.shell.preview {
+                if app.diff.is_some() {
+                    " Recorded diff · Enter: live output "
+                } else if app
+                    .event()
+                    .is_some_and(|event| app.activity_cards.tools.contains_key(&event.id))
+                {
+                    " Tool output · Enter: live output "
+                } else {
+                    " Activity detail · Enter: live output "
+                }
+            } else if app.diff.is_some() {
                 " Recorded diff · Enter returns "
             } else if app.show_all {
                 " Raw evidence · Enter returns "
@@ -344,16 +368,17 @@ fn draw_content(
                     markdown: false,
                     headers: Vec::new(),
                 },
-                border(title, true),
+                border(title, app.focus == Focus::Detail),
                 right[1],
             );
         } else {
-            let compact = right[1].height < 6 || right[1].width < 36;
+            let compact = compact_list || right[1].height < 6 || right[1].width < 36;
             let events = app.events.iter().map(|event| {
                 if app.show_all {
                     let item = ListItem::new(inline_display(&format!(
-                        "#{} {}: {}",
+                        "#{} {} · {}: {}",
                         event.id,
+                        event.step,
                         conversational_label(&event.kind),
                         event.data.lines().next().unwrap_or("")
                     )));
@@ -378,10 +403,17 @@ fn draw_content(
                     crate::activity_cards::Tone::Attention => Color::Yellow,
                     crate::activity_cards::Tone::Error => theme::ERROR,
                 };
-                let title = Line::styled(
+                let mut title = Line::default();
+                if compact_list && !event.step.is_empty() {
+                    title.spans.push(Span::styled(
+                        inline_display(&format!("{} · ", event.step)),
+                        Style::default().fg(theme::MUTED),
+                    ));
+                }
+                title.spans.push(Span::styled(
                     inline_display(&card.title),
                     Style::default().fg(color).add_modifier(Modifier::BOLD),
-                );
+                ));
                 let summary = Line::styled(
                     inline_display(&format!("  {} · {}", event.step, card.summary)),
                     Style::default().fg(
@@ -404,7 +436,11 @@ fn draw_content(
             let list = List::new(events)
                 .block(
                     border(
-                        if app.show_all && app.follow_activity {
+                        if compact_list && app.follow_activity {
+                            " Activity · following "
+                        } else if compact_list {
+                            " Activity · paused "
+                        } else if app.show_all && app.follow_activity {
                             " Activity · full · following "
                         } else if app.show_all {
                             " Activity · full · paused · End follows "
@@ -415,11 +451,17 @@ fn draw_content(
                         },
                         app.focus == Focus::Events,
                     )
-                    .title_bottom(format!(
-                        " F filter: {} · {} records ",
-                        inline_display(&app.activity_query),
-                        app.events.len()
-                    )),
+                    .title_bottom(
+                        if compact_list && app.activity_query.is_empty() {
+                            format!(" {} records · F filter ", app.events.len())
+                        } else {
+                            format!(
+                                " F filter: {} · {} records ",
+                                inline_display(&app.activity_query),
+                                app.events.len()
+                            )
+                        },
+                    ),
                 )
                 .highlight_symbol("▶ ")
                 .highlight_style(

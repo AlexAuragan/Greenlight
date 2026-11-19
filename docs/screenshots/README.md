@@ -109,3 +109,10 @@ Conversation-dump snapshots: [80×24 PNG](conversation-dump-80x24.png) · [text]
 Tool-permission popup: [80×24](permission-popup-80x24.png) · [120×36](permission-popup-120x36.png). [Dismissed, still waiting](permission-pending-80x24.png) shows the amber pending state and Review permission action. These are actual application renders; Esc does not submit a decision.
 
 Provider retry: [80×24 popup](provider-retry-popup-80x24.png) · [120×36 popup](provider-retry-popup-120x36.png) · [hidden, still paused](provider-retry-pending-80x24.png). Retry/Stop controls are typed separately from tool grants; Esc sends no decision. The blocked-provider screen's Continue step control starts a fresh step attempt.
+
+Running Activity now prioritizes output in a 1/3–2/3 split (scripted, unvalidated model text; no live provider request):
+
+- [Model output](running-output-columns-120x36.png) · [exact text](running-output-columns-120x36.txt)
+- [Selected tool output in the same right pane](running-output-tool-120x36.png) · [exact text](running-output-tool-120x36.txt)
+
+These captures are exported by the `running_output` presentation tests. Narrow-screen stacking, full-width output, one-line row hit testing and cross-session stream isolation are covered by the same fixtures.

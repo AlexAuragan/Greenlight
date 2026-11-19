@@ -147,6 +147,13 @@ impl App {
             || self.edits.pending.is_some()
             || self.artifact_browser.is_some()
     }
+    pub(super) fn workflow_live_output(&self) -> Option<&crate::provider::stream::Preview> {
+        let session = self.session()?;
+        self.runner
+            .as_ref()
+            .filter(|worker| worker.session_id.as_deref() == Some(session.id.as_str()))
+            .and_then(|worker| worker.live.as_ref())
+    }
     pub(super) fn composer_active(&self) -> bool {
         self.focus == Focus::Compose && !self.blocking_surface()
     }
@@ -485,7 +492,18 @@ impl App {
                 ]
             };
         }
-        vec![Action::Open, Action::Compose, Action::More]
+        vec![
+            if self.workflow_live_output().is_some()
+                && self.shell.preview
+                && (self.inspector_open || self.focus == Focus::Detail)
+            {
+                Action::ReturnLive
+            } else {
+                Action::Open
+            },
+            Action::Compose,
+            Action::More,
+        ]
     }
     pub(super) fn shell_actions(&self) -> Vec<Action> {
         let mut actions = self.footer_actions();
@@ -843,6 +861,11 @@ impl App {
                 } else if let Err(error) = self.new_form(root) {
                     self.raise_diagnostic(format!("Cannot list workflows: {error:#}"));
                 }
+            }
+            ReturnLive => {
+                self.inspector_open = false;
+                self.focus = Focus::Events;
+                self.detail_scroll = 0;
             }
             Open => {
                 self.open_selection(root, store)?;

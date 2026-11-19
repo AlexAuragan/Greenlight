@@ -606,55 +606,71 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             draw_scrolled(frame,app,Paragraph::new("No artifacts on this branch yet.\n\nArtifact actions and put-artifact register documents for later steps and human review.").wrap(Wrap{trim:false}).block(border(title,app.focus==Focus::Detail)),panes[1]);
         }
     } else {
-        let live = app
-            .runner
-            .as_ref()
-            .filter(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
-            .and_then(|r| r.live.as_ref());
-        if let Some(live) = live.filter(|_| app.shell.preview) {
-            let panels = Layout::vertical([
-                Constraint::Min(3),
-                Constraint::Length(if app.shell.expanded {
-                    columns[1].height.saturating_sub(3)
+        let live = app.workflow_live_output();
+        if let Some(live) = live.filter(|_| app.shell.preview && !app.blocker_card) {
+            let panels = if app.shell.expanded {
+                Layout::horizontal([Constraint::Length(0), Constraint::Min(1)]).split(columns[1])
+            } else if columns[1].width >= 90 {
+                Layout::horizontal([Constraint::Percentage(33), Constraint::Min(1)])
+                    .split(columns[1])
+            } else {
+                Layout::vertical([
+                    Constraint::Length((columns[1].height / 3).clamp(3, 7)),
+                    Constraint::Min(1),
+                ])
+                .split(columns[1])
+            };
+            activity::draw_content(
+                frame,
+                app,
+                workspace,
+                panels[0],
+                activity::Pane::CompactActivity,
+            );
+            if app.inspector_open || app.focus == Focus::Detail {
+                activity::draw_content(frame, app, workspace, panels[1], activity::Pane::Detail);
+            } else {
+                let live = live.lock().unwrap();
+                let status = if live.state.is_empty() {
+                    "Starting workflow…"
                 } else {
-                    5.min(columns[1].height.saturating_sub(4))
-                }),
-            ])
-            .split(columns[1]);
-            activity::draw(frame, app, workspace, panels[0]);
-            let live = live.lock().unwrap();
-            let status = if live.state.is_empty() {
-                "Starting workflow…"
-            } else {
-                &live.state
-            };
-            let body = if live.text.is_empty() {
-                format!("{status}\nOutput will appear as the provider sends it. Tool and human approvals remain interactive.")
-            } else {
-                safe_display(&live.text)
-            };
-            let paragraph = Paragraph::new(body)
-                .wrap(Wrap { trim: false })
-                .style(Style::default())
-                .block(
-                    border(" Live model output · unvalidated preview ", false).title_bottom(
-                        inline_display(&format!(
-                            "{} · {}{}",
-                            live.model,
-                            status,
-                            if live.truncated {
-                                " · showing latest output"
-                            } else {
-                                ""
-                            }
-                        )),
-                    ),
-                );
-            let offset = paragraph
-                .line_count(panels[1].width.saturating_sub(2))
-                .saturating_sub(panels[1].height.saturating_sub(2) as usize)
-                .min(u16::MAX as usize) as u16;
-            frame.render_widget(paragraph.scroll((offset, 0)), panels[1]);
+                    &live.state
+                };
+                let body = if live.text.is_empty() {
+                    format!("{status}\nOutput will appear as the provider sends it. Tool and human approvals remain interactive.")
+                } else {
+                    safe_display(&live.text)
+                };
+                let paragraph = Paragraph::new(body)
+                    .wrap(Wrap { trim: false })
+                    .style(Style::default())
+                    .block(
+                        border("", false)
+                            .title(Line::styled(
+                                " Live model output · unvalidated preview ",
+                                Style::default().fg(theme::TEXT),
+                            ))
+                            .title_bottom(Line::styled(
+                                inline_display(&format!(
+                                    "{} · {}{}",
+                                    live.model,
+                                    status,
+                                    if live.truncated {
+                                        " · showing latest output"
+                                    } else {
+                                        ""
+                                    }
+                                )),
+                                Style::default().fg(theme::MUTED),
+                            )),
+                    );
+                // Paragraph::line_count includes the block's top/bottom borders.
+                let offset = paragraph
+                    .line_count(panels[1].width.saturating_sub(2))
+                    .saturating_sub(panels[1].height as usize)
+                    .min(u16::MAX as usize) as u16;
+                frame.render_widget(paragraph.scroll((offset, 0)), panels[1]);
+            }
         } else {
             activity::draw(frame, app, workspace, columns[1]);
         }

@@ -1369,3 +1369,171 @@ fn provider_retry_popup_explains_the_next_action_without_tool_grant_choices() {
     assert_eq!(received.try_recv().unwrap(), "n");
     assert!(app.notice.contains("Stopped the provider retry"));
 }
+
+fn running_output_fixture() -> (
+    tempfile::TempDir,
+    Store,
+    Session,
+    App,
+    crate::session_execution::ExecutionOwner,
+) {
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store
+        .create("fix-bug", "Inspect the running workspace", "implement")
+        .unwrap();
+    let owner = store.claim_execution(&session.id, None).unwrap();
+    let session = store.session(&session.id).unwrap();
+    store
+        .begin_attempt(&session, "implement", "id: implement", "fixture")
+        .unwrap();
+    let request = store
+        .event(
+            &session,
+            Some("implement"),
+            "tool.request",
+            "action: tool\ntool: read\npath: source.rs\n",
+        )
+        .unwrap();
+    store
+        .tool_outcome(
+            &session,
+            "implement",
+            request,
+            "read",
+            "tool.result",
+            "TOOL_OUTPUT_BODY\nComplete recorded source output.",
+        )
+        .unwrap();
+    let preview = crate::provider::stream::Preview::default();
+    {
+        let mut live = preview.lock().unwrap();
+        live.start("fixture-model");
+        live.text = (0..20)
+            .map(|line| format!("MODEL_OUTPUT_{line:02} · work in progress\n"))
+            .collect();
+        live.state = "Receiving model output…".into();
+    }
+    let (_requests, prompts) = std::sync::mpsc::channel();
+    let (answers, _responses) = std::sync::mpsc::channel();
+    let (_complete, finished) = std::sync::mpsc::channel();
+    let mut app = App::new(Some(&session.id));
+    app.runner = Some(Runner {
+        live: Some(preview),
+        cancel_retry: None,
+        session_id: Some(session.id.clone()),
+        prompts,
+        answers,
+        finished,
+    });
+    app.refresh(&store).unwrap();
+    app.result_open = false;
+    app.blocker_card = false;
+    app.focus = Focus::Events;
+    (root, store, session, app, owner)
+}
+
+#[test]
+fn running_output_uses_two_thirds_and_activity_rows_keep_step_inline() {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let (root, store, session, mut app, _owner) = running_output_fixture();
+    let before = store.history(&session).unwrap();
+    let buffer = screen(&mut app, 120, 36, "running-output-columns");
+    let output = text(&buffer);
+    assert!(
+        output.contains("implement · Tool · read · returned"),
+        "{output}"
+    );
+    assert!(
+        output.contains("MODEL_OUTPUT_00") && output.contains("MODEL_OUTPUT_19"),
+        "{output}"
+    );
+    // Both panels use the same vertical origin; the output starts at one-third width.
+    let lines: Vec<_> = output.lines().collect();
+    let top = lines
+        .iter()
+        .find(|line| line.contains("Live model output"))
+        .unwrap();
+    assert!(top.contains("Activity"));
+    let body = lines
+        .iter()
+        .find(|line| line.contains("MODEL_OUTPUT_00"))
+        .unwrap();
+    let x = unicode_width::UnicodeWidthStr::width(&body[..body.find("MODEL_OUTPUT_00").unwrap()]);
+    assert!((40..=42).contains(&x), "output starts at {x}");
+    let y = lines
+        .iter()
+        .position(|line| line.contains("implement · Tool · read"))
+        .unwrap() as u16;
+    for kind in [
+        MouseEventKind::Down(MouseButton::Left),
+        MouseEventKind::Up(MouseButton::Left),
+    ] {
+        app.on_event(
+            Event::Mouse(MouseEvent {
+                kind,
+                column: 4,
+                row: y,
+                modifiers: KeyModifiers::NONE,
+            }),
+            root.path(),
+            &store,
+        )
+        .unwrap();
+    }
+    assert_eq!(app.event().unwrap().kind, "tool.result");
+    let selected = text(&screen(&mut app, 120, 36, "running-output-tool"));
+    assert!(selected.contains("TOOL_OUTPUT_BODY"), "{selected}");
+    assert!(selected.contains("Tool output") && selected.contains("Live output"));
+    assert!(!selected.contains("MODEL_OUTPUT_00"));
+    assert!(app.footer_actions().contains(&shell::Action::ReturnLive));
+    app.activate(shell::Action::ReturnLive, root.path(), &store)
+        .unwrap();
+    assert!(text(&screen(&mut app, 120, 36, "running-output-return")).contains("MODEL_OUTPUT_00"));
+    assert_eq!(store.history(&session).unwrap(), before);
+}
+
+#[test]
+fn running_output_stacks_on_narrow_screens_and_expands_without_nested_panes() {
+    let (_root, _store, _session, mut app, _owner) = running_output_fixture();
+    for (w, h) in [(80, 24), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "running-output-stacked"));
+        assert!(output.contains("MODEL_OUTPUT_19"), "{w}x{h}: {output}");
+        let activity = output
+            .lines()
+            .position(|line| line.contains("Activity ·"))
+            .unwrap();
+        let live = output
+            .lines()
+            .position(|line| line.contains("Live model output"))
+            .unwrap();
+        assert!(live > activity);
+        assert!(live - activity <= 7);
+    }
+    app.shell.expanded = true;
+    let output = text(&screen(&mut app, 120, 36, "running-output-expanded"));
+    assert!(output.contains("MODEL_OUTPUT_00"));
+    assert!(!output.contains("Activity · following"));
+    app.shell.preview = false;
+    let output = text(&screen(&mut app, 120, 36, "running-output-hidden"));
+    assert!(!output.contains("MODEL_OUTPUT_00"));
+    assert!(output.contains("Tool · read · returned"));
+    for (w, h) in [(0, 0), (1, 1), (20, 8)] {
+        screen(&mut app, w, h, "running-output-tiny");
+    }
+}
+
+#[test]
+fn running_output_never_displays_another_sessions_stream() {
+    let (_root, store, _session, mut app, _owner) = running_output_fixture();
+    let other = store
+        .create("fix-bug", "Different session", "investigate")
+        .unwrap();
+    app.requested_session = Some(other.id);
+    app.refresh(&store).unwrap();
+    assert!(app.workflow_live_output().is_none());
+    assert!(
+        !text(&screen(&mut app, 120, 36, "running-output-other-session")).contains("MODEL_OUTPUT_")
+    );
+}

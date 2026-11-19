@@ -51,6 +51,7 @@ pub(super) enum Action {
     Edits,
     New,
     Open,
+    ReturnLive,
     Copy,
     Editor,
     Filter,
@@ -191,6 +192,11 @@ pub(super) const BINDINGS: &[Binding] = &[
     binding!(NavSearch, 'f', "Search"),
     binding!(ConfirmRevert, 'y', "Revert"),
     binding!(CancelRevert, 'n', "Cancel"),
+    Binding {
+        action: Action::ReturnLive,
+        key: KeyCode::Enter,
+        label: "[Enter] Live output",
+    },
     Binding {
         action: Action::Open,
         key: KeyCode::Enter,
