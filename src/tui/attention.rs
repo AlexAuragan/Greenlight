@@ -171,7 +171,7 @@ pub(super) fn project(
                 state.reason = provider.unwrap().2.to_string();
                 state.next = "Wait for the bounded retry, or stop future requests.";
                 state.impact =
-                    "Stop cancels the retry wait. A request already in flight may finish.";
+                    "Stop cancels active execution and retry waits. Applied edits remain.";
                 return Some(state);
             }
         }

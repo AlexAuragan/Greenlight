@@ -94,7 +94,8 @@ impl App {
     pub(super) fn cancel_manager(&mut self) {
         if let Some(job) = &self.manager_job {
             job.cancel.store(true, Ordering::SeqCst);
-            self.notice="Manager stop requested; no further retry will start. An in-flight request may finish.".into();
+            self.notice =
+                "Stopping manager request… Remote processing/billing may be uncertain.".into();
         } else {
             self.notice = "No manager request is active.".into();
         }

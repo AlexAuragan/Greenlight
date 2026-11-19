@@ -183,6 +183,20 @@ impl App {
                 Action::Copy,
                 Action::Editor,
             ];
+            if self.runner.is_some() && self.view == View::Conversation {
+                return vec![
+                    if self.workflow_live_output().is_some()
+                        && self.shell.preview
+                        && (self.inspector_open || self.focus == Focus::Detail)
+                    {
+                        Action::ReturnLive
+                    } else {
+                        Action::Open
+                    },
+                    Action::Stop,
+                    Action::More,
+                ];
+            }
             if self.session().is_some_and(|s| s.status == "completed") {
                 actions.insert(0, Action::Overview);
             }
@@ -356,6 +370,20 @@ impl App {
             ];
         }
         if self.artifact_browser.is_some() {
+            if self.runner.is_some() && self.view == View::Conversation {
+                return vec![
+                    if self.workflow_live_output().is_some()
+                        && self.shell.preview
+                        && (self.inspector_open || self.focus == Focus::Detail)
+                    {
+                        Action::ReturnLive
+                    } else {
+                        Action::Open
+                    },
+                    Action::Stop,
+                    Action::More,
+                ];
+            }
             if self.session().is_some_and(|s| s.status == "completed") {
                 return if self.viewport.0 < 60 {
                     vec![Action::Overview, Action::Close, Action::More]
@@ -477,6 +505,20 @@ impl App {
                     Action::Open
                 },
                 Action::Versions,
+                Action::More,
+            ];
+        }
+        if self.runner.is_some() && self.view == View::Conversation {
+            return vec![
+                if self.workflow_live_output().is_some()
+                    && self.shell.preview
+                    && (self.inspector_open || self.focus == Focus::Detail)
+                {
+                    Action::ReturnLive
+                } else {
+                    Action::Open
+                },
+                Action::Stop,
                 Action::More,
             ];
         }
@@ -973,7 +1015,7 @@ impl App {
                     .and_then(|runner| runner.cancel_retry.as_ref())
                 {
                     cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                    self.notice = "Stop requested: retry waits cancel promptly; an in-flight request may finish, and no further provider request will start.".into();
+                    self.notice = "Stopping execution… Active requests/commands are being cancelled; applied edits remain. Provider billing or partial command effects may be uncertain.".into();
                 } else if self.manager_job.is_some() {
                     self.cancel_manager();
                 }

@@ -35,6 +35,7 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
         let result = (|| -> Result<()> {
             let mut engine = Engine::open(&root)?;
             engine.interactive_provider_retry = true;
+            engine.tools.stop = worker_cancel.clone();
             engine.provider.retry_cancel = worker_cancel;
             worker_live.lock().unwrap().connection = Some(engine.provider.connection_info());
             engine.provider.live = Some(worker_live);

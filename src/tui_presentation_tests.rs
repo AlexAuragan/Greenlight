@@ -1450,6 +1450,7 @@ fn running_output_uses_two_thirds_and_activity_rows_keep_step_inline() {
         "{output}"
     );
     // Both panels use the same vertical origin; the output starts at one-third width.
+    assert!(output.contains("[k] Stop"));
     let lines: Vec<_> = output.lines().collect();
     let top = lines
         .iter()

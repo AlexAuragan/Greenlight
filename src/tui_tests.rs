@@ -138,7 +138,7 @@ fn focus_moves_across_panes_and_arrows_scroll_detail() {
     )
     .unwrap();
     app.on_key(
-        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
         root.path(),
         &store,
     )

@@ -126,6 +126,7 @@ pub enum PromptDriver {
     Tui {
         requests: Sender<ApprovalPrompt>,
         answers: Receiver<String>,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     },
 }
 
@@ -156,7 +157,11 @@ impl PromptDriver {
                 }
                 Ok(answer.trim().to_string())
             }
-            Self::Tui { requests, answers } => {
+            Self::Tui {
+                requests,
+                answers,
+                stop,
+            } => {
                 requests
                     .send(ApprovalPrompt {
                         review,
@@ -165,9 +170,18 @@ impl PromptDriver {
                         command: command.map(str::to_owned),
                     })
                     .context("TUI approval channel closed")?;
-                answers
-                    .recv()
-                    .context("TUI approval response channel closed")
+                loop {
+                    if stop.load(std::sync::atomic::Ordering::SeqCst) {
+                        bail!("Execution stopped by user while waiting; no approval decision was recorded.");
+                    }
+                    match answers.recv_timeout(std::time::Duration::from_millis(50)) {
+                        Ok(answer) => return Ok(answer),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(error) => {
+                            return Err(error).context("TUI approval response channel closed")
+                        }
+                    }
+                }
             }
         }
     }
@@ -175,6 +189,7 @@ impl PromptDriver {
 
 pub struct Tools {
     pub root: PathBuf,
+    pub stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub policies: Permissions,
     approved: HashSet<String>,
     pub approvals: ApprovalStore,
@@ -188,6 +203,7 @@ impl Tools {
         let approvals = ApprovalStore::open(&root)?;
         Ok(Self {
             root,
+            stop: Default::default(),
             policies,
             approved: HashSet::new(),
             approvals,
@@ -198,7 +214,11 @@ impl Tools {
         })
     }
     pub fn use_tui(&mut self, requests: Sender<ApprovalPrompt>, answers: Receiver<String>) {
-        self.prompt_driver = PromptDriver::Tui { requests, answers };
+        self.prompt_driver = PromptDriver::Tui {
+            requests,
+            answers,
+            stop: self.stop.clone(),
+        };
     }
 
     pub fn is_tui(&self) -> bool {
@@ -223,6 +243,9 @@ impl Tools {
     }
 
     pub fn permission(&mut self, kind: &str, detail: &str) -> Result<()> {
+        if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Execution stopped by user before tool authorization/execution");
+        }
         let policy = match kind {
             "shell" => &self.policies.shell,
             "read" => &self.policies.read,
@@ -400,9 +423,14 @@ impl Tools {
     }
     pub async fn shell(&mut self, command: &str) -> Result<String> {
         self.permission("shell", command)?;
-        let output = crate::sandbox::Sandbox::open(&self.root)?
-            .run(command)
-            .await?;
+        let sandbox = crate::sandbox::Sandbox::open(&self.root)?;
+        let output = tokio::select! {
+            biased;
+            _ = crate::provider_failure::cancelled(&self.stop) => {
+                bail!("Command stopped by user; partial effects/output may be unknown. No automatic replay.");
+            }
+            result = sandbox.run(command) => result?,
+        };
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         let mut result = format!(
@@ -529,15 +557,24 @@ impl Tools {
                 self.permission("web", query)?;
                 let key = std::env::var("BRAVE_SEARCH_API_KEY")
                     .context("set BRAVE_SEARCH_API_KEY for web search")?;
-                let response = self
-                    .client
-                    .get("https://api.search.brave.com/res/v1/web/search")
-                    .header("X-Subscription-Token", key)
-                    .query(&[("q", query), ("count", "5")])
-                    .send()
-                    .await?;
-                let status = response.status();
-                let body = response.text().await?;
+                let (status, body) = tokio::select! {
+                    biased;
+                    _ = crate::provider_failure::cancelled(&self.stop) => {
+                        bail!("Web request stopped by user; remote processing may have started.");
+                    }
+                    result = async {
+                        let response = self
+                            .client
+                            .get("https://api.search.brave.com/res/v1/web/search")
+                            .header("X-Subscription-Token", key)
+                            .query(&[("q", query), ("count", "5")])
+                            .send()
+                            .await?;
+                        let status = response.status();
+                        let body = response.text().await?;
+                        Ok::<_, anyhow::Error>((status, body))
+                    } => result?,
+                };
                 if !status.is_success() {
                     bail!("search HTTP {status}: {body}");
                 }
@@ -1063,5 +1100,30 @@ mod project_read_scope_tests {
             let listing = tools.call(&request(".")).await.unwrap();
             assert!(!listing.contains("outside-link") && !listing.contains("outside-dir"));
         }
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+    #[test]
+    fn stop_interrupts_an_unanswered_prompt_without_denial_or_grant() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tools = Tools::new(root.path().to_path_buf(), Permissions::default()).unwrap();
+        tools.policies.shell = "ask".into();
+        let stop = tools.stop.clone();
+        let (requests, prompts) = std::sync::mpsc::channel();
+        let (_answers, responses) = std::sync::mpsc::channel();
+        tools.use_tui(requests, responses);
+        let worker = std::thread::spawn(move || {
+            let result = tools.permission("shell", "echo test");
+            assert!(result.unwrap_err().to_string().contains("stopped by user"));
+            assert!(tools.decisions.is_empty());
+        });
+        prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        worker.join().unwrap();
     }
 }

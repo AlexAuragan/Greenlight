@@ -166,14 +166,26 @@ impl Provider {
         if let Some(live) = &self.live {
             live.lock().unwrap().start(model);
         }
-        let result = self.complete_inner(model, messages).await;
-        if let Some(live) = &self.live {
-            live.lock().unwrap().state = if result.as_ref().is_ok_and(|c| c.failure.is_none()) {
-                "Response complete · validating action"
-            } else {
-                "Request failed · inspect diagnostic/history"
+        let result = tokio::select! {
+            biased;
+            _ = crate::provider_failure::cancelled(&self.retry_cancel) => {
+                let mut failure = Failure::local(Kind::Cancelled);
+                // Dropping the HTTP future stops local work, not remote billing.
+                failure.billing_uncertain = true;
+                Err(failure.into())
             }
-            .into();
+            result = self.complete_inner(model, messages) => result,
+        };
+        if let Some(live) = &self.live {
+            live.lock().unwrap().state =
+                if self.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    "Stopped · remote processing/billing may be uncertain"
+                } else if result.as_ref().is_ok_and(|c| c.failure.is_none()) {
+                    "Response complete · validating action"
+                } else {
+                    "Request failed · inspect diagnostic/history"
+                }
+                .into();
         }
         result
     }
@@ -487,5 +499,59 @@ mod http_tests {
             );
             std::env::remove_var(key);
         }
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+    #[tokio::test]
+    async fn stop_returns_before_http_response_and_marks_billing_uncertain() {
+        use std::io::Read;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, received) = tokio::sync::oneshot::channel();
+        let (finished, finish) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                .unwrap();
+            let mut buffer = [0; 4096];
+            assert!(socket.read(&mut buffer).unwrap() > 0);
+            sent.send(()).unwrap();
+            // No response is sent until the client has reported cancellation.
+            finish
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap();
+        });
+        let name = format!("GREENLIGHT_STOP_TEST_{}", uuid::Uuid::new_v4().simple());
+        std::env::set_var(&name, "fixture-key");
+        let cfg = serde_yaml::from_str(&format!(
+            "model: fixture\nbase_url: http://{address}/v1\napi_key_env: {name}\n"
+        ))
+        .unwrap();
+        let mut provider = Provider::new(cfg);
+        provider.client = Client::builder().no_proxy().build().unwrap();
+        let cancel = provider.retry_cancel.clone();
+        let trigger = tokio::spawn(async move {
+            received.await.unwrap();
+            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            provider.complete("fixture", &[]),
+        )
+        .await
+        .unwrap()
+        .err()
+        .expect("request should be cancelled");
+        let failure = error.downcast_ref::<Failure>().unwrap();
+        assert_eq!(failure.kind, Kind::Cancelled);
+        assert!(failure.billing_uncertain);
+        trigger.await.unwrap();
+        finished.send(()).unwrap();
+        server.join().unwrap();
+        std::env::remove_var(name);
     }
 }

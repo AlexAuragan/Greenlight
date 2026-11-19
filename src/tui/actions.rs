@@ -186,7 +186,7 @@ pub(super) const BINDINGS: &[Binding] = &[
     binding!(New, 'n', "New session"),
     binding!(Preview, 'P', "Toggle preview"),
     binding!(Expand, 'Z', "Expand preview"),
-    binding!(Stop, 'x', "Stop requests"),
+    binding!(Stop, 'k', "Stop"),
     binding!(Mouse, 'M', "Toggle mouse"),
     binding!(ReviewOpen, 'e', "Full evidence"),
     binding!(NavSearch, 'f', "Search"),

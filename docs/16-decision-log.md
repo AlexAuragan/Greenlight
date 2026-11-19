@@ -73,3 +73,10 @@ Accept one unambiguous fenced action with ordinary surrounding commentary, prese
 ## Accounting and pricing
 
 Input, cached-input and output usage is recorded per physical request, with source/unknown labels and immutable rate snapshots. Retries incur separate records; inherited branch evidence does not create another charge. tiktoken estimates are qualified; absent rates/cache data are not zero. DeepInfra discovery, explicit overrides, context tiers and cache-creation rates are implemented. Invoice reconciliation, broader provider adapters and budgets remain separate. See [accounting](18-token-usage-and-pricing.md).
+
+
+## 2026-11-19 — Explicit stop key and arrow navigation
+
+Use arrows for list/reader navigation; remove j/k aliases, retaining semantic controls such as h Help and m Markdown/raw. Reserve k for Stop and keep q exclusively Quit. Text editors and decision layers own their input. Stop cancels local provider work, retry waits, web requests and sandboxed commands, releases hidden unanswered prompts without inventing an approval decision, and checks again before dispatching a returned model action. Already-applied edits remain and synchronous journaled writes finish safely. Remote processing/billing and partial command effects can remain unknown. Continue starts a new attempt.
+
+Historical tool reruns remain GL-001: normal failures go back to the model; an explicit user rerun should append a linked user-requested execution/result using the original arguments without another approval prompt, while preserving project/tool boundaries. Do not automatically replay tools.

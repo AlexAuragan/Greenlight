@@ -439,7 +439,7 @@ impl Engine {
                         "wait_ms": remaining.as_millis(),
                         "message": concat!(
                             "User requested retry of the same prepared messages; ",
-                            "waiting for any remaining provider cooldown. x stops future requests."
+                            "waiting for any remaining provider cooldown. k stops execution."
                         )
                     })
                     .to_string(),
@@ -482,7 +482,13 @@ impl Engine {
             #[cfg(test)]
             let discover = discover && self.provider.script.is_none();
             let metadata = if discover {
-                crate::pricing::resolve(&self.root, &self.cfg.provider, model, false).await
+                tokio::select! {
+                    biased;
+                    _ = crate::provider_failure::cancelled(&self.provider.retry_cancel) => {
+                        return Err(Failure::local(Kind::Cancelled).into());
+                    }
+                    metadata = crate::pricing::resolve(&self.root, &self.cfg.provider, model, false) => metadata,
+                }
             } else {
                 self.cfg
                     .provider
@@ -578,7 +584,7 @@ impl Engine {
                             delay.as_secs_f64()
                         );
                     }
-                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; x in TUI cancels future provider requests"}}).to_string())?;
+                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; k in TUI stops execution"}}).to_string())?;
                     if let Err(cancelled) =
                         crate::provider_failure::wait(delay, &self.provider.retry_cancel).await
                     {
@@ -920,6 +926,15 @@ impl Engine {
         // Continue until the model finishes, reports a deviation, or execution fails/stops.
         // Legacy max_turns settings are accepted for compatibility, not enforced.
         loop {
+            if self
+                .provider
+                .retry_cancel
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                bail!(crate::provider_failure::Failure::local(
+                    crate::provider_failure::Kind::Cancelled
+                ));
+            }
             let bytes = serde_json::to_vec(&messages)?.len();
             if bytes > self.cfg.session.max_conversation_bytes {
                 let reason = format!("Prepared conversation is {bytes} bytes, exceeding session.max_conversation_bytes={}. Execution paused before another provider request; saved artifacts and applied edits remain available. Review inputs/drafts or increase the configured byte budget before continuing.", self.cfg.session.max_conversation_bytes);
@@ -931,6 +946,15 @@ impl Engine {
                 .model_call(s, &step.id, "coding", model, &messages)
                 .await?;
             let model_event = self.store.event(s, Some(&step.id), "model.output", &raw)?;
+            if self
+                .provider
+                .retry_cancel
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                bail!(crate::provider_failure::Failure::local(
+                    crate::provider_failure::Kind::Cancelled
+                ));
+            }
             // An in-flight response cannot authorize work against an input
             // version that changed while the model was running.
             self.enforce_input_approvals(s, wf, step, &self.select_inputs(s, wf, step)?)?;

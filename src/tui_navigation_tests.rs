@@ -521,8 +521,8 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
         finished,
     });
     app.focus_composer();
-    key(&mut app, &store, root.path(), KeyCode::Char('x'));
-    assert_eq!(app.composer, "x");
+    key(&mut app, &store, root.path(), KeyCode::Char('k'));
+    assert_eq!(app.composer, "k");
     assert!(!cancel.load(Ordering::SeqCst));
     key(&mut app, &store, root.path(), KeyCode::Esc);
     app.approval = Some(ApprovalPrompt {
@@ -531,13 +531,13 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
         content: "Approval stays explicit".into(),
         mode: ApprovalMode::Human,
     });
-    key(&mut app, &store, root.path(), KeyCode::Char('x'));
+    key(&mut app, &store, root.path(), KeyCode::Char('k'));
     assert!(!cancel.load(Ordering::SeqCst));
     assert!(app.approval.is_some());
     app.approval = None;
-    key(&mut app, &store, root.path(), KeyCode::Char('x'));
+    key(&mut app, &store, root.path(), KeyCode::Char('k'));
     assert!(cancel.load(Ordering::SeqCst));
-    assert!(app.notice.contains("in-flight request may finish"));
+    assert!(app.notice.contains("Stopping execution"));
 }
 
 #[test]
@@ -759,4 +759,29 @@ fn workspace_audit_card_expands_classification_and_scan_metrics_without_mutation
         std::fs::read_to_string(root.path().join("manual.txt")).unwrap(),
         "external body"
     );
+}
+
+#[test]
+fn arrows_navigate_but_letters_do_not_and_stop_is_discoverable() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    store
+        .event(&session, Some("step"), "step.started", "one")
+        .unwrap();
+    store
+        .event(&session, Some("step"), "step.blocked", "two")
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    app.focus = Focus::Events;
+    let index = app.event_index;
+    for letter in ['j', 'k', 'l'] {
+        key(&mut app, &store, root.path(), KeyCode::Char(letter));
+    }
+    assert_eq!(app.event_index, index);
+    key(&mut app, &store, root.path(), KeyCode::Up);
+    assert!(app.event_index < index);
+    assert_eq!(super::shell::Action::Stop.label(), "[k] Stop");
+    assert!(super::shell::Action::Stop.matches_key(KeyCode::Char('k')));
 }

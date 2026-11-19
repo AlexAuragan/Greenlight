@@ -704,11 +704,16 @@ impl App {
                 Err(TryRecvError::Disconnected | TryRecvError::Empty) => {}
             }
         }
+        let stopped = runner
+            .cancel_retry
+            .as_ref()
+            .is_some_and(|signal| signal.load(std::sync::atomic::Ordering::SeqCst));
         let completion = runner.finished.try_recv();
         let failed = !matches!(&completion, Ok(Ok(())) | Err(TryRecvError::Empty));
         if !matches!(&completion, Err(TryRecvError::Empty)) {
             self.notice = match completion {
                 Ok(result) => match result {
+                Ok(()) if stopped => "Execution stopped. Applied edits remain; review recorded work before continuing.".into(),
                 Ok(()) => "Workflow finished. Review the result and recorded evidence.".into(),
                 Err(error) => format!("Runner error: {error}"),
                 },

@@ -179,7 +179,7 @@ pub(super) fn conversational_label(kind: &str) -> &str {
         "step.deviation" => "Needs attention",
         "verification.failed" => "Verification failed",
         "provider.failure" => "Provider failure",
-        "provider.retry" => "Waiting for provider retry (x cancels)",
+        "provider.retry" => "Waiting for provider retry (k stops)",
         "provider.retry-stopped" | "provider.retry-cancelled" => "Provider retry stopped",
         "tool.error" => "Tool failed",
         "tool.result" => "Tool output",

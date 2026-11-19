@@ -1,6 +1,6 @@
 //! Shortcut reference generated from command metadata, plus contextual safety rules.
 const GUIDE: &str = r"Navigation
-Arrows or j/k select or scroll the current region.
+Arrows select or scroll the current region.
 Tab / Shift+Tab focus and cycle action buttons; Enter activates the focused action.
 Esc leaves actions, closes a reader/layer, or toggles the sidebar.
 Help also accepts ?. H returns to recorded activity.
@@ -25,7 +25,7 @@ Evidence and actions
 Copy exports full selected text. Editor opens a private snapshot while idle.
 More > Conversation dump or /dump opens the recorded transcript.
 More > Usage or /usage opens session token/cost accounting.
-Request details: arrows/j/k select, Enter/click opens the exact dispatch.
+Request details: arrows select, Enter/click opens the exact dispatch.
 Back/Esc returns within details before returning to the workspace.
 v shows raw events in Activity, or artifact versions in Artifacts.
 o opens the exact artifact; p shows provenance; d opens previous/journal diff.
@@ -37,7 +37,8 @@ End/G follows latest activity; Home/g pauses at the first record.
 Running Activity uses a compact list beside the larger model/tool output pane.
 Enter/click opens an event there; Live output returns to the stream.
 Narrow screens stack activity above output. P hides output; Z toggles full width.
-Stop requests cancels retry waits; an in-flight request may finish.
+[k] Stop cancels active execution and retry waits; applied edits remain.
+[q] Quit exits while idle. Stopping may leave uncertain billing/partial command effects.
 
 Text editing
 Arrows move the caret; Home/End and Delete/Backspace edit.

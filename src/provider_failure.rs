@@ -77,7 +77,7 @@ impl fmt::Display for Failure {
             Kind::Timeout=>"Provider request timed out. Check connectivity and provider status before resuming.",
             Kind::Connection=>"Could not connect to the provider. Check network access and the configured endpoint.",
             Kind::Protocol=>"Provider returned an invalid or unsupported response. Check endpoint/model compatibility before resuming.",
-            Kind::Cancelled=>"Provider retry cancelled. No further retry was sent; resume explicitly when ready.",
+            Kind::Cancelled=>"Execution stopped by user. No further request will start; resume explicitly when ready.",
             Kind::Unknown=>"Provider request failed. Check provider status and account settings before resuming.",
         };
         write!(f, "{advice}")?;
@@ -311,6 +311,13 @@ pub async fn wait(delay: Duration, cancel: &Arc<AtomicBool>) -> Result<(), Failu
             return Ok(());
         }
         tokio::time::sleep((deadline - now).min(Duration::from_millis(50))).await;
+    }
+}
+
+/// Shared stop signal for in-flight work and waits. Does not interrupt synchronous writes.
+pub async fn cancelled(cancel: &Arc<AtomicBool>) {
+    while !cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
