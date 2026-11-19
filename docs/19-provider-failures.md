@@ -6,7 +6,7 @@ Provider failures are harness facts, not model-authored diagnoses. CLI stderr an
 | --- | --- |
 | Credentials | Missing/empty/invalid bearer-key environment value, HTTP 401 or recognized auth code. Check `provider.api_key_env` in `greenlight.yaml` (default `DEEPINFRA_API_KEY`), reload or replace the key, then resume. |
 | Billing/quota | HTTP 402, recognized billing codes/types (including `insufficient_quota` on 429), or known credit/balance message phrases. Check account balance/plan/billing limits before resuming. |
-| Rate limit | HTTP 429. Wait or reduce frequency; ambiguous codes also advise checking account quota. Only explicit recognized rate-limit codes without a usage report qualify for automatic retry. |
+| Rate limit/capacity | HTTP 429. Recognized response hints distinguish concurrency, token throughput, request frequency and model/server capacity; unknown reasons stay explicit. A 429 alone does not establish that the account concurrency ceiling was reached. Only explicit recognized rate-limit codes without a usage report qualify for automatic retry. |
 | Permission | HTTP 403 without a more specific auth/billing code. Check key permissions and organization/project/model access. |
 | Request | Other 4xx/request-builder failures. Check model, context length, endpoint and request configuration. |
 | Service/timeout | 5xx, 408 or timeout. Check provider status/connectivity. Inference may have run; billing is uncertain and automatic retries are disabled. |
@@ -42,3 +42,24 @@ Every inference request attempt gets its own durable call UUID before sending, c
 Tests use scripted completions and local HTTP servers, covering classification/redaction, Retry-After, budgets, cancellation, usage durability and failure during verification. They make no paid provider calls. Provider-specific taxonomy will need extension as services change; arbitrary prose is never displayed as a trusted diagnosis.
 
 For initialized projects, edit provider settings in `.greenlight/config.yaml`; legacy `greenlight.yaml` remains supported. Credentials may be exported or stored in the selected project’s `.greenlight/.env`. See [installation and projects](22-installation-and-projects.md).
+
+## DeepInfra transport audit — 2026-11-19
+
+A single workflow awaits one model response before executing its action or asking for another response. Each tool turn therefore makes a new model request, sequentially; it does not fan out into concurrent model calls. One separately requested manager question can overlap with the coding worker. Other processes/accounts and server-side work surviving a timeout are outside this local bound. Public pricing discovery is an unauthenticated catalog GET, normally cached for 24 hours (failed refreshes for 15 minutes), not another inference call.
+
+The default transport sends JSON to `https://api.deepinfra.com/v1/openai/chat/completions` with Bearer authentication, `model`, `messages`, configured `max_tokens` (default 4096) and a stream flag. TUI requests add `stream_options.include_usage`; they do not request multiple completions with `n`. Local HTTP tests check the exact path, headers and body in both modes. DeepInfra's [official SDK README](https://github.com/deepinfra/deepinfra-python/blob/3a6c0b93182b2861dde043025db87180ea273562/README.md#L124-L126) confirms the compatible base URL. Its [error decoder](https://github.com/deepinfra/deepinfra-python/blob/3a6c0b93182b2861dde043025db87180ea273562/deepinfra/_exceptions.py#L124-L140) documents `error` and `detail` wrappers. The hosted [rate-limit page](https://deepinfra.com/docs/advanced/rate_limits) could not be retrieved from this environment; this audit does not independently establish current account/model limits or the cause of a user's live rejection.
+
+The classifier now reads those `detail` wrappers, including nested billing codes. On HTTP 429, a fixed `limit_reason` enum preserves recognized concurrency, token-throughput, request-frequency or model/server-capacity hints. Unknown reasons remain explicitly unknown, rather than asserting the account concurrency ceiling was reached. These are response hints, not independently verified account settings. Raw prose remains excluded from saved/displayed diagnostics, and legacy failure records remain readable. Billing evidence still takes precedence; new prose hints alone do not authorize automatic retry.
+
+Reqwest's internal protocol-NACK retries are explicitly disabled. They do not retry HTTP 429 by default and were not established as the cause here; disabling them keeps retry policy and request accounting in the engine.
+
+A local HTTP/CLI fixture exercised the actual engine with no paid provider calls:
+
+| Scenario | Physical inference POSTs | Peak in-flight inference | Usage records |
+| --- | ---: | ---: | ---: |
+| Eight read-tool turns, then finish | 9 | 1 | 9 |
+| Unknown 429 | 1 | 1 | 1 |
+| Explicit retryable 429, exhausted budget | 3 | 1 | 3 |
+| Model-overloaded detail response, no retryable code | 1 | 1 | 1 |
+
+A separate native PTY fixture confirms that a manually retried streaming request preserves exact messages and does not repeat the earlier tool, branch or attempt. These fixtures rule out request fan-out in the exercised paths; they cannot identify an already-discarded live response or reproduce provider account policy. Input context grows as tool results accumulate, so a token-throughput rejection, if reported, needs separate investigation from concurrent-request counts.

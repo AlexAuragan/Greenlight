@@ -110,6 +110,8 @@ impl Provider {
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::none())
+                // The engine owns retries and records each dispatch in the usage ledger.
+                .retry(reqwest::retry::never())
                 .build()
                 .expect("HTTP client configuration is valid"),
             cfg,
@@ -296,7 +298,7 @@ mod http_tests {
         status: u16,
         body: &str,
         header: &str,
-    ) -> (Provider, String, std::thread::JoinHandle<()>) {
+    ) -> (Provider, String, std::thread::JoinHandle<Vec<u8>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let body = body.to_string();
@@ -330,6 +332,7 @@ mod http_tests {
             }
             let response=format!("HTTP/1.1 {status} Mock\r\nContent-Length: {}\r\nConnection: close\r\n{header}\r\n{body}",body.len());
             socket.write_all(response.as_bytes()).unwrap();
+            request
         });
         let name = format!("GREENLIGHT_TEST_KEY_{}", uuid::Uuid::new_v4().simple());
         std::env::set_var(&name, "fixture-key");
@@ -406,5 +409,47 @@ mod http_tests {
         assert_eq!(completion.raw_usage.unwrap()["completion_tokens"], 3);
         server.join().unwrap();
         std::env::remove_var(key);
+    }
+    #[tokio::test]
+    async fn chat_transport_sends_one_openai_compatible_request_in_both_modes() {
+        for streaming in [false, true] {
+            let (mut provider, key, server) = mock(
+                200,
+                r#"{"choices":[{"message":{"content":"fixture"}}]}"#,
+                "Content-Type: application/json\r\n",
+            );
+            if streaming {
+                provider.live = Some(stream::Preview::default());
+            }
+            let messages = vec![
+                json!({"role":"system", "content":"fixture protocol"}),
+                json!({"role":"user", "content":"café fixture"}),
+            ];
+            provider.complete("fixture/model", &messages).await.unwrap();
+            let request = server.join().unwrap();
+            let end = request
+                .windows(4)
+                .position(|part| part == b"\r\n\r\n")
+                .unwrap();
+            let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+            assert!(headers.starts_with("post /v1/chat/completions http/1.1"));
+            assert!(headers.contains("authorization: bearer fixture-key"));
+            assert!(headers.contains("content-type: application/json"));
+            let body: Value = serde_json::from_slice(&request[end + 4..]).unwrap();
+            assert_eq!(body["model"], "fixture/model");
+            assert_eq!(body["messages"], json!(messages));
+            assert_eq!(body["max_tokens"], 4096);
+            assert_eq!(body["stream"], streaming);
+            if streaming {
+                assert_eq!(body["stream_options"], json!({"include_usage":true}));
+            } else {
+                assert!(body.get("stream_options").is_none());
+            }
+            assert!(
+                body.get("n").is_none(),
+                "do not request multiple completions per turn"
+            );
+            std::env::remove_var(key);
+        }
     }
 }

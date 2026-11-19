@@ -39,9 +39,20 @@ pub enum Kind {
     Cancelled,
     Unknown,
 }
+/// Fixed vocabulary only: arbitrary provider prose never enters saved diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LimitReason {
+    Concurrency,
+    TokenThroughput,
+    RequestFrequency,
+    Capacity,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Failure {
     pub kind: Kind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit_reason: Option<LimitReason>,
     pub status: Option<u16>,
     pub retry_after_seconds: Option<u64>,
     pub retryable: bool,
@@ -53,7 +64,13 @@ impl fmt::Display for Failure {
         let advice=match self.kind {
             Kind::Credentials=>"API credentials are missing, invalid or expired. Check the configured API-key environment variable and replace/reload the key if needed.",
             Kind::Billing=>"Provider credit or billing quota is exhausted. Check the account balance, billing limits and plan before resuming; automatic retries are disabled.",
-            Kind::RateLimit=>"Provider rate limit reached. Wait before retrying or reduce request frequency; check account quota too if the provider gave no specific error code.",
+            Kind::RateLimit => match self.limit_reason {
+                Some(LimitReason::Concurrency) => "Provider reports a concurrent-request limit. Check other clients using the same account/key and wait for active requests to finish.",
+                Some(LimitReason::TokenThroughput) => "Provider reports a token-throughput limit. Wait for the limit window to reset; review request context and output limits.",
+                Some(LimitReason::RequestFrequency) => "Provider reports a request-frequency limit. Wait before retrying or reduce request frequency.",
+                Some(LimitReason::Capacity) => "Provider reports model/server capacity unavailable. Wait or try another available model; this does not establish that your account concurrency limit was reached.",
+                None => "Provider rate-limit/capacity rejection. The precise reason is unavailable; this alone does not establish that your concurrent-request limit was reached. Check provider status and account limits before retrying.",
+            },
             Kind::Permission=>"Provider denied access. Check key permissions, organization/project access and model availability.",
             Kind::Request=>"Provider rejected the request. Check the model, context length and request configuration before resuming.",
             Kind::Unavailable=>"Provider service is temporarily unavailable. Check its service status and retry later.",
@@ -84,6 +101,7 @@ impl Failure {
     pub fn local(kind: Kind) -> Self {
         Self {
             kind,
+            limit_reason: None,
             status: None,
             retry_after_seconds: None,
             retryable: false,
@@ -91,15 +109,28 @@ impl Failure {
         }
     }
     pub fn http(status: u16, body: &Value, retry_after_seconds: Option<u64>) -> Self {
-        let codes = ["/error/code", "/error/type", "/code", "/type"]
-            .iter()
-            .filter_map(|path| body.pointer(path).and_then(Value::as_str))
-            .map(str::to_ascii_lowercase)
-            .collect::<Vec<_>>();
+        let codes = [
+            "/error/code",
+            "/error/type",
+            "/code",
+            "/type",
+            "/detail/code",
+            "/detail/type",
+            "/detail/error/code",
+            "/detail/error/type",
+        ]
+        .iter()
+        .filter_map(|path| body.pointer(path).and_then(Value::as_str))
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>();
         let messages = [
             body.pointer("/error/message"),
             body.get("error"),
             body.get("message"),
+            body.get("detail"),
+            body.pointer("/detail/message"),
+            body.pointer("/detail/error"),
+            body.pointer("/detail/error/message"),
         ]
         .into_iter()
         .flatten()
@@ -161,8 +192,62 @@ impl Failure {
         } else {
             Kind::Unknown
         };
+        let limit_reason = if kind != Kind::RateLimit {
+            None
+        } else if codes.iter().any(|code| {
+            matches!(
+                code.as_str(),
+                "model_overloaded" | "model_capacity_exceeded"
+            )
+        }) || messages.iter().any(|message| {
+            [
+                "model is overloaded",
+                "model overloaded",
+                "model capacity",
+                "no available replicas",
+            ]
+            .iter()
+            .any(|phrase| message.contains(phrase))
+        }) {
+            Some(LimitReason::Capacity)
+        } else if codes.iter().any(|code| {
+            matches!(
+                code.as_str(),
+                "concurrency_limit_exceeded" | "max_concurrent_requests_exceeded"
+            )
+        }) || messages.iter().any(|message| {
+            (message.contains("concurrency") || message.contains("concurrent requests"))
+                && (message.contains("limit")
+                    || message.contains("too many")
+                    || message.contains("maximum"))
+        }) {
+            Some(LimitReason::Concurrency)
+        } else if codes.iter().any(|code| {
+            matches!(
+                code.as_str(),
+                "tokens_per_minute_exceeded" | "token_rate_limit_exceeded"
+            )
+        }) || messages.iter().any(|message| {
+            message.contains("tokens per minute") || message.contains("tokens-per-minute")
+        }) {
+            Some(LimitReason::TokenThroughput)
+        } else if codes.iter().any(|code| {
+            matches!(
+                code.as_str(),
+                "requests_per_minute_exceeded" | "request_rate_limit_exceeded"
+            )
+        }) || messages.iter().any(|message| {
+            message.contains("requests per minute")
+                || message.contains("requests-per-minute")
+                || message.contains("requests per second")
+        }) {
+            Some(LimitReason::RequestFrequency)
+        } else {
+            None
+        };
         Self {
             kind,
+            limit_reason,
             status: Some(status),
             retry_after_seconds,
             retryable: status == 429 && kind == Kind::RateLimit && explicit_rate,
@@ -181,6 +266,7 @@ impl Failure {
         };
         Self {
             kind,
+            limit_reason: None,
             status: None,
             retry_after_seconds: None,
             retryable: kind == Kind::Connection,
@@ -308,5 +394,64 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(result.unwrap_err().kind, Kind::Cancelled);
+    }
+    #[test]
+    fn rate_diagnostics_distinguish_reported_reasons_without_retaining_prose() {
+        for (body, reason) in [
+            (
+                json!({"error":{"code":"concurrency_limit_exceeded","message":"fixture-secret"}}),
+                Some(LimitReason::Concurrency),
+            ),
+            (
+                json!({"detail":"Maximum concurrent requests limit exceeded: fixture-secret"}),
+                Some(LimitReason::Concurrency),
+            ),
+            (
+                json!({"detail":{"error":{"message":"model is overloaded fixture-secret"}}}),
+                Some(LimitReason::Capacity),
+            ),
+            (
+                json!({"error":{"code":"tokens_per_minute_exceeded"}}),
+                Some(LimitReason::TokenThroughput),
+            ),
+            (
+                json!({"detail":{"message":"requests per second exceeded fixture-secret"}}),
+                Some(LimitReason::RequestFrequency),
+            ),
+            (json!({"error":{"message":"fixture-secret"}}), None),
+            (json!({"error":{"code":"capacity_exceeded"}}), None),
+            (json!({"error":{"code":"requests_limit_exceeded"}}), None),
+        ] {
+            let failure = Failure::http(429, &body, None);
+            assert_eq!(failure.kind, Kind::RateLimit);
+            assert_eq!(failure.limit_reason, reason);
+            let saved = serde_json::to_string(&failure).unwrap();
+            assert!(!saved.contains("fixture-secret"));
+            assert!(!failure.to_string().contains("fixture-secret"));
+            if reason == Some(LimitReason::Capacity) {
+                assert!(!failure.retryable);
+            }
+            if reason.is_none() {
+                assert!(failure.to_string().contains("does not establish"));
+            }
+        }
+        let billing = Failure::http(
+            429,
+            &json!({"detail":{"error":{"code":"insufficient_quota","message":"model is overloaded fixture-secret"}}}),
+            None,
+        );
+        assert_eq!(billing.kind, Kind::Billing);
+        assert_eq!(billing.limit_reason, None);
+        assert!(!billing.retryable);
+    }
+
+    #[test]
+    fn old_saved_failure_events_remain_readable() {
+        let failure: Failure = serde_json::from_value(json!({
+            "kind":"rate_limit", "status":429, "retry_after_seconds":null,
+            "retryable":false,"billing_uncertain":false
+        }))
+        .unwrap();
+        assert_eq!(failure.limit_reason, None);
     }
 }
