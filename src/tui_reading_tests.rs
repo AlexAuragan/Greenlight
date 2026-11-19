@@ -184,7 +184,8 @@ fn export_snapshot_is_full_source_and_editor_refuses_an_active_worker() {
     let (_pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         session_id: Some(s.id),
         prompts,
@@ -194,7 +195,9 @@ fn export_snapshot_is_full_source_and_editor_refuses_an_active_worker() {
     key(&mut app, root.path(), &store, KeyCode::Char('E'));
     assert!(app.pending_editor.is_none());
     assert!(app.notice.contains("approvals stay available"));
-    app.approval = Some(ApprovalPrompt { review: None, command: None,
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Explicit decision".into(),
         mode: ApprovalMode::Human,
     });

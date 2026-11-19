@@ -10,34 +10,48 @@ use std::{
 pub const PROJECT_DIR: &str = ".greenlight";
 pub const LEGACY_PROJECT_DIR: &str = ".stepwright";
 
-pub fn check_control_directory(root:&Path)->Result<()> {
-    existing_directory(&root.join(PROJECT_DIR))?;Ok(())
+pub fn check_control_directory(root: &Path) -> Result<()> {
+    existing_directory(&root.join(PROJECT_DIR))?;
+    Ok(())
 }
 
 /// User-owned host settings/credentials must not be accessible to agent tools.
-pub fn is_private_path(relative:&Path)->bool {
+pub fn is_private_path(relative: &Path) -> bool {
     is_internal_state(relative)
-        || matches!(relative.to_str(),Some("greenlight.yaml"|"stepwright.yaml"|".greenlight/config.yaml"))
-        || relative.components().any(|part|part.as_os_str().to_string_lossy().starts_with(".env"))
+        || matches!(
+            relative.to_str(),
+            Some("greenlight.yaml" | "stepwright.yaml" | ".greenlight/config.yaml")
+        )
+        || relative
+            .components()
+            .any(|part| part.as_os_str().to_string_lossy().starts_with(".env"))
 }
 
-pub fn config_path(root:&Path)->Result<PathBuf> {
+pub fn config_path(root: &Path) -> Result<PathBuf> {
     existing_directory(&root.join(PROJECT_DIR))?;
-    for relative in [".greenlight/config.yaml","greenlight.yaml","stepwright.yaml"] {
-        let path=root.join(relative);
+    for relative in [
+        ".greenlight/config.yaml",
+        "greenlight.yaml",
+        "stepwright.yaml",
+    ] {
+        let path = root.join(relative);
         match fs::symlink_metadata(&path) {
-            Ok(_)=>return Ok(path),
-            Err(error) if error.kind()==io::ErrorKind::NotFound=>{},
-            Err(error)=>return Err(error.into()),
+            Ok(_) => return Ok(path),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
     }
     bail!("No Greenlight configuration in {}. Run `greenlight init` to create .greenlight/config.yaml (legacy greenlight.yaml/stepwright.yaml also supported).",root.display())
 }
 
-pub fn workflows_directory(root:&Path)->Result<PathBuf> {
+pub fn workflows_directory(root: &Path) -> Result<PathBuf> {
     existing_directory(&root.join(PROJECT_DIR))?;
-    let local=root.join(PROJECT_DIR).join("workflows");
-    if existing_directory(&local)? {Ok(local)} else {Ok(root.join("workflows"))}
+    let local = root.join(PROJECT_DIR).join("workflows");
+    if existing_directory(&local)? {
+        Ok(local)
+    } else {
+        Ok(root.join("workflows"))
+    }
 }
 
 pub fn is_internal_state(relative: &Path) -> bool {
@@ -50,7 +64,10 @@ pub fn is_internal_state(relative: &Path) -> bool {
 fn existing_directory(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => Ok(true),
-        Ok(_) => bail!("project state path is not a real directory: {}", path.display()),
+        Ok(_) => bail!(
+            "project state path is not a real directory: {}",
+            path.display()
+        ),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error).with_context(|| format!("checking {}", path.display())),
     }
@@ -67,12 +84,21 @@ pub fn state_directory(root: &Path) -> Result<PathBuf> {
     let legacy_parent_exists = existing_directory(&legacy_parent)?;
     let current = current_parent.join("state");
     let legacy = legacy_parent.join("state");
-    let current_exists = if current_parent_exists { existing_directory(&current)? } else { false };
-    let legacy_exists = if legacy_parent_exists { existing_directory(&legacy)? } else { false };
+    let current_exists = if current_parent_exists {
+        existing_directory(&current)?
+    } else {
+        false
+    };
+    let legacy_exists = if legacy_parent_exists {
+        existing_directory(&legacy)?
+    } else {
+        false
+    };
     if current_exists && legacy_exists {
         bail!(
             "both {} and {} exist; resolve the two state directories manually before continuing",
-            current.display(), legacy.display()
+            current.display(),
+            legacy.display()
         );
     }
     if !current_parent_exists {
@@ -87,8 +113,7 @@ pub fn state_directory(root: &Path) -> Result<PathBuf> {
             )
         })?;
     } else if !current_exists {
-        fs::create_dir(&current)
-            .with_context(|| format!("creating {}", current.display()))?;
+        fs::create_dir(&current).with_context(|| format!("creating {}", current.display()))?;
     }
     Ok(current)
 }
@@ -114,9 +139,18 @@ mod tests {
         fs::write(legacy.join("approvals.yaml"), "shell: []").unwrap();
         fs::write(legacy.join("blobs/123"), "artifact").unwrap();
         let destination = state_directory(root.path()).unwrap();
-        assert_eq!(fs::read_to_string(destination.join("history.db")).unwrap(), "historical data");
-        assert_eq!(fs::read_to_string(destination.join("approvals.yaml")).unwrap(), "shell: []");
-        assert_eq!(fs::read_to_string(destination.join("blobs/123")).unwrap(), "artifact");
+        assert_eq!(
+            fs::read_to_string(destination.join("history.db")).unwrap(),
+            "historical data"
+        );
+        assert_eq!(
+            fs::read_to_string(destination.join("approvals.yaml")).unwrap(),
+            "shell: []"
+        );
+        assert_eq!(
+            fs::read_to_string(destination.join("blobs/123")).unwrap(),
+            "artifact"
+        );
         assert!(!legacy.exists());
         assert_eq!(state_directory(root.path()).unwrap(), destination);
     }
@@ -137,7 +171,9 @@ mod tests {
     #[test]
     fn recognizes_only_exact_internal_state_prefixes() {
         assert!(is_internal_state(Path::new(".greenlight/state/history.db")));
-        assert!(is_internal_state(Path::new(".stepwright/state/approvals.yaml")));
+        assert!(is_internal_state(Path::new(
+            ".stepwright/state/approvals.yaml"
+        )));
         assert!(!is_internal_state(Path::new(".greenlight/stateful.txt")));
         assert!(!is_internal_state(Path::new(".greenlight/instructions.md")));
     }

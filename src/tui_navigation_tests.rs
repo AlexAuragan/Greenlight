@@ -35,28 +35,63 @@ fn screen(app: &mut App, width: u16, height: u16) -> String {
 
 #[test]
 fn enter_returns_from_readers_without_composing_sending_or_losing_selection() {
-    let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
-    let s=store.create("demo","Goal","work").unwrap();store.add_artifact(&s,"work","report.md","# Report\nbody\n").unwrap();
-    let count=store.history(&s).unwrap().len();
-    for size in [(100,28),(40,14)] {
-        let mut app=App::new(Some(&s.id));app.refresh(&store).unwrap();app.viewport=size;app.composer="unsent draft".into();
-        for (view,list) in [(View::Conversation,Focus::Events),(View::Artifacts,Focus::Artifacts)] {
-            app.switch_view(view);app.focus=list;
-            let event=app.event().map(|e|e.id);let artifact=app.artifact().map(|a|a.event_id);
-            key(&mut app,&store,root.path(),KeyCode::Enter);assert_eq!(app.focus,Focus::Detail);
-            if view==View::Conversation {assert!(screen(&mut app,size.0,size.1).contains("Enter returns"));}
-            app.on_key(KeyEvent::new_with_kind(KeyCode::Enter,KeyModifiers::NONE,KeyEventKind::Repeat),root.path(),&store).unwrap();assert_eq!(app.focus,Focus::Detail);
-            key(&mut app,&store,root.path(),KeyCode::Enter);assert_eq!(app.focus,list);
-            assert_eq!(app.event().map(|e|e.id),event);assert_eq!(app.artifact().map(|a|a.event_id),artifact);assert_eq!(app.composer,"unsent draft");assert!(app.runner.is_none());assert!(app.manager_job.is_none());
-            key(&mut app,&store,root.path(),KeyCode::Enter);key(&mut app,&store,root.path(),KeyCode::Char('i'));assert_eq!(app.focus,Focus::Compose);
-            key(&mut app,&store,root.path(),KeyCode::Esc);assert_eq!(app.focus,Focus::Detail);
-            key(&mut app,&store,root.path(),KeyCode::Left);assert_eq!(app.focus,list);
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    store
+        .add_artifact(&s, "work", "report.md", "# Report\nbody\n")
+        .unwrap();
+    let count = store.history(&s).unwrap().len();
+    for size in [(100, 28), (40, 14)] {
+        let mut app = App::new(Some(&s.id));
+        app.refresh(&store).unwrap();
+        app.viewport = size;
+        app.composer = "unsent draft".into();
+        for (view, list) in [
+            (View::Conversation, Focus::Events),
+            (View::Artifacts, Focus::Artifacts),
+        ] {
+            app.switch_view(view);
+            app.focus = list;
+            let event = app.event().map(|e| e.id);
+            let artifact = app.artifact().map(|a| a.event_id);
+            key(&mut app, &store, root.path(), KeyCode::Enter);
+            assert_eq!(app.focus, Focus::Detail);
+            if view == View::Conversation {
+                assert!(screen(&mut app, size.0, size.1).contains("Enter returns"));
+            }
+            app.on_key(
+                KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+                root.path(),
+                &store,
+            )
+            .unwrap();
+            assert_eq!(app.focus, Focus::Detail);
+            key(&mut app, &store, root.path(), KeyCode::Enter);
+            assert_eq!(app.focus, list);
+            assert_eq!(app.event().map(|e| e.id), event);
+            assert_eq!(app.artifact().map(|a| a.event_id), artifact);
+            assert_eq!(app.composer, "unsent draft");
+            assert!(app.runner.is_none());
+            assert!(app.manager_job.is_none());
+            key(&mut app, &store, root.path(), KeyCode::Enter);
+            key(&mut app, &store, root.path(), KeyCode::Char('i'));
+            assert_eq!(app.focus, Focus::Compose);
+            key(&mut app, &store, root.path(), KeyCode::Esc);
+            assert_eq!(app.focus, Focus::Detail);
+            key(&mut app, &store, root.path(), KeyCode::Left);
+            assert_eq!(app.focus, list);
         }
-        app.view=View::Artifacts;app.focus=Focus::Artifacts;key(&mut app,&store,root.path(),KeyCode::Char('v'));
+        app.view = View::Artifacts;
+        app.focus = Focus::Artifacts;
+        key(&mut app, &store, root.path(), KeyCode::Char('v'));
         assert!(!app.artifact_browser.as_ref().unwrap().reading);
-        key(&mut app,&store,root.path(),KeyCode::Enter);assert!(app.artifact_browser.as_ref().unwrap().reading);
-        key(&mut app,&store,root.path(),KeyCode::Enter);assert!(!app.artifact_browser.as_ref().unwrap().reading);
-        assert_eq!(app.composer,"unsent draft");assert_eq!(count,store.history(&s).unwrap().len());
+        key(&mut app, &store, root.path(), KeyCode::Enter);
+        assert!(app.artifact_browser.as_ref().unwrap().reading);
+        key(&mut app, &store, root.path(), KeyCode::Enter);
+        assert!(!app.artifact_browser.as_ref().unwrap().reading);
+        assert_eq!(app.composer, "unsent draft");
+        assert_eq!(count, store.history(&s).unwrap().len());
     }
 }
 #[test]
@@ -82,8 +117,8 @@ fn drafts_follow_session_ids_through_filtering_and_reordering() {
     assert_eq!(app.composer, "Alpha instructions\n第二行");
     app.session_query = "no matches".into();
     app.refresh(&store).unwrap();
-    assert_eq!(app.session().unwrap().id,a.id);
-    assert_eq!(app.composer,"Alpha instructions\n第二行");
+    assert_eq!(app.session().unwrap().id, a.id);
+    assert_eq!(app.composer, "Alpha instructions\n第二行");
     assert!(app.navigation.candidates.is_empty());
     app.session_query.clear();
     app.requested_session = Some(a.id);
@@ -200,9 +235,9 @@ fn resize_clamps_scroll_and_preserves_draft_selection_and_reading_position() {
     key(&mut app, &store, root.path(), KeyCode::Char('i'));
     assert_eq!(app.composer, "draft survives resize");
     assert!(!screen(&mut app, 80, 24).contains("draft survives resize"));
-    key(&mut app,&store,root.path(),KeyCode::Esc);
-    key(&mut app,&store,root.path(),KeyCode::Char('i'));
-    assert!(screen(&mut app,80,24).contains("draft survives resize"));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    key(&mut app, &store, root.path(), KeyCode::Char('i'));
+    assert!(screen(&mut app, 80, 24).contains("draft survives resize"));
 }
 #[test]
 fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
@@ -212,14 +247,17 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
     let (_pt, prompts) = mpsc::channel();
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         session_id: None,
         prompts,
         answers,
         finished,
     });
-    app.approval = Some(ApprovalPrompt { review: None, command: None,
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Sensitive global scope".into(),
         mode: ApprovalMode::ConfirmPersistent,
     });
@@ -230,7 +268,7 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
     assert!(screen(&mut app, 60, 20).contains("Sensitive global scope"));
     key(&mut app, &store, root.path(), KeyCode::Char('?'));
     assert!(!app.help, "permission popup captures unrelated shortcuts");
-    key(&mut app,&store,root.path(),KeyCode::Esc);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
     assert!(app.approval_hidden);
     assert!(received.try_recv().is_err());
     key(&mut app, &store, root.path(), KeyCode::Char('a'));
@@ -267,14 +305,17 @@ fn approval_owner_switch_preserves_both_session_drafts() {
     let (pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         session_id: Some(owner.id.clone()),
         prompts,
         answers,
         finished,
     });
-    pt.send(ApprovalPrompt { review: None, command: None,
+    pt.send(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Review owner request".into(),
         mode: ApprovalMode::Human,
     })
@@ -439,14 +480,17 @@ fn artifact_history_closes_after_branch_switch_and_approvals_take_priority() {
     let (pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         session_id: Some(s.id),
         prompts,
         answers,
         finished,
     });
-    pt.send(ApprovalPrompt { review: None, command: None,
+    pt.send(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Review request".into(),
         mode: ApprovalMode::Human,
     })
@@ -468,7 +512,8 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
     let (_pt, prompts) = mpsc::channel();
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: Some(cancel.clone()),
         session_id: None,
         prompts,
@@ -480,7 +525,9 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
     assert_eq!(app.composer, "x");
     assert!(!cancel.load(Ordering::SeqCst));
     key(&mut app, &store, root.path(), KeyCode::Esc);
-    app.approval = Some(ApprovalPrompt { review: None, command: None,
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Approval stays explicit".into(),
         mode: ApprovalMode::Human,
     });
@@ -671,20 +718,45 @@ fn malformed_intent_annotation_stays_visible_as_diagnostic() {
 
 #[test]
 fn workspace_audit_card_expands_classification_and_scan_metrics_without_mutation() {
-    let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
-    let s=store.create("demo","Goal","work").unwrap();
-    let before=crate::workspace::record(root.path(),&store,&s,"work","before").unwrap();
-    std::fs::write(root.path().join("manual.txt"),"external body").unwrap();
-    let after=crate::workspace::record(root.path(),&store,&s,"work","after").unwrap();
-    let audit=crate::workspace_audit::correlate(&store,&s,before.0,after.0,Some(after.0),&before.1,&after.1).unwrap();
-    let id=store.event(&s,Some("work"),"workspace.correlation",&serde_json::to_string(&audit).unwrap()).unwrap();
-    let count=store.history(&s).unwrap().len();
-    let mut app=App::new(Some(&s.id));app.refresh(&store).unwrap();
-    assert_eq!(app.event().unwrap().id,id);
-    assert!(screen(&mut app,100,24).contains("Workspace audit · 0 explained · 1 unexplained"));
-    key(&mut app,&store,root.path(),KeyCode::Enter);
-    let detail=app.detail();assert!(detail.contains("manual.txt"));assert!(detail.contains("Actor is unknown"));assert!(detail.contains("bytes hashed"));
-    assert!(!detail.contains("external body"));screen(&mut app,40,14);
-    assert_eq!(count,store.history(&s).unwrap().len());
-    assert_eq!(std::fs::read_to_string(root.path().join("manual.txt")).unwrap(),"external body");
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store.create("demo", "Goal", "work").unwrap();
+    let before = crate::workspace::record(root.path(), &store, &s, "work", "before").unwrap();
+    std::fs::write(root.path().join("manual.txt"), "external body").unwrap();
+    let after = crate::workspace::record(root.path(), &store, &s, "work", "after").unwrap();
+    let audit = crate::workspace_audit::correlate(
+        &store,
+        &s,
+        before.0,
+        after.0,
+        Some(after.0),
+        &before.1,
+        &after.1,
+    )
+    .unwrap();
+    let id = store
+        .event(
+            &s,
+            Some("work"),
+            "workspace.correlation",
+            &serde_json::to_string(&audit).unwrap(),
+        )
+        .unwrap();
+    let count = store.history(&s).unwrap().len();
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    assert_eq!(app.event().unwrap().id, id);
+    assert!(screen(&mut app, 100, 24).contains("Workspace audit · 0 explained · 1 unexplained"));
+    key(&mut app, &store, root.path(), KeyCode::Enter);
+    let detail = app.detail();
+    assert!(detail.contains("manual.txt"));
+    assert!(detail.contains("Actor is unknown"));
+    assert!(detail.contains("bytes hashed"));
+    assert!(!detail.contains("external body"));
+    screen(&mut app, 40, 14);
+    assert_eq!(count, store.history(&s).unwrap().len());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("manual.txt")).unwrap(),
+        "external body"
+    );
 }

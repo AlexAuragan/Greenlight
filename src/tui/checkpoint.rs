@@ -503,22 +503,48 @@ pub(super) mod tests {
     }
     #[test]
     fn mouse_decision_requires_a_fresh_press_after_reader_layer_changes() {
+        use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
         use ratatui::{backend::TestBackend, Terminal};
-        use crossterm::event::{MouseEvent,MouseEventKind,MouseButton};
-        let (root,store,_,mut app,received,_owner)=fixture();
-        app.viewport=(80,24);
-        let mut terminal=Terminal::new(TestBackend::new(80,24)).unwrap();
-        terminal.draw(|f|view::draw(f,&app)).unwrap();
-        let y=terminal.backend().buffer().content.chunks(80).position(|row|row.iter().map(|c|c.symbol()).collect::<String>().contains("Approve & continue [y]")).unwrap() as u16;
-        let mouse=|app:&mut App,kind| {app.on_event(Event::Mouse(MouseEvent{kind,column:10,row:y,modifiers:KeyModifiers::NONE}),root.path(),&store).unwrap();};
-        mouse(&mut app,MouseEventKind::Down(MouseButton::Left));
-        app.checkpoint_open(&store);terminal.draw(|f|view::draw(f,&app)).unwrap();
-        mouse(&mut app,MouseEventKind::Up(MouseButton::Left));
-        assert!(received.try_recv().is_err());assert!(app.approval.is_some());
-        app.checkpoint_back(&store);terminal.draw(|f|view::draw(f,&app)).unwrap();
-        mouse(&mut app,MouseEventKind::Down(MouseButton::Left));
-        mouse(&mut app,MouseEventKind::Up(MouseButton::Left));
-        assert_eq!(received.try_recv().unwrap(),"y");assert!(app.approval.is_none());
+        let (root, store, _, mut app, received, _owner) = fixture();
+        app.viewport = (80, 24);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| view::draw(f, &app)).unwrap();
+        let y = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(80)
+            .position(|row| {
+                row.iter()
+                    .map(|c| c.symbol())
+                    .collect::<String>()
+                    .contains("Approve & continue [y]")
+            })
+            .unwrap() as u16;
+        let mouse = |app: &mut App, kind| {
+            app.on_event(
+                Event::Mouse(MouseEvent {
+                    kind,
+                    column: 10,
+                    row: y,
+                    modifiers: KeyModifiers::NONE,
+                }),
+                root.path(),
+                &store,
+            )
+            .unwrap();
+        };
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left));
+        app.checkpoint_open(&store);
+        terminal.draw(|f| view::draw(f, &app)).unwrap();
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left));
+        assert!(received.try_recv().is_err());
+        assert!(app.approval.is_some());
+        app.checkpoint_back(&store);
+        terminal.draw(|f| view::draw(f, &app)).unwrap();
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left));
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left));
+        assert_eq!(received.try_recv().unwrap(), "y");
+        assert!(app.approval.is_none());
     }
-
 }

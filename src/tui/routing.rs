@@ -69,16 +69,28 @@ impl App {
         if self.permission_popup_visible() {
             match key.code {
                 KeyCode::Esc => self.dismiss_permission(),
-                KeyCode::Char(choice) if key.kind==KeyEventKind::Press && !self.too_small()
-                    && !key.modifiers.intersects(KeyModifiers::CONTROL|KeyModifiers::ALT)
-                    && self.approval.as_ref().is_some_and(|p|p.mode.accepts(choice.to_ascii_lowercase())) => {
-                    self.deliver_checked_approval(choice.to_ascii_lowercase(),store)?;
+                KeyCode::Char(choice)
+                    if key.kind == KeyEventKind::Press
+                        && !self.too_small()
+                        && !key
+                            .modifiers
+                            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                        && self
+                            .approval
+                            .as_ref()
+                            .is_some_and(|p| p.mode.accepts(choice.to_ascii_lowercase())) =>
+                {
+                    self.deliver_checked_approval(choice.to_ascii_lowercase(), store)?;
                 }
-                KeyCode::Down|KeyCode::PageDown => self.scroll_detail(if key.code==KeyCode::PageDown {8}else{1}),
-                KeyCode::Up|KeyCode::PageUp => self.scroll_detail(if key.code==KeyCode::PageUp {-8}else{-1}),
-                KeyCode::Home=>self.detail_scroll=0,
-                KeyCode::End=>self.detail_scroll=u16::MAX,
-                _=>{}
+                KeyCode::Down | KeyCode::PageDown => {
+                    self.scroll_detail(if key.code == KeyCode::PageDown { 8 } else { 1 })
+                }
+                KeyCode::Up | KeyCode::PageUp => {
+                    self.scroll_detail(if key.code == KeyCode::PageUp { -8 } else { -1 })
+                }
+                KeyCode::Home => self.detail_scroll = 0,
+                KeyCode::End => self.detail_scroll = u16::MAX,
+                _ => {}
             }
             return Ok(false);
         }
@@ -117,20 +129,28 @@ impl App {
             return Ok(false);
         }
         if !typing && !self.shell.more {
-            let shortcut=match key.code {
-                KeyCode::Char('t')=>Some(shell::Action::ResumeProvider),
-                KeyCode::Char('a') if self.approval_hidden=>Some(if self.provider_retry_pending(){shell::Action::ReviewProviderRetry}else{shell::Action::ReviewPermission}),
-                KeyCode::Char('.')=>Some(shell::Action::More),
-                KeyCode::Char('i')=>Some(shell::Action::Compose),
-                KeyCode::Char('s')=>Some(shell::Action::Overview),
-                KeyCode::Char('o')=>Some(shell::Action::Report),
-                KeyCode::Char('e')=>Some(shell::Action::ResultEvidence),
-                KeyCode::Char('3')=>Some(shell::Action::ReviewEdits),
-                KeyCode::Char('v')=>Some(shell::Action::Versions),
-                KeyCode::Char('p')=>Some(shell::Action::Provenance),
-                _=>None,
+            let shortcut = match key.code {
+                KeyCode::Char('t') => Some(shell::Action::ResumeProvider),
+                KeyCode::Char('a') if self.approval_hidden => {
+                    Some(if self.provider_retry_pending() {
+                        shell::Action::ReviewProviderRetry
+                    } else {
+                        shell::Action::ReviewPermission
+                    })
+                }
+                KeyCode::Char('.') => Some(shell::Action::More),
+                KeyCode::Char('i') => Some(shell::Action::Compose),
+                KeyCode::Char('s') => Some(shell::Action::Overview),
+                KeyCode::Char('o') => Some(shell::Action::Report),
+                KeyCode::Char('e') => Some(shell::Action::ResultEvidence),
+                KeyCode::Char('3') => Some(shell::Action::ReviewEdits),
+                KeyCode::Char('v') => Some(shell::Action::Versions),
+                KeyCode::Char('p') => Some(shell::Action::Provenance),
+                _ => None,
             };
-            if let Some(action)=shortcut.filter(|a|self.footer_actions().contains(a)){return self.activate(action,root,store);}
+            if let Some(action) = shortcut.filter(|a| self.footer_actions().contains(a)) {
+                return self.activate(action, root, store);
+            }
         }
         if !typing && matches!(key.code, KeyCode::Char('h' | '?')) {
             self.open_help();
@@ -157,59 +177,113 @@ impl App {
             return Ok(false);
         }
         if self.shell.sessions && !self.approval_visible() && self.new_session.is_none() {
-            let actions=self.shell_actions();
+            let actions = self.shell_actions();
             match key.code {
-                KeyCode::Esc if self.shell.actions_focus => self.shell.actions_focus=false,
+                KeyCode::Esc if self.shell.actions_focus => self.shell.actions_focus = false,
                 KeyCode::Esc => self.close_navigator(),
                 KeyCode::Tab | KeyCode::BackTab => {
-                    if self.shell.actions_focus {self.shell.action_index=(self.shell.action_index+if key.code==KeyCode::BackTab{actions.len()-1}else{1})%actions.len();}
-                    else{self.shell.actions_focus=true;self.shell.action_index=if key.code==KeyCode::BackTab{actions.len()-1}else{0};}
+                    if self.shell.actions_focus {
+                        self.shell.action_index = (self.shell.action_index
+                            + if key.code == KeyCode::BackTab {
+                                actions.len() - 1
+                            } else {
+                                1
+                            })
+                            % actions.len();
+                    } else {
+                        self.shell.actions_focus = true;
+                        self.shell.action_index = if key.code == KeyCode::BackTab {
+                            actions.len() - 1
+                        } else {
+                            0
+                        };
+                    }
                 }
                 KeyCode::Enter if self.shell.actions_focus => {
-                    if let Some(action)=actions.get(self.shell.action_index).copied(){return self.activate(action,root,store);}
+                    if let Some(action) = actions.get(self.shell.action_index).copied() {
+                        return self.activate(action, root, store);
+                    }
                 }
                 KeyCode::Left | KeyCode::Right if self.shell.actions_focus => {
-                    self.shell.action_index=(self.shell.action_index+if key.code==KeyCode::Left{actions.len()-1}else{1})%actions.len();
+                    self.shell.action_index = (self.shell.action_index
+                        + if key.code == KeyCode::Left {
+                            actions.len() - 1
+                        } else {
+                            1
+                        })
+                        % actions.len();
                 }
                 _ if self.shell.actions_focus => {}
                 KeyCode::Char('q') if !self.searching => {
-                    if self.runner.is_none() && self.manager_job.is_none(){return Ok(true)}
-                    self.notice="Worker or manager is active; stop or wait before exiting.".into();
+                    if self.runner.is_none() && self.manager_job.is_none() {
+                        return Ok(true);
+                    }
+                    self.notice =
+                        "Worker or manager is active; stop or wait before exiting.".into();
                 }
                 KeyCode::Enter => self.open_candidate(store)?,
                 KeyCode::PageDown => self.navigation.select(5),
                 KeyCode::PageUp => self.navigation.select(-5),
                 KeyCode::Left if !self.searching => self.close_navigator(),
-                KeyCode::Char('i') if !self.searching => {self.close_navigator();self.focus_composer();}
+                KeyCode::Char('i') if !self.searching => {
+                    self.close_navigator();
+                    self.focus_composer();
+                }
                 KeyCode::Down => self.navigation.select(1),
                 KeyCode::Up => self.navigation.select(-1),
                 KeyCode::Char('j') if !self.searching => self.navigation.select(1),
                 KeyCode::Char('k') if !self.searching => self.navigation.select(-1),
                 KeyCode::Home if !self.searching => self.navigation.select(isize::MIN),
                 KeyCode::End if !self.searching => self.navigation.select(isize::MAX),
-                KeyCode::Char('f') if !self.searching => {self.searching=true;self.session_editor.reset();}
-                KeyCode::Char('n') if !self.searching => {self.close_navigator();return self.on_key(key,root,store);}
-                _ if self.searching => {self.session_editor.key(&mut self.session_query,key,false,256);self.refresh(store)?;}
+                KeyCode::Char('f') if !self.searching => {
+                    self.searching = true;
+                    self.session_editor.reset();
+                }
+                KeyCode::Char('n') if !self.searching => {
+                    self.close_navigator();
+                    return self.on_key(key, root, store);
+                }
+                _ if self.searching => {
+                    self.session_editor
+                        .key(&mut self.session_query, key, false, 256);
+                    self.refresh(store)?;
+                }
                 _ => {}
             }
             return Ok(false);
         }
-        if !typing && self.view==View::Edits && !self.blocking_surface() && !self.shell.actions_focus && self.focus!=Focus::Sessions {
+        if !typing
+            && self.view == View::Edits
+            && !self.blocking_surface()
+            && !self.shell.actions_focus
+            && self.focus != Focus::Sessions
+        {
             match key.code {
                 KeyCode::Tab | KeyCode::BackTab => {
-                    self.edits.cycle(key.code==KeyCode::BackTab);
-                    self.focus=if self.edits.overview{Focus::Artifacts}else{Focus::Detail};
-                    self.detail_scroll=0;
+                    self.edits.cycle(key.code == KeyCode::BackTab);
+                    self.focus = if self.edits.overview {
+                        Focus::Artifacts
+                    } else {
+                        Focus::Detail
+                    };
+                    self.detail_scroll = 0;
                     return Ok(false);
                 }
-                KeyCode::Enter => {self.shell.actions_focus=true;self.shell.action_index=0;return Ok(false);}
+                KeyCode::Enter => {
+                    self.shell.actions_focus = true;
+                    self.shell.action_index = 0;
+                    return Ok(false);
+                }
                 _ => {}
             }
         }
         if !typing
             && (!self.blocking_surface()
-                || (self.navigation.error.is_some() || self.navigation.load_error.is_some()) && !self.approval_visible()
-                || self.details.page.is_some() && !self.approval_visible() && self.diagnostic.is_none()
+                || (self.navigation.error.is_some() || self.navigation.load_error.is_some())
+                    && !self.approval_visible()
+                || self.details.page.is_some()
+                    && !self.approval_visible()
+                    && self.diagnostic.is_none()
                 || self.diagnostic.is_some()
                     && !self.approval_visible()
                     && self.context_detail.is_none()
@@ -288,8 +362,8 @@ impl App {
                 KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
                 KeyCode::PageDown => self.scroll_detail(8),
                 KeyCode::PageUp => self.scroll_detail(-8),
-                KeyCode::Home => self.detail_scroll=0,
-                KeyCode::End => self.detail_scroll=u16::MAX,
+                KeyCode::Home => self.detail_scroll = 0,
+                KeyCode::End => self.detail_scroll = u16::MAX,
                 _ => {}
             }
             return Ok(false);
@@ -298,20 +372,37 @@ impl App {
             if key.code == KeyCode::Esc && self.approval_visible() {
                 self.deliver_checked_approval('n', store)?;
             }
-            if key.code == KeyCode::Esc && self.edits.pending.is_some() {self.edits.pending=None;self.notice="Revert cancelled; no files changed.".into();}
+            if key.code == KeyCode::Esc && self.edits.pending.is_some() {
+                self.edits.pending = None;
+                self.notice = "Revert cancelled; no files changed.".into();
+            }
             return Ok(key.code == KeyCode::Char('q')
                 && self.runner.is_none()
                 && self.manager_job.is_none());
         }
-        if let Some(mode) = self.approval.as_ref().filter(|_|self.approval_visible()).map(|request| request.mode) {
+        if let Some(mode) = self
+            .approval
+            .as_ref()
+            .filter(|_| self.approval_visible())
+            .map(|request| request.mode)
+        {
             if key.kind != KeyEventKind::Press {
                 return Ok(false);
             }
             if self.human_review().is_some() {
                 match key.code {
-                    KeyCode::Tab | KeyCode::Right => {self.checkpoint_select(1);return Ok(false);}
-                    KeyCode::BackTab | KeyCode::Left => {self.checkpoint_select(-1);return Ok(false);}
-                    KeyCode::Enter | KeyCode::Char('e') => {self.checkpoint_open(store);return Ok(false);}
+                    KeyCode::Tab | KeyCode::Right => {
+                        self.checkpoint_select(1);
+                        return Ok(false);
+                    }
+                    KeyCode::BackTab | KeyCode::Left => {
+                        self.checkpoint_select(-1);
+                        return Ok(false);
+                    }
+                    KeyCode::Enter | KeyCode::Char('e') => {
+                        self.checkpoint_open(store);
+                        return Ok(false);
+                    }
                     _ => {}
                 }
             }
@@ -402,8 +493,11 @@ impl App {
             }
             return Ok(false);
         }
-        if self.artifact_browser.is_some() && key.code==KeyCode::Char('s') && self.session().is_some_and(|s|s.status=="completed") {
-            return self.activate(shell::Action::Overview,root,store);
+        if self.artifact_browser.is_some()
+            && key.code == KeyCode::Char('s')
+            && self.session().is_some_and(|s| s.status == "completed")
+        {
+            return self.activate(shell::Action::Overview, root, store);
         }
         if self.artifact_browser.is_some() {
             if key.kind != KeyEventKind::Press
@@ -497,18 +591,40 @@ impl App {
         if self.details.page.is_some() && !self.approval_visible() && self.diagnostic.is_none() {
             match key.code {
                 KeyCode::Esc => self.back_run_details(store),
-                KeyCode::Char('R') if self.details.page == Some(details::Page::Conversation) => self.reload_conversation_dump(store),
-                KeyCode::Char('w') if self.details.page == Some(details::Page::Conversation) => self.save_conversation_dump(store),
+                KeyCode::Char('R') if self.details.page == Some(details::Page::Conversation) => {
+                    self.reload_conversation_dump(store)
+                }
+                KeyCode::Char('w') if self.details.page == Some(details::Page::Conversation) => {
+                    self.save_conversation_dump(store)
+                }
                 KeyCode::Char('C') => self.start_copy(),
                 KeyCode::Char('E') => self.request_editor(),
-                KeyCode::Down | KeyCode::Char('j') if self.details.page == Some(details::Page::Requests) => self.move_usage_request(1, store),
-                KeyCode::Up | KeyCode::Char('k') if self.details.page == Some(details::Page::Requests) => self.move_usage_request(-1, store),
-                KeyCode::PageDown if self.details.page == Some(details::Page::Requests) => self.move_usage_request(8, store),
-                KeyCode::PageUp if self.details.page == Some(details::Page::Requests) => self.move_usage_request(-8, store),
-                KeyCode::Home if self.details.page == Some(details::Page::Requests) => self.move_usage_request(isize::MIN, store),
-                KeyCode::End if self.details.page == Some(details::Page::Requests) => self.move_usage_request(isize::MAX, store),
+                KeyCode::Down | KeyCode::Char('j')
+                    if self.details.page == Some(details::Page::Requests) =>
+                {
+                    self.move_usage_request(1, store)
+                }
+                KeyCode::Up | KeyCode::Char('k')
+                    if self.details.page == Some(details::Page::Requests) =>
+                {
+                    self.move_usage_request(-1, store)
+                }
+                KeyCode::PageDown if self.details.page == Some(details::Page::Requests) => {
+                    self.move_usage_request(8, store)
+                }
+                KeyCode::PageUp if self.details.page == Some(details::Page::Requests) => {
+                    self.move_usage_request(-8, store)
+                }
+                KeyCode::Home if self.details.page == Some(details::Page::Requests) => {
+                    self.move_usage_request(isize::MIN, store)
+                }
+                KeyCode::End if self.details.page == Some(details::Page::Requests) => {
+                    self.move_usage_request(isize::MAX, store)
+                }
                 KeyCode::Enter if self.details.page == Some(details::Page::Requests) => {
-                    if self.details.selected_call().is_some() { self.open_run_details(details::Page::Request, store); }
+                    if self.details.selected_call().is_some() {
+                        self.open_run_details(details::Page::Request, store);
+                    }
                 }
                 KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
                 KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
@@ -516,7 +632,9 @@ impl App {
                 KeyCode::PageUp => self.scroll_detail(-8),
                 KeyCode::Home => self.detail_scroll = 0,
                 KeyCode::End => self.detail_scroll = u16::MAX,
-                KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => return Ok(true),
+                KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => {
+                    return Ok(true)
+                }
                 _ => {}
             }
             return Ok(false);
@@ -532,8 +650,22 @@ impl App {
             && self.restart_choices.is_empty()
         {
             match key.code {
-                KeyCode::Char('o') if self.result_overview.as_ref().is_some_and(|r|r.report.is_some()) => return self.activate(shell::Action::Report,root,store),
-                KeyCode::Char('e') if self.result_overview.as_ref().is_none_or(|r|r.report.is_none()) => return self.activate(shell::Action::ResultEvidence,root,store),
+                KeyCode::Char('o')
+                    if self
+                        .result_overview
+                        .as_ref()
+                        .is_some_and(|r| r.report.is_some()) =>
+                {
+                    return self.activate(shell::Action::Report, root, store)
+                }
+                KeyCode::Char('e')
+                    if self
+                        .result_overview
+                        .as_ref()
+                        .is_none_or(|r| r.report.is_none()) =>
+                {
+                    return self.activate(shell::Action::ResultEvidence, root, store)
+                }
                 KeyCode::Enter if self.focus != Focus::Sessions => {
                     self.result_open = false;
                     self.focus = Focus::Events;
@@ -711,8 +843,7 @@ impl App {
             return Ok(false);
         }
 
-        if self.diagnostic.is_some() || self.context_detail.is_some()
-        {
+        if self.diagnostic.is_some() || self.context_detail.is_some() {
             match key.code {
                 KeyCode::Esc => {
                     self.clear_diagnostic();
@@ -764,7 +895,6 @@ impl App {
             }
             return Ok(false);
         }
-
 
         if self.focus == Focus::Compose {
             match key.code {

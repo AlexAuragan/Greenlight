@@ -165,28 +165,73 @@ impl App {
         self.reload_conversation_dump(store);
     }
     pub(super) fn reload_conversation_dump(&mut self, store: &Store) {
-        if self.details.page != Some(Page::Conversation) { return; }
-        let Some(session)=self.session().cloned() else {return;};
-        match crate::conversation_dump::Dump::load(store,&session.id,Some(&session.active_branch),false) {
-            Ok(mut dump)=>{
-                if let Some(live)=self.runner.as_ref().filter(|r|r.session_id.as_deref()==Some(session.id.as_str())).and_then(|r|r.live.as_ref()).and_then(|l|l.lock().ok()) {
-                    dump.live_preview=Some(format!("{} · {}\nBuffer snapshot; not linked to a specific durable call. {}\n{}",live.model,live.state,if live.truncated {"Earlier stream text was truncated."}else{""},live.text));
+        if self.details.page != Some(Page::Conversation) {
+            return;
+        }
+        let Some(session) = self.session().cloned() else {
+            return;
+        };
+        match crate::conversation_dump::Dump::load(
+            store,
+            &session.id,
+            Some(&session.active_branch),
+            false,
+        ) {
+            Ok(mut dump) => {
+                if let Some(live) = self
+                    .runner
+                    .as_ref()
+                    .filter(|r| r.session_id.as_deref() == Some(session.id.as_str()))
+                    .and_then(|r| r.live.as_ref())
+                    .and_then(|l| l.lock().ok())
+                {
+                    dump.live_preview = Some(format!(
+                        "{} · {}\nBuffer snapshot; not linked to a specific durable call. {}\n{}",
+                        live.model,
+                        live.state,
+                        if live.truncated {
+                            "Earlier stream text was truncated."
+                        } else {
+                            ""
+                        },
+                        live.text
+                    ));
                 }
-                self.details.dump=Some(dump);self.detail_scroll=0;self.refresh_run_details(store);}
-            Err(e)=>{self.details.dump=None;self.details.text=format!("Conversation dump unavailable: {e:#}");self.notice=self.details.text.clone();}
+                self.details.dump = Some(dump);
+                self.detail_scroll = 0;
+                self.refresh_run_details(store);
+            }
+            Err(e) => {
+                self.details.dump = None;
+                self.details.text = format!("Conversation dump unavailable: {e:#}");
+                self.notice = self.details.text.clone();
+            }
         }
     }
     pub(super) fn save_conversation_dump(&mut self, store: &Store) {
-        let result=(|| -> Result<std::path::PathBuf> {
-            let dump=self.details.dump.as_ref().context("No conversation snapshot loaded")?;
-            let directory=store.directory.parent().context("Missing project state directory")?.join("exports");
+        let result = (|| -> Result<std::path::PathBuf> {
+            let dump = self
+                .details
+                .dump
+                .as_ref()
+                .context("No conversation snapshot loaded")?;
+            let directory = store
+                .directory
+                .parent()
+                .context("Missing project state directory")?
+                .join("exports");
             std::fs::create_dir_all(&directory)?;
-            if !std::fs::symlink_metadata(&directory)?.file_type().is_dir() {bail!("Export directory must be a real directory");}
-            let path=directory.join(format!("conversation-{}.md",uuid::Uuid::new_v4()));
-            dump.save(&path,false)?;
+            if !std::fs::symlink_metadata(&directory)?.file_type().is_dir() {
+                bail!("Export directory must be a real directory");
+            }
+            let path = directory.join(format!("conversation-{}.md", uuid::Uuid::new_v4()));
+            dump.save(&path, false)?;
             Ok(path)
         })();
-        match result {Ok(path)=>self.notice=format!("Saved full conversation dump: {}",path.display()),Err(e)=>self.notice=format!("Cannot save conversation dump: {e:#}")}
+        match result {
+            Ok(path) => self.notice = format!("Saved full conversation dump: {}", path.display()),
+            Err(e) => self.notice = format!("Cannot save conversation dump: {e:#}"),
+        }
     }
     pub(super) fn open_run_details(&mut self, page: Page, store: &Store) {
         self.remember_reading();
@@ -590,7 +635,14 @@ mod tests {
         app.open_run_details(Page::Request, &store);
         app.detail_scroll = 4;
         call(&store, &session, "second", None);
-        store.event(&session, None, "user.message", "New recorded activity while reading").unwrap();
+        store
+            .event(
+                &session,
+                None,
+                "user.message",
+                "New recorded activity while reading",
+            )
+            .unwrap();
         app.refresh(&store).unwrap();
         assert_eq!(app.details.selected.as_deref(), Some(first.id.as_str()));
         assert_eq!(app.detail_scroll, 4);
@@ -674,8 +726,14 @@ mod tests {
         app.refresh(&store).unwrap();
         assert!(app.details.page.is_none());
         app.open_run_details(Page::Technical, &store);
-        assert!(app.details.text.contains("Requested model: requested-model"));
-        assert!(!app.details.text.contains("Requested model: later-parent-request"));
+        assert!(app
+            .details
+            .text
+            .contains("Requested model: requested-model"));
+        assert!(!app
+            .details
+            .text
+            .contains("Requested model: later-parent-request"));
     }
     #[test]
     fn empty_usage_legacy_context_and_back_actions_preserve_workspace_reading() {
@@ -816,48 +874,92 @@ mod tests {
     }
     #[test]
     fn conversation_snapshot_is_read_only_refreshable_complete_on_export_and_scoped() {
-        let (_root,store,session,mut app)=fixture();
-        let raw=format!("{}FULL_RESPONSE_END", "visible response ".repeat(300));
-        store.event(&session,Some("investigate"),"model.output",&raw).unwrap();
-        let before=store.history(&session).unwrap();
+        let (_root, store, session, mut app) = fixture();
+        let raw = format!("{}FULL_RESPONSE_END", "visible response ".repeat(300));
+        store
+            .event(&session, Some("investigate"), "model.output", &raw)
+            .unwrap();
+        let before = store.history(&session).unwrap();
         app.open_conversation_dump(&store);
-        assert_eq!(app.details.page,Some(Page::Conversation));
+        assert_eq!(app.details.page, Some(Page::Conversation));
         assert!(!app.details.text.contains("FULL_RESPONSE_END"));
         assert!(app.export_snapshot().unwrap().text.contains(&raw));
         app.save_conversation_dump(&store);
         assert!(app.notice.starts_with("Saved full conversation dump:"));
-        let exports=store.directory.parent().unwrap().join("exports");
-        let path=std::fs::read_dir(exports).unwrap().next().unwrap().unwrap().path();
+        let exports = store.directory.parent().unwrap().join("exports");
+        let path = std::fs::read_dir(exports)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
         assert!(std::fs::read_to_string(path).unwrap().contains(&raw));
-        assert_eq!(store.history(&session).unwrap(),before);
-        assert_eq!(store.session(&session.id).unwrap().status,"ready");
-        store.event(&session,Some("investigate"),"protocol.error","unknown action shell").unwrap();
+        assert_eq!(store.history(&session).unwrap(), before);
+        assert_eq!(store.session(&session.id).unwrap().status, "ready");
+        store
+            .event(
+                &session,
+                Some("investigate"),
+                "protocol.error",
+                "unknown action shell",
+            )
+            .unwrap();
         assert!(!app.details.text.contains("unknown action shell"));
         app.reload_conversation_dump(&store);
         assert!(app.details.text.contains("unknown action shell"));
-        let other=store.create("fix-bug","different session","investigate").unwrap();
-        app.requested_session=Some(other.id.clone());app.refresh(&store).unwrap();
+        let other = store
+            .create("fix-bug", "different session", "investigate")
+            .unwrap();
+        app.requested_session = Some(other.id.clone());
+        app.refresh(&store).unwrap();
         assert!(app.details.page.is_none());
         assert!(app.details.dump.is_none());
     }
 
     #[test]
     fn conversation_live_buffer_is_explicit_and_never_leaks_between_sessions() {
-        let (_root,store,session,mut app)=fixture();
-        let live=std::sync::Arc::new(std::sync::Mutex::new(crate::provider::stream::LiveOutput {
-            model:"fixture".into(),text:"PARTIAL_VISIBLE_TEXT".into(),state:"Receiving model output…".into(),truncated:true,
-        }));
-        app.runner=Some(Runner {live:Some(live),cancel_retry:None,session_id:Some(session.id.clone()),prompts:std::sync::mpsc::channel().1,finished:std::sync::mpsc::channel().1,answers:std::sync::mpsc::channel().0});
+        let (_root, store, session, mut app) = fixture();
+        let live =
+            std::sync::Arc::new(std::sync::Mutex::new(crate::provider::stream::LiveOutput {
+                model: "fixture".into(),
+                text: "PARTIAL_VISIBLE_TEXT".into(),
+                state: "Receiving model output…".into(),
+                truncated: true,
+            }));
+        app.runner = Some(Runner {
+            live: Some(live),
+            cancel_retry: None,
+            session_id: Some(session.id.clone()),
+            prompts: std::sync::mpsc::channel().1,
+            finished: std::sync::mpsc::channel().1,
+            answers: std::sync::mpsc::channel().0,
+        });
         app.open_conversation_dump(&store);
-        let dump=app.details.dump.as_ref().unwrap();
-        assert!(dump.live_preview.as_ref().unwrap().contains("PARTIAL_VISIBLE_TEXT"));
+        let dump = app.details.dump.as_ref().unwrap();
+        assert!(dump
+            .live_preview
+            .as_ref()
+            .unwrap()
+            .contains("PARTIAL_VISIBLE_TEXT"));
         assert!(dump.live_preview.as_ref().unwrap().contains("truncated"));
-        assert!(dump.markdown().contains("not validated or executed evidence"));
-        assert!(crate::conversation_dump::Dump::load(&store,&session.id,None,false).unwrap().live_preview.is_none());
-        let other=store.create("fix-bug","other","investigate").unwrap();
-        app.requested_session=Some(other.id);app.refresh(&store).unwrap();app.open_conversation_dump(&store);
+        assert!(dump
+            .markdown()
+            .contains("not validated or executed evidence"));
+        assert!(
+            crate::conversation_dump::Dump::load(&store, &session.id, None, false)
+                .unwrap()
+                .live_preview
+                .is_none()
+        );
+        let other = store.create("fix-bug", "other", "investigate").unwrap();
+        app.requested_session = Some(other.id);
+        app.refresh(&store).unwrap();
+        app.open_conversation_dump(&store);
         assert!(app.details.dump.as_ref().unwrap().live_preview.is_none());
-        assert!(!app.export_snapshot().unwrap().text.contains("PARTIAL_VISIBLE_TEXT"));
+        assert!(!app
+            .export_snapshot()
+            .unwrap()
+            .text
+            .contains("PARTIAL_VISIBLE_TEXT"));
     }
-
 }

@@ -2,38 +2,64 @@
 use super::*;
 
 impl App {
-    pub(super) fn approval_visible(&self) -> bool {self.approval.is_some() && !self.approval_hidden}
-    pub(super) fn permission_popup_visible(&self) -> bool {
-        self.approval_visible() && self.approval.as_ref().is_some_and(|p|p.mode!=ApprovalMode::Human)
+    pub(super) fn approval_visible(&self) -> bool {
+        self.approval.is_some() && !self.approval_hidden
     }
-    pub(super) fn provider_retry_pending(&self)->bool {self.approval.as_ref().is_some_and(|p|p.mode==ApprovalMode::ProviderRetry)}
+    pub(super) fn permission_popup_visible(&self) -> bool {
+        self.approval_visible()
+            && self
+                .approval
+                .as_ref()
+                .is_some_and(|p| p.mode != ApprovalMode::Human)
+    }
+    pub(super) fn provider_retry_pending(&self) -> bool {
+        self.approval
+            .as_ref()
+            .is_some_and(|p| p.mode == ApprovalMode::ProviderRetry)
+    }
     pub(super) fn dismiss_permission(&mut self) {
-        if !self.permission_popup_visible() {return;}
-        self.approval_hidden=true;
-        self.detail_scroll=self.approval_return_scroll;
-        self.shell.actions_focus=false;
-        self.notice=if self.provider_retry_pending() {"Provider request paused. [a] Review retry; no new request sent."}else{"Permission pending — agent is waiting. [a] Review permission; no decision sent."}.into();
+        if !self.permission_popup_visible() {
+            return;
+        }
+        self.approval_hidden = true;
+        self.detail_scroll = self.approval_return_scroll;
+        self.shell.actions_focus = false;
+        self.notice = if self.provider_retry_pending() {
+            "Provider request paused. [a] Review retry; no new request sent."
+        } else {
+            "Permission pending — agent is waiting. [a] Review permission; no decision sent."
+        }
+        .into();
     }
     pub(super) fn reopen_permission(&mut self) {
-        if self.approval.is_none() || !self.approval_hidden {return;}
-        if let Some(id)=self.runner.as_ref().and_then(|r|r.session_id.clone()) {
-            if let Some(index)=self.sessions.iter().position(|s|s.id==id) {self.session_index=index;}
-            self.requested_session=Some(id);
+        if self.approval.is_none() || !self.approval_hidden {
+            return;
         }
-        self.approval_return_scroll=self.detail_scroll;
-        self.detail_scroll=0;self.approval_hidden=false;
-        self.shell.more=false;self.help=false;self.shell.actions_focus=false;
+        if let Some(id) = self.runner.as_ref().and_then(|r| r.session_id.clone()) {
+            if let Some(index) = self.sessions.iter().position(|s| s.id == id) {
+                self.session_index = index;
+            }
+            self.requested_session = Some(id);
+        }
+        self.approval_return_scroll = self.detail_scroll;
+        self.detail_scroll = 0;
+        self.approval_hidden = false;
+        self.shell.more = false;
+        self.help = false;
+        self.shell.actions_focus = false;
     }
 
     pub(super) fn deliver_approval(&mut self, choice: char) -> Result<()> {
-        if !self.approval_visible() {bail!("Open the permission popup before deciding");}
+        if !self.approval_visible() {
+            bail!("Open the permission popup before deciding");
+        }
         let request = self.approval.as_ref().context("no pending approval")?;
         if !request.mode.accepts(choice) {
             bail!("approval option {choice} is unavailable for this request");
         }
         let retry = request.mode == ApprovalMode::ProviderRetry;
         let human = request.mode == ApprovalMode::Human;
-        let review_kind = request.review.as_ref().map(|r|r.kind);
+        let review_kind = request.review.as_ref().map(|r| r.kind);
         let confirmation = request.mode == ApprovalMode::ConfirmPersistent;
         let runner = self.runner.as_ref().context("approval worker missing")?;
         runner
@@ -41,8 +67,8 @@ impl App {
             .send(choice.to_string())
             .context("approval worker disconnected")?;
         self.approval = None;
-        self.approval_hidden=false;
-        self.detail_scroll=self.approval_return_scroll;
+        self.approval_hidden = false;
+        self.detail_scroll = self.approval_return_scroll;
         self.notice = match choice {
             'y' if retry => "Retry requested for the same model messages; waiting for any provider cooldown.".into(),
             'n' if retry => "Stopped the provider retry; recorded work remains available.".into(),
@@ -92,7 +118,15 @@ pub(super) fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
         options.push(approval_line('p', "Review project grant", Color::Yellow));
         options.push(approval_line('g', "Review global grant", Color::Yellow));
     }
-    options.push(approval_line('n', if mode==ApprovalMode::ProviderRetry {"Stop for now"}else{"Deny"}, Color::Red));
+    options.push(approval_line(
+        'n',
+        if mode == ApprovalMode::ProviderRetry {
+            "Stop for now"
+        } else {
+            "Deny"
+        },
+        Color::Red,
+    ));
     options.push(Line::styled(
         "  Esc closes without deciding; the agent keeps waiting.",
         Style::default().fg(Color::DarkGray),
@@ -162,7 +196,10 @@ pub(super) fn draw(
     area: ratatui::layout::Rect,
 ) {
     if prompt.mode == ApprovalMode::Human {
-        if let Some(review) = &prompt.review { checkpoint::draw(frame,app,review,area); return; }
+        if let Some(review) = &prompt.review {
+            checkpoint::draw(frame, app, review, area);
+            return;
+        }
     }
     let choices_height = match prompt.mode {
         ApprovalMode::Human | ApprovalMode::ConfirmPersistent | ApprovalMode::ProviderRetry => 5,
@@ -185,14 +222,36 @@ pub(super) fn draw(
         app,
         Paragraph::new(approval_text(prompt))
             .wrap(Wrap { trim: false })
-            .block(border("", true).title(format!("{} · {}",title.trim(),super::view::fit(app.session().map(|s|s.goal.as_str()).unwrap_or("Current request"),40)))),
+            .block(
+                border("", true).title(format!(
+                    "{} · {}",
+                    title.trim(),
+                    super::view::fit(
+                        app.session()
+                            .map(|s| s.goal.as_str())
+                            .unwrap_or("Current request"),
+                        40
+                    )
+                )),
+            ),
         approval_areas[0],
     );
-    let keys = ['y','a','p','g','n'].into_iter().filter(|key|prompt.mode.accepts(*key)).collect::<Vec<_>>();
-    for (index,key) in keys.into_iter().enumerate() {
-        let y=approval_areas[1].y+1+index as u16;
-        if y<approval_areas[1].bottom().saturating_sub(1) {
-            app.shell.hit(ratatui::layout::Rect::new(approval_areas[1].x+1,y,approval_areas[1].width.saturating_sub(2),1),shell::Action::Decision(key));
+    let keys = ['y', 'a', 'p', 'g', 'n']
+        .into_iter()
+        .filter(|key| prompt.mode.accepts(*key))
+        .collect::<Vec<_>>();
+    for (index, key) in keys.into_iter().enumerate() {
+        let y = approval_areas[1].y + 1 + index as u16;
+        if y < approval_areas[1].bottom().saturating_sub(1) {
+            app.shell.hit(
+                ratatui::layout::Rect::new(
+                    approval_areas[1].x + 1,
+                    y,
+                    approval_areas[1].width.saturating_sub(2),
+                    1,
+                ),
+                shell::Action::Decision(key),
+            );
         }
     }
     frame.render_widget(
@@ -204,21 +263,45 @@ pub(super) fn draw(
 
 /// Tool decisions are a modal layer; underlying hit targets must never receive clicks.
 pub(super) fn draw_popup(frame: &mut Frame, app: &App) {
-    let Some(prompt)=app.approval.as_ref().filter(|_|app.permission_popup_visible()) else {return;};
+    let Some(prompt) = app
+        .approval
+        .as_ref()
+        .filter(|_| app.permission_popup_visible())
+    else {
+        return;
+    };
     app.shell.hits.borrow_mut().clear();
-    let area=frame.area();
-    if area.width<40 || area.height<20 {
-        frame.render_widget(ratatui::widgets::Clear,area);
+    let area = frame.area();
+    if area.width < 40 || area.height < 20 {
+        frame.render_widget(ratatui::widgets::Clear, area);
         frame.render_widget(Paragraph::new("Resize to at least 40×20 to decide.\nPermission pending. Esc closes; agent keeps waiting.").wrap(Wrap{trim:false}),area);
         return;
     }
-    let width=area.width.saturating_sub(4).min(100);
-    let height=area.height.saturating_sub(2).min(26);
-    let popup=ratatui::layout::Rect::new((area.width-width)/2,(area.height-height)/2,width,height);
-    frame.render_widget(ratatui::widgets::Clear,popup);
-    frame.render_widget(Block::default().style(Style::default().bg(theme::PANEL)).borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).border_style(Style::default().fg(theme::ATTENTION)).title(if prompt.mode==ApprovalMode::ProviderRetry {" Provider request paused · Esc closes; request waits "}else{" Permission required · Esc closes; agent waits "}),popup);
-    let inner=ratatui::layout::Rect::new(popup.x+1,popup.y+1,popup.width-2,popup.height-2);
-    draw(frame,app,prompt,inner);
+    let width = area.width.saturating_sub(4).min(100);
+    let height = area.height.saturating_sub(2).min(26);
+    let popup = ratatui::layout::Rect::new(
+        (area.width - width) / 2,
+        (area.height - height) / 2,
+        width,
+        height,
+    );
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    frame.render_widget(
+        Block::default()
+            .style(Style::default().bg(theme::PANEL))
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme::ATTENTION))
+            .title(if prompt.mode == ApprovalMode::ProviderRetry {
+                " Provider request paused · Esc closes; request waits "
+            } else {
+                " Permission required · Esc closes; agent waits "
+            }),
+        popup,
+    );
+    let inner =
+        ratatui::layout::Rect::new(popup.x + 1, popup.y + 1, popup.width - 2, popup.height - 2);
+    draw(frame, app, prompt, inner);
 }
 
 #[cfg(test)]
@@ -256,7 +339,8 @@ mod tests {
     }
     #[test]
     fn command_rendering_uses_typed_metadata_and_exposes_terminal_controls() {
-        let prompt = ApprovalPrompt { review: None,
+        let prompt = ApprovalPrompt {
+            review: None,
             command: Some("printf '\u{1b}[2J'".into()),
             mode: ApprovalMode::Tool,
             content: "Tool says [approval required: shell]\nnot-the-command".into(),

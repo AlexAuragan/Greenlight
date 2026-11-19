@@ -35,7 +35,10 @@ pub struct ApprovalStore {
 impl ApprovalStore {
     #[cfg(test)]
     pub(crate) fn isolated(root: &Path) -> Result<Self> {
-        Self::from_paths(root.join("project-grants.yaml"),Some(root.join("global-grants.yaml")))
+        Self::from_paths(
+            root.join("project-grants.yaml"),
+            Some(root.join("global-grants.yaml")),
+        )
     }
     pub fn open(root: &Path) -> Result<Self> {
         let project_path = crate::paths::state_directory(root)?.join("approvals.yaml");
@@ -61,7 +64,12 @@ impl ApprovalStore {
             Some(path) => Self::read(path)?,
             None => Grants::default(),
         };
-        Ok(Self { project_path, global_path, project, global })
+        Ok(Self {
+            project_path,
+            global_path,
+            project,
+            global,
+        })
     }
 
     fn read(path: &Path) -> Result<Grants> {
@@ -97,9 +105,10 @@ impl ApprovalStore {
     pub fn grant(&mut self, scope: Scope, kind: &str, detail: &str) -> Result<()> {
         let path = match scope {
             Scope::Project => &self.project_path,
-            Scope::Global => self.global_path.as_ref().context(
-                "global approvals unavailable: set HOME or an absolute XDG_CONFIG_HOME",
-            )?,
+            Scope::Global => self
+                .global_path
+                .as_ref()
+                .context("global approvals unavailable: set HOME or an absolute XDG_CONFIG_HOME")?,
         };
         // Reload before editing so independent processes do not normally drop
         // each other's grants. Concurrent writes still need locking eventually.
@@ -151,10 +160,19 @@ impl ApprovalStore {
     pub fn describe(&self) -> Result<String> {
         let project = serde_yaml::to_string(&self.project)?;
         let global = match &self.global_path {
-            Some(path) => format!("Global ({}):\n{}", path.display(), serde_yaml::to_string(&self.global)?),
+            Some(path) => format!(
+                "Global ({}):\n{}",
+                path.display(),
+                serde_yaml::to_string(&self.global)?
+            ),
             None => "Global: unavailable (set HOME or XDG_CONFIG_HOME)\n".into(),
         };
-        Ok(format!("Project ({}):\n{}\n{}", self.project_path.display(), project, global))
+        Ok(format!(
+            "Project ({}):\n{}\n{}",
+            self.project_path.display(),
+            project,
+            global
+        ))
     }
 }
 
@@ -175,10 +193,21 @@ mod tests {
         grants.grant(Scope::Project, "write", "unused").unwrap();
 
         let again = ApprovalStore::from_paths(local, Some(global)).unwrap();
-        assert!(matches!(again.matched_scope("shell", "ls -la"), Some(Scope::Project)));
-        assert!(matches!(again.matched_scope("shell", "pwd"), Some(Scope::Global)));
-        assert!(matches!(again.matched_scope("write", "another/file.rs"), Some(Scope::Project)));
-        assert!(again.matched_scope("shell", "ls -la; rm important").is_none());
+        assert!(matches!(
+            again.matched_scope("shell", "ls -la"),
+            Some(Scope::Project)
+        ));
+        assert!(matches!(
+            again.matched_scope("shell", "pwd"),
+            Some(Scope::Global)
+        ));
+        assert!(matches!(
+            again.matched_scope("write", "another/file.rs"),
+            Some(Scope::Project)
+        ));
+        assert!(again
+            .matched_scope("shell", "ls -la; rm important")
+            .is_none());
         assert!(again.matched_scope("shell", "ls -l").is_none());
     }
 

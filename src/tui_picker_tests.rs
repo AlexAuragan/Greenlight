@@ -59,7 +59,8 @@ fn search_handles_unicode_no_matches_clear_and_selection_stability() {
     assert!(!app.searching);
     assert_eq!(app.session_query, "ÉCRIRE");
     key(&mut app, root.path(), &store, KeyCode::Char('f'));
-    app.activate(shell::Action::ClearSearch,root.path(),&store).unwrap();
+    app.activate(shell::Action::ClearSearch, root.path(), &store)
+        .unwrap();
     key(&mut app, root.path(), &store, KeyCode::Esc);
     assert!(app.session_query.is_empty());
     assert_eq!(app.navigation.candidates.len(), 2);
@@ -99,7 +100,9 @@ fn new_session_form_starts_worker_without_draft_loss_and_keeps_approvals() {
     assert_eq!(app.session().unwrap().status, "ready");
     assert!(app.composer.is_empty());
     assert_eq!(
-        app.drafts.get(&(None,None,compose::Mode::Step)).map(String::as_str),
+        app.drafts
+            .get(&(None, None, compose::Mode::Step))
+            .map(String::as_str),
         Some("Saved instructions")
     );
     assert_eq!(store.list().unwrap().len(), 1);
@@ -165,7 +168,9 @@ fn pending_approval_clears_filter_that_hides_its_owner() {
     });
     app.open_navigator(true);
     sender
-        .send(ApprovalPrompt { review: None, command: None,
+        .send(ApprovalPrompt {
+            review: None,
+            command: None,
             content: "Owner permission".into(),
             mode: ApprovalMode::Human,
         })
@@ -174,7 +179,7 @@ fn pending_approval_clears_filter_that_hides_its_owner() {
     assert!(app.session_query.is_empty());
     assert!(!app.searching);
     assert!(!app.shell.sessions);
-    assert_eq!(app.focus,app.main_focus());
+    assert_eq!(app.focus, app.main_focus());
     assert!(app.requested_session.is_some());
     app.refresh(&store).unwrap();
     assert_eq!(app.session().unwrap().id, owner.id);
@@ -299,77 +304,252 @@ fn new_goal_starts_real_http_stream_before_action_execution_and_records_usage() 
 
 #[test]
 fn candidate_browsing_filtering_and_cancel_preserve_open_workspace_and_drafts() {
-    let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
-    let a=store.create("demo","Alpha goal","work").unwrap();let b=store.create("demo","Beta goal","work").unwrap();
-    store.event(&a,None,"user.message","Alpha recorded evidence").unwrap();
-    let mut app=App::new(Some(&a.id));app.refresh(&store).unwrap();app.composer="Alpha draft".into();
-    let event=app.event().unwrap().id;let before=store.history(&a).unwrap().len();
-    app.open_navigator(false);app.navigation.selected=Some(b.id.clone());app.navigation.refresh(&app.sessions,&app.session_query,&app.session_activity);
-    assert_eq!(app.session().unwrap().id,a.id);assert_eq!(app.composer,"Alpha draft");assert_eq!(app.event().unwrap().id,event);
-    store.event(&a,None,"user.message","Background reorder").unwrap();app.refresh(&store).unwrap();
-    assert_eq!(app.navigation.candidate().unwrap().id,b.id);assert_eq!(app.session().unwrap().id,a.id);
-    app.searching=true;for c in "missing".chars(){key(&mut app,root.path(),&store,KeyCode::Char(c));}
-    assert!(app.navigation.candidates.is_empty());assert_eq!(app.session().unwrap().id,a.id);assert_eq!(app.composer,"Alpha draft");
-    key(&mut app,root.path(),&store,KeyCode::Esc);assert!(!app.shell.sessions);assert_eq!(app.session().unwrap().id,a.id);
-    app.session_query.clear();app.open_navigator(false);app.navigation.selected=Some(b.id.clone());app.navigation.refresh(&app.sessions,&app.session_query,&app.session_activity);
-    app.open_candidate(&store).unwrap();assert_eq!(app.session().unwrap().id,b.id);assert!(app.composer.is_empty());
-    app.composer="Beta draft".into();app.open_navigator(false);app.navigation.selected=Some(a.id.clone());app.navigation.refresh(&app.sessions,&app.session_query,&app.session_activity);app.open_candidate(&store).unwrap();
-    assert_eq!(app.composer,"Alpha draft");assert_eq!(store.history(&a).unwrap().len(),before+1);
-    assert!(app.runner.is_none());assert!(app.approval.is_none());
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let a = store.create("demo", "Alpha goal", "work").unwrap();
+    let b = store.create("demo", "Beta goal", "work").unwrap();
+    store
+        .event(&a, None, "user.message", "Alpha recorded evidence")
+        .unwrap();
+    let mut app = App::new(Some(&a.id));
+    app.refresh(&store).unwrap();
+    app.composer = "Alpha draft".into();
+    let event = app.event().unwrap().id;
+    let before = store.history(&a).unwrap().len();
+    app.open_navigator(false);
+    app.navigation.selected = Some(b.id.clone());
+    app.navigation
+        .refresh(&app.sessions, &app.session_query, &app.session_activity);
+    assert_eq!(app.session().unwrap().id, a.id);
+    assert_eq!(app.composer, "Alpha draft");
+    assert_eq!(app.event().unwrap().id, event);
+    store
+        .event(&a, None, "user.message", "Background reorder")
+        .unwrap();
+    app.refresh(&store).unwrap();
+    assert_eq!(app.navigation.candidate().unwrap().id, b.id);
+    assert_eq!(app.session().unwrap().id, a.id);
+    app.searching = true;
+    for c in "missing".chars() {
+        key(&mut app, root.path(), &store, KeyCode::Char(c));
+    }
+    assert!(app.navigation.candidates.is_empty());
+    assert_eq!(app.session().unwrap().id, a.id);
+    assert_eq!(app.composer, "Alpha draft");
+    key(&mut app, root.path(), &store, KeyCode::Esc);
+    assert!(!app.shell.sessions);
+    assert_eq!(app.session().unwrap().id, a.id);
+    app.session_query.clear();
+    app.open_navigator(false);
+    app.navigation.selected = Some(b.id.clone());
+    app.navigation
+        .refresh(&app.sessions, &app.session_query, &app.session_activity);
+    app.open_candidate(&store).unwrap();
+    assert_eq!(app.session().unwrap().id, b.id);
+    assert!(app.composer.is_empty());
+    app.composer = "Beta draft".into();
+    app.open_navigator(false);
+    app.navigation.selected = Some(a.id.clone());
+    app.navigation
+        .refresh(&app.sessions, &app.session_query, &app.session_activity);
+    app.open_candidate(&store).unwrap();
+    assert_eq!(app.composer, "Alpha draft");
+    assert_eq!(store.history(&a).unwrap().len(), before + 1);
+    assert!(app.runner.is_none());
+    assert!(app.approval.is_none());
 }
 #[test]
 fn missing_active_and_candidate_sessions_never_substitute_a_different_run() {
-    let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
-    let a=store.create("demo","Alpha","work").unwrap();let b=store.create("demo","Beta","work").unwrap();
-    let mut app=App::new(Some(&a.id));app.refresh(&store).unwrap();app.open_navigator(false);
-    app.navigation.selected=Some(b.id.clone());app.navigation.refresh(&app.sessions,&app.session_query,&app.session_activity);
-    store.db.execute("DELETE FROM events WHERE session=?1",[&b.id]).unwrap();store.db.execute("DELETE FROM branches WHERE session=?1",[&b.id]).unwrap();store.db.execute("DELETE FROM sessions WHERE id=?1",[&b.id]).unwrap();
-    app.refresh(&store).unwrap();assert!(app.navigation.candidate().is_none());
-    app.open_candidate(&store).unwrap();assert_eq!(app.session().unwrap().id,a.id);
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let a = store.create("demo", "Alpha", "work").unwrap();
+    let b = store.create("demo", "Beta", "work").unwrap();
+    let mut app = App::new(Some(&a.id));
+    app.refresh(&store).unwrap();
+    app.open_navigator(false);
+    app.navigation.selected = Some(b.id.clone());
+    app.navigation
+        .refresh(&app.sessions, &app.session_query, &app.session_activity);
+    store
+        .db
+        .execute("DELETE FROM events WHERE session=?1", [&b.id])
+        .unwrap();
+    store
+        .db
+        .execute("DELETE FROM branches WHERE session=?1", [&b.id])
+        .unwrap();
+    store
+        .db
+        .execute("DELETE FROM sessions WHERE id=?1", [&b.id])
+        .unwrap();
+    app.refresh(&store).unwrap();
+    assert!(app.navigation.candidate().is_none());
+    app.open_candidate(&store).unwrap();
+    assert_eq!(app.session().unwrap().id, a.id);
     app.close_navigator();
-    store.db.execute("DELETE FROM events WHERE session=?1",[&a.id]).unwrap();store.db.execute("DELETE FROM branches WHERE session=?1",[&a.id]).unwrap();store.db.execute("DELETE FROM sessions WHERE id=?1",[&a.id]).unwrap();
-    let c=store.create("demo","Third run","work").unwrap();app.refresh(&store).unwrap();
-    assert!(app.session().is_none());assert!(app.navigation.missing.is_some());assert_eq!(app.navigation.opened.as_deref(),Some(a.id.as_str()));
+    store
+        .db
+        .execute("DELETE FROM events WHERE session=?1", [&a.id])
+        .unwrap();
+    store
+        .db
+        .execute("DELETE FROM branches WHERE session=?1", [&a.id])
+        .unwrap();
+    store
+        .db
+        .execute("DELETE FROM sessions WHERE id=?1", [&a.id])
+        .unwrap();
+    let c = store.create("demo", "Third run", "work").unwrap();
+    app.refresh(&store).unwrap();
+    assert!(app.session().is_none());
+    assert!(app.navigation.missing.is_some());
+    assert_eq!(app.navigation.opened.as_deref(), Some(a.id.as_str()));
     assert!(screen(&app).contains("Opened session unavailable"));
-    app.open_navigator(false);app.navigation.select(1);app.open_candidate(&store).unwrap();assert_eq!(app.session().unwrap().id,c.id);
+    app.open_navigator(false);
+    app.navigation.select(1);
+    app.open_candidate(&store).unwrap();
+    assert_eq!(app.session().unwrap().id, c.id);
 }
 #[test]
 fn discovery_and_history_errors_are_distinct_from_empty_and_retry_is_read_only() {
-    let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();let store=Store::open(root.path()).unwrap();
-    let s=store.create("fix-bug","Existing run","investigate").unwrap();let mut app=App::new(Some(&s.id));app.refresh(&store).unwrap();
-    store.db.execute("ALTER TABLE sessions RENAME TO hidden_sessions",[]).unwrap();app.refresh(&store).unwrap();
-    assert!(app.navigation.error.is_some());assert!(screen(&app).contains("Session discovery unavailable"));assert!(!screen(&app).contains("No sessions in this project"));
-    store.db.execute("ALTER TABLE hidden_sessions RENAME TO sessions",[]).unwrap();
-    key(&mut app,root.path(),&store,KeyCode::Tab);assert_eq!(app.shell_actions()[app.shell.action_index],shell::Action::RetryDiscovery);
-    key(&mut app,root.path(),&store,KeyCode::Enter);
-    assert_eq!(app.session().unwrap().id,s.id);assert!(app.navigation.error.is_none());
-    store.db.execute("UPDATE branches SET parent='missing-parent' WHERE id=?1",[&s.active_branch]).unwrap();app.refresh(&store).unwrap();
-    assert!(app.navigation.load_error.is_some());assert!(screen(&app).contains("Opened session data unavailable"));
-    store.db.execute("UPDATE branches SET parent=NULL WHERE id=?1",[&s.active_branch]).unwrap();app.refresh(&store).unwrap();
-    assert!(app.navigation.load_error.is_none());assert_eq!(store.history(&s).unwrap().len(),1);assert!(app.runner.is_none());
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let s = store
+        .create("fix-bug", "Existing run", "investigate")
+        .unwrap();
+    let mut app = App::new(Some(&s.id));
+    app.refresh(&store).unwrap();
+    store
+        .db
+        .execute("ALTER TABLE sessions RENAME TO hidden_sessions", [])
+        .unwrap();
+    app.refresh(&store).unwrap();
+    assert!(app.navigation.error.is_some());
+    assert!(screen(&app).contains("Session discovery unavailable"));
+    assert!(!screen(&app).contains("No sessions in this project"));
+    store
+        .db
+        .execute("ALTER TABLE hidden_sessions RENAME TO sessions", [])
+        .unwrap();
+    key(&mut app, root.path(), &store, KeyCode::Tab);
+    assert_eq!(
+        app.shell_actions()[app.shell.action_index],
+        shell::Action::RetryDiscovery
+    );
+    key(&mut app, root.path(), &store, KeyCode::Enter);
+    assert_eq!(app.session().unwrap().id, s.id);
+    assert!(app.navigation.error.is_none());
+    store
+        .db
+        .execute(
+            "UPDATE branches SET parent='missing-parent' WHERE id=?1",
+            [&s.active_branch],
+        )
+        .unwrap();
+    app.refresh(&store).unwrap();
+    assert!(app.navigation.load_error.is_some());
+    assert!(screen(&app).contains("Opened session data unavailable"));
+    store
+        .db
+        .execute(
+            "UPDATE branches SET parent=NULL WHERE id=?1",
+            [&s.active_branch],
+        )
+        .unwrap();
+    app.refresh(&store).unwrap();
+    assert!(app.navigation.load_error.is_none());
+    assert_eq!(store.history(&s).unwrap().len(), 1);
+    assert!(app.runner.is_none());
 }
 
 #[test]
 fn mouse_candidate_selection_is_not_open_and_stale_row_release_is_ignored() {
-    use crossterm::event::{MouseEvent,MouseEventKind,MouseButton};
-    let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
-    let a=store.create("demo","Alpha session","work").unwrap();let b=store.create("demo","Beta session","work").unwrap();
-    let mut app=App::new(Some(&a.id));app.refresh(&store).unwrap();app.open_navigator(false);app.viewport=(120,36);
-    let mut terminal=Terminal::new(TestBackend::new(120,36)).unwrap();terminal.draw(|f|view::draw(f,&app)).unwrap();
-    let row=terminal.backend().buffer().content.chunks(120).position(|row|row.iter().map(|c|c.symbol()).collect::<String>().contains("Beta session")).unwrap() as u16;
-    let mouse=|app:&mut App,kind| {app.on_event(Event::Mouse(MouseEvent{kind,column:4,row,modifiers:KeyModifiers::NONE}),root.path(),&store).unwrap();};
-    mouse(&mut app,MouseEventKind::Down(MouseButton::Left));
-    store.event(&a,None,"user.message","Reorder the candidates").unwrap();app.refresh(&store).unwrap();terminal.draw(|f|view::draw(f,&app)).unwrap();
-    mouse(&mut app,MouseEventKind::Up(MouseButton::Left));
-    assert_eq!(app.session().unwrap().id,a.id);assert_eq!(app.navigation.candidate().unwrap().id,a.id);
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let a = store.create("demo", "Alpha session", "work").unwrap();
+    let b = store.create("demo", "Beta session", "work").unwrap();
+    let mut app = App::new(Some(&a.id));
+    app.refresh(&store).unwrap();
+    app.open_navigator(false);
+    app.viewport = (120, 36);
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal.draw(|f| view::draw(f, &app)).unwrap();
+    let row = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(120)
+        .position(|row| {
+            row.iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+                .contains("Beta session")
+        })
+        .unwrap() as u16;
+    let mouse = |app: &mut App, kind| {
+        app.on_event(
+            Event::Mouse(MouseEvent {
+                kind,
+                column: 4,
+                row,
+                modifiers: KeyModifiers::NONE,
+            }),
+            root.path(),
+            &store,
+        )
+        .unwrap();
+    };
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left));
+    store
+        .event(&a, None, "user.message", "Reorder the candidates")
+        .unwrap();
+    app.refresh(&store).unwrap();
+    terminal.draw(|f| view::draw(f, &app)).unwrap();
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left));
+    assert_eq!(app.session().unwrap().id, a.id);
+    assert_eq!(app.navigation.candidate().unwrap().id, a.id);
     // Fresh click on the current Beta row selects it, but still leaves Alpha open.
-    let row=terminal.backend().buffer().content.chunks(120).position(|row|row.iter().map(|c|c.symbol()).collect::<String>().contains("Beta session")).unwrap() as u16;
-    for kind in [MouseEventKind::Down(MouseButton::Left),MouseEventKind::Up(MouseButton::Left)] {
-        app.on_event(Event::Mouse(MouseEvent{kind,column:4,row,modifiers:KeyModifiers::NONE}),root.path(),&store).unwrap();
+    let row = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(120)
+        .position(|row| {
+            row.iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+                .contains("Beta session")
+        })
+        .unwrap() as u16;
+    for kind in [
+        MouseEventKind::Down(MouseButton::Left),
+        MouseEventKind::Up(MouseButton::Left),
+    ] {
+        app.on_event(
+            Event::Mouse(MouseEvent {
+                kind,
+                column: 4,
+                row,
+                modifiers: KeyModifiers::NONE,
+            }),
+            root.path(),
+            &store,
+        )
+        .unwrap();
     }
-    assert_eq!(app.session().unwrap().id,a.id);assert_eq!(app.navigation.candidate().unwrap().id,b.id);
-    app.activate(shell::Action::OpenCandidate,root.path(),&store).unwrap();assert_eq!(app.session().unwrap().id,b.id);
-    app.open_navigator(true);app.on_event(Event::Paste("hjn /resume".into()),root.path(),&store).unwrap();
-    assert_eq!(app.session_query,"hjn /resume");assert_eq!(app.session().unwrap().id,b.id);assert!(app.runner.is_none());
-    app.close_navigator();assert!(app.session_query.contains("/resume"));
+    assert_eq!(app.session().unwrap().id, a.id);
+    assert_eq!(app.navigation.candidate().unwrap().id, b.id);
+    app.activate(shell::Action::OpenCandidate, root.path(), &store)
+        .unwrap();
+    assert_eq!(app.session().unwrap().id, b.id);
+    app.open_navigator(true);
+    app.on_event(Event::Paste("hjn /resume".into()), root.path(), &store)
+        .unwrap();
+    assert_eq!(app.session_query, "hjn /resume");
+    assert_eq!(app.session().unwrap().id, b.id);
+    assert!(app.runner.is_none());
+    app.close_navigator();
+    assert!(app.session_query.contains("/resume"));
 }

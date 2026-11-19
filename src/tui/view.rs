@@ -8,7 +8,10 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
         frame.area(),
     );
     draw_workspace(frame, app);
-    if app.permission_popup_visible() && !app.help {approval::draw_popup(frame,app);return;}
+    if app.permission_popup_visible() && !app.help {
+        approval::draw_popup(frame, app);
+        return;
+    }
     if (app.help || app.shell.more) && (frame.area().width < 4 || frame.area().height < 4) {
         app.shell.hits.borrow_mut().clear();
         return;
@@ -106,7 +109,12 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
 }
 fn draw_workspace(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    if area.width < 40 || area.height < 14 || (((app.approval_visible() && !app.permission_popup_visible()) || app.edits.pending.is_some()) && area.height < 20) {
+    if area.width < 40
+        || area.height < 14
+        || (((app.approval_visible() && !app.permission_popup_visible())
+            || app.edits.pending.is_some())
+            && area.height < 20)
+    {
         let text = if app.approval_visible() {
             "Resize to at least 40×20 to review approval. Decisions disabled. Esc denies."
         } else if app.edits.pending.is_some() {
@@ -153,8 +161,14 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         .as_ref()
         .is_some_and(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()))
         && raw_status == "ready";
-    let permission_pending_here=app.approval.as_ref().is_some_and(|p|p.mode!=ApprovalMode::Human)
-        && app.runner.as_ref().is_some_and(|r|r.session_id.as_deref()==app.session().map(|s|s.id.as_str()));
+    let permission_pending_here = app
+        .approval
+        .as_ref()
+        .is_some_and(|p| p.mode != ApprovalMode::Human)
+        && app
+            .runner
+            .as_ref()
+            .is_some_and(|r| r.session_id.as_deref() == app.session().map(|s| s.id.as_str()));
     let status = if permission_pending_here && app.provider_retry_pending() {
         "PROVIDER REQUEST PAUSED".into()
     } else if permission_pending_here {
@@ -177,7 +191,9 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     };
     let state_color = match status.as_str() {
         "RUNNING" | "STARTING" => theme::FOCUS,
-        "BLOCKED" | "INTERRUPTED" | "WAITING FOR PERMISSION" | "PROVIDER REQUEST PAUSED" => theme::ATTENTION,
+        "BLOCKED" | "INTERRUPTED" | "WAITING FOR PERMISSION" | "PROVIDER REQUEST PAUSED" => {
+            theme::ATTENTION
+        }
         _ => theme::MUTED,
     };
     let state = if raw_status == "completed" && !permission_pending_here {
@@ -208,7 +224,9 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         (shell::Action::Artifacts, View::Artifacts),
         (shell::Action::Edits, View::Edits),
     ] {
-        if app.session().is_none(){continue}
+        if app.session().is_none() {
+            continue;
+        }
         let width = action.label().len() as u16 + 1;
         shell::tab(
             frame,
@@ -245,7 +263,8 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         }
     }
 
-    let overlay = app.details.page.is_some() || app.edits.pending.is_some()
+    let overlay = app.details.page.is_some()
+        || app.edits.pending.is_some()
         || (app.result_open && app.view == View::Conversation)
         || app.activity_filtering
         || app.artifact_browser.is_some()
@@ -258,21 +277,27 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         || app.restart_plan.is_some()
         || !app.restart_choices.is_empty();
     let show_sessions = app.shell.sessions;
-    let overlay=overlay && !show_sessions;
+    let overlay = overlay && !show_sessions;
     let widths = if !show_sessions || overlay {
         [Constraint::Length(0), Constraint::Percentage(100)]
-    } else if area.width<100 {
+    } else if area.width < 100 {
         [Constraint::Percentage(100), Constraint::Length(0)]
     } else {
         [Constraint::Length(40), Constraint::Min(1)]
     };
     let columns = Layout::horizontal(widths).split(outer[1]);
 
-    if show_sessions {navigation::draw(frame,app,columns[0]);}
+    if show_sessions {
+        navigation::draw(frame, app, columns[0]);
+    }
     if overlay {
         app.shell.hits.borrow_mut().clear();
     }
-    if let Some(prompt) = app.approval.as_ref().filter(|_|app.approval_visible() && !app.permission_popup_visible()) {
+    if let Some(prompt) = app
+        .approval
+        .as_ref()
+        .filter(|_| app.approval_visible() && !app.permission_popup_visible())
+    {
         approval::draw(frame, app, prompt, columns[1]);
     } else if let Some(browser) = &app.artifact_browser {
         let panes = if browser.reading {
@@ -403,13 +428,34 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         );
     } else if app.restart_plan.is_some() || !app.restart_choices.is_empty() {
         recovery::draw(frame, app, columns[1]);
-    } else if app.navigation.error.is_some() || app.navigation.load_error.is_some() || app.navigation.missing.is_some() || app.session().is_none() {
-        let text=if let Some(e)=&app.navigation.error {format!("Session discovery unavailable\n\n{e}\n\nRetry discovery; no new session or workflow was started.")}
-            else if let Some(e)=&app.navigation.load_error {format!("Opened session data unavailable\n\n{e}\n\nRetry or use Sessions to choose another run. No replacement was opened.")}
-            else if let Some(e)=&app.navigation.missing {format!("Opened session unavailable\n\n{e}\n\nSessions opens the browser; choose and Open another session.")}
-            else if let Some(e)=&app.navigation.setup {format!("Project setup needs attention\n\n{e}\n\nNo sessions in this project.")}
-            else {"No sessions in this project\n\nChoose New session to select a workflow and enter a goal.\nSessions opens project history; Help explains the controls.".into()};
-        frame.render_widget(Paragraph::new(safe_display(&text)).style(Style::default().fg(if app.navigation.error.is_some() || app.navigation.load_error.is_some(){theme::ERROR}else{theme::TEXT})).wrap(Wrap{trim:false}),columns[1]);
+    } else if app.navigation.error.is_some()
+        || app.navigation.load_error.is_some()
+        || app.navigation.missing.is_some()
+        || app.session().is_none()
+    {
+        let text = if let Some(e) = &app.navigation.error {
+            format!("Session discovery unavailable\n\n{e}\n\nRetry discovery; no new session or workflow was started.")
+        } else if let Some(e) = &app.navigation.load_error {
+            format!("Opened session data unavailable\n\n{e}\n\nRetry or use Sessions to choose another run. No replacement was opened.")
+        } else if let Some(e) = &app.navigation.missing {
+            format!("Opened session unavailable\n\n{e}\n\nSessions opens the browser; choose and Open another session.")
+        } else if let Some(e) = &app.navigation.setup {
+            format!("Project setup needs attention\n\n{e}\n\nNo sessions in this project.")
+        } else {
+            "No sessions in this project\n\nChoose New session to select a workflow and enter a goal.\nSessions opens project history; Help explains the controls.".into()
+        };
+        frame.render_widget(
+            Paragraph::new(safe_display(&text))
+                .style(Style::default().fg(
+                    if app.navigation.error.is_some() || app.navigation.load_error.is_some() {
+                        theme::ERROR
+                    } else {
+                        theme::TEXT
+                    },
+                ))
+                .wrap(Wrap { trim: false }),
+            columns[1],
+        );
     } else if app.composer_active() {
         let context = app
             .session()
@@ -618,14 +664,23 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
 
     let actions = app.footer_actions();
     let count = actions.len().max(1) as u16;
-    let all_fit=actions.iter().map(|a|a.label().len() as u16+4).sum::<u16>()+count.saturating_sub(1)<=outer[3].width;
+    let all_fit = actions
+        .iter()
+        .map(|a| a.label().len() as u16 + 4)
+        .sum::<u16>()
+        + count.saturating_sub(1)
+        <= outer[3].width;
     let mut x = outer[3].x;
     for (index, action) in actions.into_iter().enumerate() {
         let preferred = action.label().len() as u16 + 4;
         let remaining = outer[3].right().saturating_sub(x);
         let remaining_count = count.saturating_sub(index as u16);
         let width = preferred
-            .min(if all_fit || action==shell::Action::Overview {remaining}else{remaining / remaining_count})
+            .min(if all_fit || action == shell::Action::Overview {
+                remaining
+            } else {
+                remaining / remaining_count
+            })
             .max(1)
             .min(remaining);
         shell::button(

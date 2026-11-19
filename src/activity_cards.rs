@@ -229,12 +229,33 @@ impl Projection {
                         ),
                         Tone::Info,
                     )
-                } else if kind=="verification.passed" && {
-                    let boundary=boundaries.iter().rev().find(|e|**e<*id).copied().unwrap_or(0);
-                    let scope=||history.iter().filter(|e|e.0>boundary && e.0<*id && e.1==*step);
-                    scope().any(|e|e.2=="verification.none") && !scope().any(|e|matches!(e.2.as_str(),"verification.command"|"verification.agent"|"verification.human"))
+                } else if kind == "verification.passed" && {
+                    let boundary = boundaries
+                        .iter()
+                        .rev()
+                        .find(|e| **e < *id)
+                        .copied()
+                        .unwrap_or(0);
+                    let scope = || {
+                        history
+                            .iter()
+                            .filter(|e| e.0 > boundary && e.0 < *id && e.1 == *step)
+                    };
+                    scope().any(|e| e.2 == "verification.none")
+                        && !scope().any(|e| {
+                            matches!(
+                                e.2.as_str(),
+                                "verification.command"
+                                    | "verification.agent"
+                                    | "verification.human"
+                            )
+                        })
                 } {
-                    card("Policy accepted · no checks", "No checks required; no improvement established", Tone::Info)
+                    card(
+                        "Policy accepted · no checks",
+                        "No checks required; no improvement established",
+                        Tone::Info,
+                    )
                 } else {
                     describe(*id, kind, raw, result.tools.get(id))
                 };
@@ -481,11 +502,30 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                 ),
             }
         }
-        "provider.retry-pending" => card("Provider request paused", "Waiting for your Retry request / Stop for now decision; earlier tools are retained", Tone::Attention),
-        "provider.retry-decision" => match serde_json::from_str::<serde_json::Value>(raw).ok().and_then(|v|v["retry"].as_bool()) {
-            Some(true)=>card("Retry requested", "User chose to resend the same prepared model messages",Tone::Info),
-            Some(false)=>card("Request stopped", "User stopped the provider retry; recorded work remains available",Tone::Attention),
-            None=>card("Provider retry decision unavailable", "Inspect the recorded metadata",Tone::Attention),
+        "provider.retry-pending" => card(
+            "Provider request paused",
+            "Waiting for your Retry request / Stop for now decision; earlier tools are retained",
+            Tone::Attention,
+        ),
+        "provider.retry-decision" => match serde_json::from_str::<serde_json::Value>(raw)
+            .ok()
+            .and_then(|v| v["retry"].as_bool())
+        {
+            Some(true) => card(
+                "Retry requested",
+                "User chose to resend the same prepared model messages",
+                Tone::Info,
+            ),
+            Some(false) => card(
+                "Request stopped",
+                "User stopped the provider retry; recorded work remains available",
+                Tone::Attention,
+            ),
+            None => card(
+                "Provider retry decision unavailable",
+                "Inspect the recorded metadata",
+                Tone::Attention,
+            ),
         },
         "provider.retry" => {
             let v = serde_json::from_str::<serde_json::Value>(raw).ok();
@@ -494,7 +534,11 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                 .and_then(|v| {
                     Some(format!(
                         "{} · wait {} ms · {} cancels",
-                        if v["manual"].as_bool()==Some(true) {"User-requested retry".to_string()}else{format!("Request {}",v["next_request"].as_u64()?)},
+                        if v["manual"].as_bool() == Some(true) {
+                            "User-requested retry".to_string()
+                        } else {
+                            format!("Request {}", v["next_request"].as_u64()?)
+                        },
                         v["wait_ms"].as_u64()?,
                         if manager { "/cancel-manager" } else { "x" }
                     ))

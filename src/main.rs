@@ -1,38 +1,38 @@
 mod action_envelope;
-mod file_discovery;
-mod conversation_dump;
-mod approvals;
-mod changes;
-mod config;
-mod engine;
-mod agent_protocol;
-mod markdown;
-mod artifact_history;
 mod activity_cards;
 mod activity_titles;
+mod agent_protocol;
+mod approvals;
+mod artifact_history;
+mod changes;
+mod config;
+mod conversation_dump;
+#[cfg(test)]
+mod deviation_tests;
+mod engine;
+mod file_discovery;
+mod input_pins;
+mod locks;
+mod manager;
+mod markdown;
 mod paths;
+mod pricing;
+mod project;
 mod provider;
 mod provider_failure;
 mod restore;
 mod sandbox;
+mod session_execution;
+mod session_picker;
 mod store;
 mod tools;
 mod tui;
 mod tui_actions;
+mod usage;
 mod workspace;
 mod workspace_audit;
-mod write_journal;
-mod session_execution;
-mod input_pins;
-mod locks;
-mod usage;
-mod pricing;
 mod workspace_view;
-mod session_picker;
-mod manager;
-mod project;
-#[cfg(test)]
-mod deviation_tests;
+mod write_journal;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -46,9 +46,17 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 }
-fn build_version()->&'static str {
-    static VERSION:std::sync::OnceLock<String>=std::sync::OnceLock::new();
-    VERSION.get_or_init(||format!("{} ({})",env!("CARGO_PKG_VERSION"),option_env!("GREENLIGHT_BUILD_COMMIT").unwrap_or("source build"))).as_str()
+fn build_version() -> &'static str {
+    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    VERSION
+        .get_or_init(|| {
+            format!(
+                "{} ({})",
+                env!("CARGO_PKG_VERSION"),
+                option_env!("GREENLIGHT_BUILD_COMMIT").unwrap_or("source build")
+            )
+        })
+        .as_str()
 }
 #[derive(Subcommand)]
 enum Commands {
@@ -81,35 +89,70 @@ enum Commands {
     /// Open the live, read-only session viewer (optional session ID)
     Tui { session: Option<String> },
     /// Ask the read-only manager; proposed forwarding never executes work in this stage
-    Ask {session:String, #[arg(long, required_unless_present="file", conflicts_with="file")] message:Option<String>, #[arg(long)] file:Option<PathBuf>, #[arg(long)] artifact:Vec<String>},
+    Ask {
+        session: String,
+        #[arg(long, required_unless_present = "file", conflicts_with = "file")]
+        message: Option<String>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long)]
+        artifact: Vec<String>,
+    },
     /// Preview the bounded project/pipeline evidence shared with the manager; no inference
-    ManagerContext {session:String, #[arg(long)] artifact:Vec<String>},
+    ManagerContext {
+        session: String,
+        #[arg(long)]
+        artifact: Vec<String>,
+    },
     /// Read manager exchanges separately from coding activity
-    ManagerHistory {session:String},
+    ManagerHistory { session: String },
     /// List saved sessions
     Sessions,
     /// Inspect recorded token counts and estimated costs (never assumes missing usage is zero)
     Usage {
         session: String,
-        #[arg(long,value_enum,default_value="session")]
+        #[arg(long, value_enum, default_value = "session")]
         scope: usage::Scope,
         #[arg(long)]
         json: bool,
     },
     /// Show model metadata, discovering supported public provider rates when needed
-    ModelInfo { model: Option<String>, #[arg(long)] refresh_pricing: bool },
+    ModelInfo {
+        model: Option<String>,
+        #[arg(long)]
+        refresh_pricing: bool,
+    },
     /// Refresh supported public pricing catalog (no inference or credential transmission)
     RefreshPricing,
     /// List durable step attempts visible on the session's active branch
     Attempts { session: String },
     /// Compare current project files with the latest recorded step-boundary hashes
-    WorkspaceStatus { session: String, #[arg(long)] json: bool },
+    WorkspaceStatus {
+        session: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Measure bounded read-only workspace scans without running a session
-    WorkspaceBenchmark { #[arg(long, default_value_t=5, value_parser=clap::value_parser!(u8).range(1..=20))] runs:u8, #[arg(long)] json:bool },
+    WorkspaceBenchmark {
+        #[arg(long, default_value_t=5, value_parser=clap::value_parser!(u8).range(1..=20))]
+        runs: u8,
+        #[arg(long)]
+        json: bool,
+    },
     /// Show event history, including current branch ancestry
     History { session: String },
     /// Export complete recorded conversation, protocol corrections and tool evidence
-    Dump { session:String, #[arg(long)] branch:Option<String>, #[arg(long, conflicts_with="branch")] all_branches:bool, #[arg(long)] json:bool, #[arg(long)] output:Option<PathBuf> },
+    Dump {
+        session: String,
+        #[arg(long)]
+        branch: Option<String>,
+        #[arg(long, conflicts_with = "branch")]
+        all_branches: bool,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// List session branches and their fork points
     Branches { session: String },
     /// Select a historical branch (manual step choice; does NOT restore files)
@@ -123,7 +166,15 @@ enum Commands {
     /// List session artifacts on current branch
     Artifacts { session: String },
     /// Display a specific artifact
-    Artifact { session: String, name: String, #[arg(long, help="Export this exact creation event if visible on the active branch")] event: Option<i64> },
+    Artifact {
+        session: String,
+        name: String,
+        #[arg(
+            long,
+            help = "Export this exact creation event if visible on the active branch"
+        )]
+        event: Option<i64>,
+    },
     /// Register a hand-edited artifact version for the current branch
     PutArtifact {
         session: String,
@@ -155,60 +206,104 @@ enum Commands {
     /// List native agent edits on the active branch
     Changes { session: String },
     /// Show a unified diff for one native agent write
-    Diff { session: String, #[arg(long)] edit: i64 },
+    Diff {
+        session: String,
+        #[arg(long)]
+        edit: i64,
+    },
     /// List models through configured provider
-    Models { #[arg(long)] pricing: bool },
+    Models {
+        #[arg(long)]
+        pricing: bool,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cwd = std::env::current_dir()?;
-    let command=cli.command.unwrap_or(Commands::Tui {session:None});
-    let root=project::resolve_root(cli.root.as_deref(),&cwd,matches!(command,Commands::Init))?;
+    let command = cli.command.unwrap_or(Commands::Tui { session: None });
+    let root = project::resolve_root(cli.root.as_deref(), &cwd, matches!(command, Commands::Init))?;
     project::load_environment(&root)?;
     match command {
-        Commands::Init=>{println!("{}",project::init(&root)?);}
-        Commands::Ask {session,message,file,artifact} => {
-            let text=match file {Some(path)=>manager::read_message_file(&path)?,None=>message.context("missing message")?};
-            let engine=engine::Engine::open(&root)?;
-            let reply=engine.ask_manager(&session,&text,&artifact).await?;
-            println!("{}",reply.display());
+        Commands::Init => {
+            println!("{}", project::init(&root)?);
         }
-        Commands::ManagerContext {session,artifact} => {
-            let store=store::Store::open(&root)?;
-            let snapshot=manager::capture(&root,&store,&session,"preview",&artifact)?;
-            println!("{}",serde_json::to_string_pretty(&snapshot)?);
+        Commands::Ask {
+            session,
+            message,
+            file,
+            artifact,
+        } => {
+            let text = match file {
+                Some(path) => manager::read_message_file(&path)?,
+                None => message.context("missing message")?,
+            };
+            let engine = engine::Engine::open(&root)?;
+            let reply = engine.ask_manager(&session, &text, &artifact).await?;
+            println!("{}", reply.display());
         }
-        Commands::ManagerHistory {session} => {
-            let store=store::Store::open(&root)?;
-            for (id,step,kind,payload) in store.history(&store.session(&session)?)?.into_iter().filter(|e|e.2.starts_with("manager.")) {
-                println!("{}",serde_json::json!({"event":id,"step":step,"kind":kind,"payload":payload}));
+        Commands::ManagerContext { session, artifact } => {
+            let store = store::Store::open(&root)?;
+            let snapshot = manager::capture(&root, &store, &session, "preview", &artifact)?;
+            println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        }
+        Commands::ManagerHistory { session } => {
+            let store = store::Store::open(&root)?;
+            for (id, step, kind, payload) in store
+                .history(&store.session(&session)?)?
+                .into_iter()
+                .filter(|e| e.2.starts_with("manager."))
+            {
+                println!(
+                    "{}",
+                    serde_json::json!({"event":id,"step":step,"kind":kind,"payload":payload})
+                );
             }
         }
-        Commands::Usage {session,scope,json} => {
-            let store=store::Store::open(&root)?;
-            let report=store.usage_report(&store.session(&session)?,scope)?;
-            if json {println!("{}",serde_json::to_string_pretty(&report)?);} else {print!("{}",report.display());}
+        Commands::Usage {
+            session,
+            scope,
+            json,
+        } => {
+            let store = store::Store::open(&root)?;
+            let report = store.usage_report(&store.session(&session)?, scope)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", report.display());
+            }
         }
-        Commands::ModelInfo {model,refresh_pricing} => {
-            let cfg=config::load_config(&root)?;
-            let model=model.as_deref().unwrap_or(&cfg.provider.model);
-            let metadata=pricing::resolve(&root,&cfg.provider,model,refresh_pricing).await;
-            println!("Model: {model}\n{}",serde_json::to_string_pretty(&metadata)?);
-            if let Some(p)=&metadata.pricing {println!("{}",p.freshness(chrono::Utc::now()));}
+        Commands::ModelInfo {
+            model,
+            refresh_pricing,
+        } => {
+            let cfg = config::load_config(&root)?;
+            let model = model.as_deref().unwrap_or(&cfg.provider.model);
+            let metadata = pricing::resolve(&root, &cfg.provider, model, refresh_pricing).await;
+            println!(
+                "Model: {model}\n{}",
+                serde_json::to_string_pretty(&metadata)?
+            );
+            if let Some(p) = &metadata.pricing {
+                println!("{}", p.freshness(chrono::Utc::now()));
+            }
             println!("Null rates are unknown, never free. Prices are snapshots, not invoices. Tokenizer counts are estimates.");
         }
         Commands::RefreshPricing => {
-            let cfg=config::load_config(&root)?;
-            let catalog=pricing::catalog(&root,&cfg.provider,true).await?;
-            if let Some(note)=catalog.note {bail!("{note} Cached model rates: {}",catalog.models.len());}
+            let cfg = config::load_config(&root)?;
+            let catalog = pricing::catalog(&root, &cfg.provider, true).await?;
+            if let Some(note) = catalog.note {
+                bail!("{note} Cached model rates: {}", catalog.models.len());
+            }
             println!("{} model rates cached. Public provider catalog retrieved; configured overrides still win.",catalog.models.len());
         }
         Commands::Attempts { session } => {
             let store = store::Store::open(&root)?;
             let selected = store.session(&session)?;
-            for attempt in store.attempt_history(&selected)? { println!("{attempt}"); }
+            for attempt in store.attempt_history(&selected)? {
+                println!("{attempt}");
+            }
         }
         Commands::RecoverSession { session } => {
             let store = store::Store::open(&root)?;
@@ -216,7 +311,9 @@ async fn main() -> Result<()> {
         }
         Commands::RecoverWrites => {
             let store = store::Store::open(&root)?;
-            for outcome in store.recover_writes(&root)? { println!("{outcome}"); }
+            for outcome in store.recover_writes(&root)? {
+                println!("{outcome}");
+            }
             store.ensure_no_pending_writes()?;
             println!("Native write recovery complete; source files were not changed.");
         }
@@ -227,9 +324,11 @@ async fn main() -> Result<()> {
         }
         Commands::SandboxCheck => {
             let output = sandbox::Sandbox::open(&root)?
-                .run("test ! -w /workspace && test -w /tmp && test -w /cache && \
+                .run(
+                    "test ! -w /workspace && test -w /tmp && test -w /cache && \
                       test ! -e /workspace/.greenlight/state/history.db && \
-                      printf 'Sandbox ready: project read-only, cache and tmp writable\\n'")
+                      printf 'Sandbox ready: project read-only, cache and tmp writable\\n'",
+                )
                 .await?;
             if !output.status.success() {
                 bail!(
@@ -267,23 +366,35 @@ async fn main() -> Result<()> {
             config::load_config(&root)?;
             tui::run(&root, session.as_deref())?;
         }
-        Commands::WorkspaceStatus { session,json } => {
-            let store=store::Store::open(&root)?;
-            let selected=store.session(&session)?;
-            let report=workspace_audit::status(&root,&store,&selected)?;
-            if json {println!("{}",serde_json::to_string_pretty(&report)?);} else {
-                if let Some(step)=&report.latest_step {println!("Latest complete step recording:\n{}",step.display());}
-                println!("Current workspace on branch {}:\n{}",selected.active_branch,report.current.display());
+        Commands::WorkspaceStatus { session, json } => {
+            let store = store::Store::open(&root)?;
+            let selected = store.session(&session)?;
+            let report = workspace_audit::status(&root, &store, &selected)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                if let Some(step) = &report.latest_step {
+                    println!("Latest complete step recording:\n{}", step.display());
+                }
+                println!(
+                    "Current workspace on branch {}:\n{}",
+                    selected.active_branch,
+                    report.current.display()
+                );
             }
         }
-        Commands::WorkspaceBenchmark {runs,json} => {
-            let mut samples=Vec::new();
+        Commands::WorkspaceBenchmark { runs, json } => {
+            let mut samples = Vec::new();
             for _ in 0..runs {
-                let manifest=workspace::scan(&root)?;
+                let manifest = workspace::scan(&root)?;
                 samples.push(serde_json::json!({"scan":manifest.scan_stats,"skipped":manifest.skipped.len(),"manifest_json_bytes":serde_json::to_vec(&manifest)?.len()}));
             }
-            if json {println!("{}",serde_json::to_string_pretty(&samples)?);} else {
-                for (index,sample) in samples.iter().enumerate() {println!("Scan {}: {} files, {} bytes hashed, {} µs, {} manifest JSON bytes, {} skipped",index+1,sample["scan"]["files"],sample["scan"]["bytes_hashed"],sample["scan"]["elapsed_us"],sample["manifest_json_bytes"],sample["skipped"]);}
+            if json {
+                println!("{}", serde_json::to_string_pretty(&samples)?);
+            } else {
+                for (index, sample) in samples.iter().enumerate() {
+                    println!("Scan {}: {} files, {} bytes hashed, {} µs, {} manifest JSON bytes, {} skipped",index+1,sample["scan"]["files"],sample["scan"]["bytes_hashed"],sample["scan"]["elapsed_us"],sample["manifest_json_bytes"],sample["skipped"]);
+                }
                 println!("Read-only scans; no contents saved. Cache state and disk speed affect timings; this does not measure full step/restore time.");
             }
         }
@@ -296,12 +407,34 @@ async fn main() -> Result<()> {
                 );
             }
         }
-        Commands::Dump {session,branch,all_branches,json,output} => {
-            let store=store::Store::open(&root)?;
-            let dump=conversation_dump::Dump::load(&store,&session,branch.as_deref(),all_branches)?;
-            if let Some(path)=output {dump.save(&path,json)?; println!("Saved conversation dump: {}",path.display());}
-            else if json {println!("{}",serde_json::to_string_pretty(&dump)?);}
-            else {println!("{}",dump.markdown().chars().flat_map(|c| if c.is_control() && c!='\n' && c!='\t' {c.escape_default().collect::<Vec<_>>()}else{vec![c]}).collect::<String>());}
+        Commands::Dump {
+            session,
+            branch,
+            all_branches,
+            json,
+            output,
+        } => {
+            let store = store::Store::open(&root)?;
+            let dump =
+                conversation_dump::Dump::load(&store, &session, branch.as_deref(), all_branches)?;
+            if let Some(path) = output {
+                dump.save(&path, json)?;
+                println!("Saved conversation dump: {}", path.display());
+            } else if json {
+                println!("{}", serde_json::to_string_pretty(&dump)?);
+            } else {
+                println!(
+                    "{}",
+                    dump.markdown()
+                        .chars()
+                        .flat_map(|c| if c.is_control() && c != '\n' && c != '\t' {
+                            c.escape_default().collect::<Vec<_>>()
+                        } else {
+                            vec![c]
+                        })
+                        .collect::<String>()
+                );
+            }
         }
         Commands::History { session } => {
             let engine = engine::Engine::open(&root)?;
@@ -353,11 +486,24 @@ async fn main() -> Result<()> {
                 println!("{}  ({}, {} bytes)", a.name, a.step, a.content.len());
             }
         }
-        Commands::Artifact { session, name, event } => {
-            let engine=engine::Engine::open(&root)?;
-            let session=engine.store.session(&session)?;
-            let artifact=if let Some(event)=event {engine.store.artifact_version(&session,&name,event)?} else {engine.store.artifacts(&session,"session")?.into_iter().find(|a|a.name==name).context("artifact not found")?};
-            println!("{}",artifact.content);
+        Commands::Artifact {
+            session,
+            name,
+            event,
+        } => {
+            let engine = engine::Engine::open(&root)?;
+            let session = engine.store.session(&session)?;
+            let artifact = if let Some(event) = event {
+                engine.store.artifact_version(&session, &name, event)?
+            } else {
+                engine
+                    .store
+                    .artifacts(&session, "session")?
+                    .into_iter()
+                    .find(|a| a.name == name)
+                    .context("artifact not found")?
+            };
+            println!("{}", artifact.content);
         }
         Commands::PutArtifact {
             session,
@@ -378,7 +524,11 @@ async fn main() -> Result<()> {
                 .event(&s, Some(&s.current_step), "user.artifact_edited", &name)?;
             println!("Registered new artifact version: {name}");
         }
-        Commands::Restore { session, event, dry_run } => {
+        Commands::Restore {
+            session,
+            event,
+            dry_run,
+        } => {
             let engine = engine::Engine::open(&root)?;
             let state = engine.store.session(&session)?;
             let plan = restore::RestorePlan::prepare(&root, &engine.store, &state, event)?;
@@ -391,7 +541,12 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Fork { session, event, step, no_restore } => {
+        Commands::Fork {
+            session,
+            event,
+            step,
+            no_restore,
+        } => {
             let engine = engine::Engine::open(&root)?;
             let mut state = engine.store.session(&session)?;
             let wf = config::load_workflow(&root, &state.workflow)?;
@@ -429,15 +584,27 @@ async fn main() -> Result<()> {
             let engine = engine::Engine::open(&root)?;
             let s = engine.store.session(&session)?;
             let changes = engine.store.changes(&s)?;
-            let change = changes.iter().find(|c| c.event_id == edit)
+            let change = changes
+                .iter()
+                .find(|c| c.event_id == edit)
                 .context("edit not found in active branch history")?;
-            print!("{}", changes::unified(&change.path, change.before.as_deref(), &change.after));
+            print!(
+                "{}",
+                changes::unified(&change.path, change.before.as_deref(), &change.after)
+            );
         }
-        Commands::Models {pricing} => {
+        Commands::Models { pricing } => {
             let engine = engine::Engine::open(&root)?;
             for m in engine.provider.models().await? {
                 println!("{m}");
-                if pricing {println!("{}",serde_json::to_string(&pricing::resolve(&root,&engine.cfg.provider,&m,false).await)?);}
+                if pricing {
+                    println!(
+                        "{}",
+                        serde_json::to_string(
+                            &pricing::resolve(&root, &engine.cfg.provider, &m, false).await
+                        )?
+                    );
+                }
             }
         }
     }

@@ -45,14 +45,21 @@ impl App {
         match self.focus {
             Focus::Sessions => self.close_navigator(),
             Focus::Detail => {
-                self.inspector_open=false;
-                if self.attention_return{self.blocker_card=self.attention.is_some();self.attention_return=false;}
-                self.focus=self.main_focus();
+                self.inspector_open = false;
+                if self.attention_return {
+                    self.blocker_card = self.attention.is_some();
+                    self.attention_return = false;
+                }
+                self.focus = self.main_focus();
             }
-            Focus::Events|Focus::Artifacts => {
-                if self.shell.sessions{self.close_navigator();}else{self.open_navigator(false);}
+            Focus::Events | Focus::Artifacts => {
+                if self.shell.sessions {
+                    self.close_navigator();
+                } else {
+                    self.open_navigator(false);
+                }
             }
-            _=>{}
+            _ => {}
         }
     }
     pub(super) fn scroll_detail(&mut self, delta: i16) {
@@ -65,7 +72,7 @@ impl App {
         self.detail_scroll = current.saturating_add_signed(delta);
     }
     pub(super) fn sync_draft(&mut self) {
-        let selected=self.session().map(|s|s.id.clone());
+        let selected = self.session().map(|s| s.id.clone());
         let branch = self.session().map(|s| s.active_branch.clone());
         let scope = (selected.clone(), branch, self.compose.mode);
         if scope != self.compose.scope {
@@ -123,7 +130,9 @@ impl App {
     pub(super) fn select_end(&mut self, last: bool) {
         match self.focus {
             Focus::Compose | Focus::Detail => (),
-            Focus::Sessions => self.navigation.select(if last{isize::MAX}else{isize::MIN}),
+            Focus::Sessions => self
+                .navigation
+                .select(if last { isize::MAX } else { isize::MIN }),
             Focus::Events => {
                 self.follow_activity = last;
                 self.event_index = if last {

@@ -19,10 +19,9 @@ use ratatui::{
 mod activity;
 mod approval;
 mod attention;
-mod compose;
 mod checkpoint;
+mod compose;
 mod details;
-mod navigation;
 mod editor;
 mod edits;
 mod exports;
@@ -32,6 +31,7 @@ mod help;
 #[path = "tui_manager_tests.rs"]
 mod manager_tests;
 mod manager_ui;
+mod navigation;
 mod reader;
 mod reading;
 #[cfg(test)]
@@ -46,7 +46,6 @@ mod view;
 use activity::{conversational_label, invalid_event_payload, is_chatter};
 use help::HELP;
 use view::draw;
-
 
 use std::{
     cell::Cell,
@@ -89,12 +88,12 @@ struct App {
     result_open: bool,
     result_text: String,
     result_overview: Option<result::Overview>,
-    result_key: Option<(String,String,i64)>,
+    result_key: Option<(String, String, i64)>,
     sessions: Vec<Session>,
     session_index: usize,
     navigation: navigation::Navigation,
     events: Vec<std::sync::Arc<EventRow>>,
-    activity_rows:Vec<std::sync::Arc<EventRow>>,
+    activity_rows: Vec<std::sync::Arc<EventRow>>,
     event_index: usize,
     artifacts: Vec<Artifact>,
     artifact_index: usize,
@@ -147,19 +146,19 @@ struct App {
     composer_session: Option<String>,
     follow_activity: bool,
     help: bool,
-    rendered_scroll: Cell<Option<(u16,u16)>>,
-    viewport: (u16,u16),
+    rendered_scroll: Cell<Option<(u16, u16)>>,
+    viewport: (u16, u16),
     artifact_browser: Option<crate::artifact_history::Browser>,
-    reader:reader::Reader,
-    activity_cards:crate::activity_cards::Projection,
-    activity_generation:Option<(String,String,Option<i64>)>,
-    reading:reading::Reading,
-    activity_query:String,
-    activity_filtering:bool,
-    copy_job:Option<std::sync::mpsc::Receiver<Result<String,String>>>,
-    pending_editor:Option<exports::Snapshot>,
-    manager_job:Option<manager_ui::ManagerJob>,
-    manager_enabled:bool,
+    reader: reader::Reader,
+    activity_cards: crate::activity_cards::Projection,
+    activity_generation: Option<(String, String, Option<i64>)>,
+    reading: reading::Reading,
+    activity_query: String,
+    activity_filtering: bool,
+    copy_job: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    pending_editor: Option<exports::Snapshot>,
+    manager_job: Option<manager_ui::ManagerJob>,
+    manager_enabled: bool,
 }
 
 impl App {
@@ -177,7 +176,7 @@ impl App {
             session_index: 0,
             navigation: navigation::Navigation::default(),
             events: Vec::new(),
-            activity_rows:Vec::new(),
+            activity_rows: Vec::new(),
             event_index: 0,
             artifacts: Vec::new(),
             artifact_index: 0,
@@ -235,9 +234,9 @@ impl App {
             follow_activity: true,
             help: false,
             rendered_scroll: Cell::new(None),
-            viewport: (80,24),
+            viewport: (80, 24),
             artifact_browser: None,
-            reader:reader::Reader::default(),
+            reader: reader::Reader::default(),
             activity_cards: crate::activity_cards::Projection::default(),
             activity_generation: None,
             reading: reading::Reading::default(),
@@ -278,7 +277,7 @@ impl App {
     fn refresh(&mut self, store: &Store) -> Result<()> {
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
             let config = crate::config::load_config(root);
-            self.details.configured_model = config.as_ref().ok().map(|c|c.provider.model.clone());
+            self.details.configured_model = config.as_ref().ok().map(|c| c.provider.model.clone());
             self.manager_enabled = config.map(|c| c.manager.enabled).unwrap_or(false);
         }
         self.remember_reading();
@@ -287,24 +286,54 @@ impl App {
         let old_artifact = self.artifact().map(|a| a.name.clone());
         let following_tail = self.follow_activity;
 
-        match store.list().and_then(|sessions|Ok((sessions,store.session_activity()?))) {
-            Ok((sessions,activity))=>{self.sessions=sessions;self.session_activity=activity;self.navigation.error=None;}
-            Err(error)=>{self.sessions.clear();self.session_activity.clear();self.navigation.error=Some(format!("Session discovery unavailable: {error:#}"));}
+        match store
+            .list()
+            .and_then(|sessions| Ok((sessions, store.session_activity()?)))
+        {
+            Ok((sessions, activity)) => {
+                self.sessions = sessions;
+                self.session_activity = activity;
+                self.navigation.error = None;
+            }
+            Err(error) => {
+                self.sessions.clear();
+                self.session_activity.clear();
+                self.navigation.error = Some(format!("Session discovery unavailable: {error:#}"));
+            }
         }
-        self.navigation.load_error=None;
-        self.session_total=self.sessions.len();
-        crate::session_picker::filter_and_sort(&mut self.sessions,"",&self.session_activity);
-        let desired_session=self.requested_session.take().or(old_session.clone()).or(self.navigation.opened.clone());
-        self.session_index=if let Some(id)=desired_session {
-            self.navigation.opened=Some(id.clone());
-            self.sessions.iter().position(|s|s.id==id).unwrap_or(usize::MAX)
-        }else{0};
-        if let Some(s)=self.sessions.get(self.session_index){self.navigation.opened=Some(s.id.clone());}
-        self.navigation.missing=if self.navigation.error.is_none() && self.navigation.opened.is_some() && self.sessions.get(self.session_index).is_none(){Some("Opened session is no longer available. Choose another session explicitly; no replacement was opened.".into())}else{None};
-        self.navigation.refresh(&self.sessions,&self.session_query,&self.session_activity);
-        self.navigation.setup=None;
-        if self.session_total==0 && self.navigation.error.is_none() {
-            if let Some(root)=store.directory.parent().and_then(Path::parent) {
+        self.navigation.load_error = None;
+        self.session_total = self.sessions.len();
+        crate::session_picker::filter_and_sort(&mut self.sessions, "", &self.session_activity);
+        let desired_session = self
+            .requested_session
+            .take()
+            .or(old_session.clone())
+            .or(self.navigation.opened.clone());
+        self.session_index = if let Some(id) = desired_session {
+            self.navigation.opened = Some(id.clone());
+            self.sessions
+                .iter()
+                .position(|s| s.id == id)
+                .unwrap_or(usize::MAX)
+        } else {
+            0
+        };
+        if let Some(s) = self.sessions.get(self.session_index) {
+            self.navigation.opened = Some(s.id.clone());
+        }
+        self.navigation.missing = if self.navigation.error.is_none()
+            && self.navigation.opened.is_some()
+            && self.sessions.get(self.session_index).is_none()
+        {
+            Some("Opened session is no longer available. Choose another session explicitly; no replacement was opened.".into())
+        } else {
+            None
+        };
+        self.navigation
+            .refresh(&self.sessions, &self.session_query, &self.session_activity);
+        self.navigation.setup = None;
+        if self.session_total == 0 && self.navigation.error.is_none() {
+            if let Some(root) = store.directory.parent().and_then(Path::parent) {
                 self.navigation.setup=match crate::config::load_config(root) {
                     Err(_)=>Some("Project configuration unavailable. Run greenlight init or inspect the project configuration before starting.".into()),
                     Ok(_)=>match crate::session_picker::NewSession::discover(root){Ok(f) if f.workflows.is_empty()=>Some("No workflows available. Run greenlight init or add a workflow before starting.".into()),Ok(f) if f.workflows.iter().all(|w|w.error.is_some())=>Some("No valid workflows available. Inspect workflow definitions before starting.".into()),Err(e)=>Some(format!("Workflow discovery unavailable: {e:#}")),_=>None},
@@ -319,13 +348,20 @@ impl App {
         let changed_session = old_session.as_deref() != self.session().map(|s| s.id.as_str());
         if let Some(session) = self.session().cloned() {
             let history = match store.history(&session) {
-                Ok(h)=>h,
-                Err(e)=>{
-                    self.navigation.load_error=Some(format!("Opened session history unavailable: {e:#}"));
+                Ok(h) => h,
+                Err(e) => {
+                    self.navigation.load_error =
+                        Some(format!("Opened session history unavailable: {e:#}"));
                     self.clear_diagnostic();
-                    self.workspace=None;self.events.clear();self.activity_rows.clear();self.artifacts.clear();
-                    self.result_open=false;self.details.close();self.artifact_browser=None;self.context_detail=None;
-                    self.edits=edits::Edits::default();
+                    self.workspace = None;
+                    self.events.clear();
+                    self.activity_rows.clear();
+                    self.artifacts.clear();
+                    self.result_open = false;
+                    self.details.close();
+                    self.artifact_browser = None;
+                    self.context_detail = None;
+                    self.edits = edits::Edits::default();
                     return Ok(());
                 }
             };
@@ -398,8 +434,11 @@ impl App {
                 );
                 if self.result_key.as_ref() != Some(&key) {
                     self.result_open = true;
-                    if self.details.page.is_none() { self.detail_scroll = 0; }
-                    else { self.details.return_scroll = 0; }
+                    if self.details.page.is_none() {
+                        self.detail_scroll = 0;
+                    } else {
+                        self.details.return_scroll = 0;
+                    }
                     self.result_key = Some(key);
                 }
                 self.result_text = result::summary(store, &session, &history);
@@ -625,14 +664,14 @@ impl App {
         if self.approval.is_none() {
             match runner.prompts.try_recv() {
                 Ok(question) => {
-                    self.activity_filtering=false;
-                    self.artifact_browser=None;
-                    self.help=false;
-                    self.searching=false;
-                    self.shell.sessions=false;
-                    self.focus=self.main_focus();
+                    self.activity_filtering = false;
+                    self.artifact_browser = None;
+                    self.help = false;
+                    self.searching = false;
+                    self.shell.sessions = false;
+                    self.focus = self.main_focus();
                     self.session_query.clear();
-                    self.new_session=None;
+                    self.new_session = None;
                     if let Some(id) = runner.session_id.as_ref() {
                         if let Some(index) = self.sessions.iter().position(|s| &s.id == id) {
                             self.session_index = index;
@@ -656,7 +695,7 @@ impl App {
             }
         }
         let completion = runner.finished.try_recv();
-        let failed = !matches!(&completion, Ok(Ok(()))|Err(TryRecvError::Empty));
+        let failed = !matches!(&completion, Ok(Ok(())) | Err(TryRecvError::Empty));
         if !matches!(&completion, Err(TryRecvError::Empty)) {
             self.notice = match completion {
                 Ok(result) => match result {
@@ -674,9 +713,8 @@ impl App {
         }
     }
 
-
     fn submit(&mut self, root: &Path, store: &Store) {
-        let original=self.composer.clone();
+        let original = self.composer.clone();
         let instruction = self.composer.trim().to_string();
         if instruction.is_empty() {
             return;
@@ -925,7 +963,6 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
     result
 }
 
-
 #[cfg(test)]
 #[path = "tui_p0_tests.rs"]
 mod p0_tests;
@@ -943,7 +980,7 @@ mod navigation_tests;
 mod tests;
 
 #[cfg(test)]
-#[path="tui_edits_tests.rs"]
+#[path = "tui_edits_tests.rs"]
 mod edits_tests;
 
 #[cfg(test)]

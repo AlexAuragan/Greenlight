@@ -545,349 +545,827 @@ fn attention_states_render_causes_and_recovery_effects_without_raw_ids() {
 
 #[test]
 fn run_details_and_usage_render_scoped_summaries_and_exact_request_evidence() {
-    let root=tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
     crate::project::init(root.path()).unwrap();
-    let store=Store::open(root.path()).unwrap();
-    let mut session=store.create("optimize-performance","Investigate the startup delay and establish a measured improvement.","baseline").unwrap();
-    let definition="type: agent\nprompt: Measure startup before optimizing\noutputs:\n  required: []\n";
-    store.begin_attempt(&session,"baseline",definition,"fixture-requested").unwrap();
-    store.begin_attempt(&session,"baseline",definition,"fixture-requested").unwrap();
-    session.status="blocked".into();store.save(&session).unwrap();
-    let mut call=crate::usage::Call::new(&session,"baseline","agent","fixture-requested","fixture",crate::usage::ModelMetadata::default(),&[]);
-    store.begin_model_call(&session,&mut call).unwrap();
-    call.response_model=Some("fixture-returned".into());
-    call.status="response-received".into();
-    call.counts=serde_json::from_value(serde_json::json!({
+    let store = Store::open(root.path()).unwrap();
+    let mut session = store
+        .create(
+            "optimize-performance",
+            "Investigate the startup delay and establish a measured improvement.",
+            "baseline",
+        )
+        .unwrap();
+    let definition =
+        "type: agent\nprompt: Measure startup before optimizing\noutputs:\n  required: []\n";
+    store
+        .begin_attempt(&session, "baseline", definition, "fixture-requested")
+        .unwrap();
+    store
+        .begin_attempt(&session, "baseline", definition, "fixture-requested")
+        .unwrap();
+    session.status = "blocked".into();
+    store.save(&session).unwrap();
+    let mut call = crate::usage::Call::new(
+        &session,
+        "baseline",
+        "agent",
+        "fixture-requested",
+        "fixture",
+        crate::usage::ModelMetadata::default(),
+        &[],
+    );
+    store.begin_model_call(&session, &mut call).unwrap();
+    call.response_model = Some("fixture-returned".into());
+    call.status = "response-received".into();
+    call.counts = serde_json::from_value(serde_json::json!({
         "input":{"value":145271,"source":"provider"},
         "cached_input":{"value":103168,"source":"provider"},
         "output":{"value":10536,"source":"provider"},
         "notes":["Pricing metadata missing; counts do not establish a bill."]
-    })).unwrap();
-    store.finish_model_call(&session,&call).unwrap();
-    let before=store.history(&session).unwrap().len();
-    let mut app=App::new(Some(&session.id));app.shell.project="bar-project".into();app.refresh(&store).unwrap();
-    app.open_run_details(details::Page::Run,&store);
-    for (w,h) in [(80,24),(120,36),(40,14)] {
-        let output=text(&screen(&mut app,w,h,"run-details"));
+    }))
+    .unwrap();
+    store.finish_model_call(&session, &call).unwrap();
+    let before = store.history(&session).unwrap().len();
+    let mut app = App::new(Some(&session.id));
+    app.shell.project = "bar-project".into();
+    app.refresh(&store).unwrap();
+    app.open_run_details(details::Page::Run, &store);
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "run-details"));
         assert!(output.contains("Run details"));
         assert!(output.contains("Goal"));
         assert!(!output.contains(&session.id));
         assert!(!output.contains(&call.id));
-        if w>=80 { assert!(output.contains("Technical details"));assert!(output.contains("Roadmap")); }
+        if w >= 80 {
+            assert!(output.contains("Technical details"));
+            assert!(output.contains("Roadmap"));
+        }
     }
-    assert_eq!(app.details.text.matches("baseline (").count(),1);
-    app.activate(shell::Action::Technical,root.path(),&store).unwrap();
-    screen(&mut app,80,24,"run-technical");
+    assert_eq!(app.details.text.matches("baseline (").count(), 1);
+    app.activate(shell::Action::Technical, root.path(), &store)
+        .unwrap();
+    screen(&mut app, 80, 24, "run-technical");
     assert!(app.details.text.contains("fixture-requested"));
     assert!(app.details.text.contains("fixture-returned"));
     assert!(app.details.text.contains("Exact recorded definition"));
-    app.activate(shell::Action::DetailsBack,root.path(),&store).unwrap();
-    app.activate(shell::Action::Usage,root.path(),&store).unwrap();
-    for (w,h) in [(80,24),(120,36),(40,14)] {
-        let output=text(&screen(&mut app,w,h,"usage-summary"));
+    app.activate(shell::Action::DetailsBack, root.path(), &store)
+        .unwrap();
+    app.activate(shell::Action::Usage, root.path(), &store)
+        .unwrap();
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "usage-summary"));
         assert!(output.contains("Usage · this session"));
-        if w>=80 {
-            assert!(output.contains("145271"));assert!(output.contains("103168"));assert!(output.contains("10536"));
-            assert!(output.contains("Estimated cost: unavailable"));assert!(output.contains("0 of 1 requests"));
+        if w >= 80 {
+            assert!(output.contains("145271"));
+            assert!(output.contains("103168"));
+            assert!(output.contains("10536"));
+            assert!(output.contains("Estimated cost: unavailable"));
+            assert!(output.contains("0 of 1 requests"));
         }
         assert!(!output.contains(&call.id));
     }
-    app.activate(shell::Action::Requests,root.path(),&store).unwrap();
-    screen(&mut app,80,24,"usage-requests");
-    app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE),root.path(),&store).unwrap();
-    assert_eq!(app.details.page,Some(details::Page::Request));
-    assert_eq!(app.details.selected.as_deref(),Some(call.id.as_str()));
-    screen(&mut app,80,24,"usage-request");
+    app.activate(shell::Action::Requests, root.path(), &store)
+        .unwrap();
+    screen(&mut app, 80, 24, "usage-requests");
+    app.on_key(
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(app.details.page, Some(details::Page::Request));
+    assert_eq!(app.details.selected.as_deref(), Some(call.id.as_str()));
+    screen(&mut app, 80, 24, "usage-request");
     assert!(app.export_snapshot().unwrap().text.contains(&call.id));
-    assert_eq!(store.history(&session).unwrap().len(),before);
-    assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,1);
-    assert!(app.runner.is_none());assert!(app.approval.is_none());
+    assert_eq!(store.history(&session).unwrap().len(), before);
+    assert_eq!(
+        store
+            .usage_report(&session, crate::usage::Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        1
+    );
+    assert!(app.runner.is_none());
+    assert!(app.approval.is_none());
     app.details.close();
-    let other=store.create("fix-bug","Investigate another issue","investigate").unwrap();
-    app.requested_session=Some(other.id);app.refresh(&store).unwrap();
-    app.open_run_details(details::Page::Usage,&store);
-    screen(&mut app,80,24,"usage-empty");
+    let other = store
+        .create("fix-bug", "Investigate another issue", "investigate")
+        .unwrap();
+    app.requested_session = Some(other.id);
+    app.refresh(&store).unwrap();
+    app.open_run_details(details::Page::Usage, &store);
+    screen(&mut app, 80, 24, "usage-empty");
     assert!(app.details.text.contains("No recorded requests"));
 }
 
 #[test]
 fn human_checkpoint_and_step_result_have_distinct_review_surfaces() {
-    let (root,store,s,mut app,received,_owner)=checkpoint::tests::fixture();
-    app.shell.project="sample-project".into();
-    let before=store.history(&s).unwrap().len();
-    for (w,h) in [(80,24),(120,36),(40,20)] {
-        let output=text(&screen(&mut app,w,h,"checkpoint-human"));
+    let (root, store, s, mut app, received, _owner) = checkpoint::tests::fixture();
+    app.shell.project = "sample-project".into();
+    let before = store.history(&s).unwrap().len();
+    for (w, h) in [(80, 24), (120, 36), (40, 20)] {
+        let output = text(&screen(&mut app, w, h, "checkpoint-human"));
         assert!(output.contains("Human checkpoint"));
-        assert!(output.contains("Approve"));assert!(output.contains("Decline"));
-        assert!(!output.contains("project grant"));assert!(!output.contains("global grant"));
+        assert!(output.contains("Approve"));
+        assert!(output.contains("Decline"));
+        assert!(!output.contains("project grant"));
+        assert!(!output.contains("global grant"));
         assert!(!output.contains(&s.id));
         assert!(output.contains("plan.md"));
-        if w>=80 {assert!(output.contains("Pinned input documents"));assert!(output.contains("Excerpt only"));}
+        if w >= 80 {
+            assert!(output.contains("Pinned input documents"));
+            assert!(output.contains("Excerpt only"));
+        }
     }
-    let output=text(&screen(&mut app,40,14,"checkpoint-small"));
+    let output = text(&screen(&mut app, 40, 14, "checkpoint-small"));
     assert!(!output.contains("Approve"));
-    app.on_key(KeyEvent::new(KeyCode::Char('y'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
     assert!(received.try_recv().is_err());
-    app.viewport=(80,24);
+    app.viewport = (80, 24);
     app.checkpoint_open(&store);
-    let output=text(&screen(&mut app,80,24,"checkpoint-evidence"));
-    assert!(output.contains("Read-only evidence"));assert!(output.contains("Original exact plan"));
-    app.on_key(KeyEvent::new(KeyCode::Char('n'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    let output = text(&screen(&mut app, 80, 24, "checkpoint-evidence"));
+    assert!(output.contains("Read-only evidence"));
+    assert!(output.contains("Original exact plan"));
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
     assert!(received.try_recv().is_err());
     app.checkpoint_back(&store);
-    store.add_artifact(&s,"plan","plan.md","A newer unseen plan").unwrap();
+    store
+        .add_artifact(&s, "plan", "plan.md", "A newer unseen plan")
+        .unwrap();
     app.refresh_checkpoint(&store);
-    let output=text(&screen(&mut app,80,24,"checkpoint-changed"));
-    assert!(!output.contains("Approve & continue"));assert!(output.contains("Decline"));assert!(output.contains("newer version"));
-    let review=app.approval.as_mut().unwrap().review.as_mut().unwrap();
-    review.kind=crate::tools::HumanReviewKind::StepResult;review.manifest=None;review.documents.clear();
-    review.question="Approve this step result? Review the available result evidence.".into();
+    let output = text(&screen(&mut app, 80, 24, "checkpoint-changed"));
+    assert!(!output.contains("Approve & continue"));
+    assert!(output.contains("Decline"));
+    assert!(output.contains("newer version"));
+    let review = app.approval.as_mut().unwrap().review.as_mut().unwrap();
+    review.kind = crate::tools::HumanReviewKind::StepResult;
+    review.manifest = None;
+    review.documents.clear();
+    review.question = "Approve this step result? Review the available result evidence.".into();
     app.refresh_checkpoint(&store);
-    for (w,h) in [(80,24),(120,36),(40,20)] {
-        let output=text(&screen(&mut app,w,h,"checkpoint-step-result"));
-        assert!(output.contains("Review step result"));assert!(!output.contains("Human checkpoint"));
+    for (w, h) in [(80, 24), (120, 36), (40, 20)] {
+        let output = text(&screen(&mut app, w, h, "checkpoint-step-result"));
+        assert!(output.contains("Review step result"));
+        assert!(!output.contains("Human checkpoint"));
         assert!(!output.contains("project grant"));
     }
-    assert_eq!(store.history(&s).unwrap().len(),before+1);
-    assert!(!store.history(&s).unwrap().iter().any(|e|e.2=="human.approved" || e.2=="verification.human"));
+    assert_eq!(store.history(&s).unwrap().len(), before + 1);
+    assert!(!store
+        .history(&s)
+        .unwrap()
+        .iter()
+        .any(|e| e.2 == "human.approved" || e.2 == "verification.human"));
 }
 
 #[test]
 fn edits_review_renders_all_file_keep_and_guarded_revert_states() {
-    let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();
-    let store=Store::open(root.path()).unwrap();let session=store.create("fix-bug","Review source changes","implement").unwrap();
-    for (path,before,after) in [("bar.py",Some("start_service()\n"),"start_service_async()\n"),("startup.py",None,"warm_cache()\n"),("unchanged.txt",Some("same\n"),"same\n")] {
-        std::fs::write(root.path().join(path),after).unwrap();store.add_change(&session,"implement",path,before,after).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store
+        .create("fix-bug", "Review source changes", "implement")
+        .unwrap();
+    for (path, before, after) in [
+        (
+            "bar.py",
+            Some("start_service()\n"),
+            "start_service_async()\n",
+        ),
+        ("startup.py", None, "warm_cache()\n"),
+        ("unchanged.txt", Some("same\n"), "same\n"),
+    ] {
+        std::fs::write(root.path().join(path), after).unwrap();
+        store
+            .add_change(&session, "implement", path, before, after)
+            .unwrap();
     }
-    let mut app=App::new(Some(&session.id));app.shell.project="bar-project".into();app.refresh(&store).unwrap();
-    app.switch_view(View::Edits);app.refresh_edits(&store);
-    for (w,h) in [(80,24),(120,36),(40,14)] {
-        let output=text(&screen(&mut app,w,h,"edits-all"));
-        assert!(output.contains("All files"));assert!(output.contains("bar.py"));
-        if w>=80 {assert!(output.contains("2 changed / 3 recorded paths"));assert!(output.contains("Keep all"));assert!(!output.contains("start_service_async"));}
-    }
-    app.edits.cycle(false);app.focus=Focus::Detail;
-    assert!(!app.edits.overview);
-    for (w,h) in [(80,24),(120,36),(40,14)] {
-        let buffer=screen(&mut app,w,h,"edits-file");let output=text(&buffer);
+    let mut app = App::new(Some(&session.id));
+    app.shell.project = "bar-project".into();
+    app.refresh(&store).unwrap();
+    app.switch_view(View::Edits);
+    app.refresh_edits(&store);
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "edits-all"));
+        assert!(output.contains("All files"));
         assert!(output.contains("bar.py"));
-        if w>=80 {assert!(output.contains("+start_service_async"));assert!(buffer.content.iter().any(|c|c.fg==theme::GOOD));assert!(buffer.content.iter().any(|c|c.fg==theme::ERROR));}
+        if w >= 80 {
+            assert!(output.contains("2 changed / 3 recorded paths"));
+            assert!(output.contains("Keep all"));
+            assert!(!output.contains("start_service_async"));
+        }
     }
-    app.viewport=(80,24);app.keep_edits(root.path(),&store,false);
-    assert!(app.edits.files[0].kept);screen(&mut app,80,24,"edits-kept");
-    app.prepare_revert(root.path(),&store,false);assert!(app.edits.pending.is_some());
-    for (w,h) in [(80,24),(40,20)] {let output=text(&screen(&mut app,w,h,"edits-revert"));assert!(output.contains("proposed"));}
-    let small=text(&screen(&mut app,40,14,"edits-revert-small"));
-    assert!(small.contains("Revert disabled"));assert!(!small.contains("Revert [y]"));
-    assert_eq!(std::fs::read_to_string(root.path().join("bar.py")).unwrap(),"start_service_async()\n");
-    app.edits.pending=None;app.viewport=(80,24);std::fs::write(root.path().join("bar.py"),"manual adjustment\n").unwrap();
-    app.keep_edits(root.path(),&store,false);
-    let output=text(&screen(&mut app,80,24,"edits-drift"));assert!(output.contains("Needs attention"));
+    app.edits.cycle(false);
+    app.focus = Focus::Detail;
+    assert!(!app.edits.overview);
+    for (w, h) in [(80, 24), (120, 36), (40, 14)] {
+        let buffer = screen(&mut app, w, h, "edits-file");
+        let output = text(&buffer);
+        assert!(output.contains("bar.py"));
+        if w >= 80 {
+            assert!(output.contains("+start_service_async"));
+            assert!(buffer.content.iter().any(|c| c.fg == theme::GOOD));
+            assert!(buffer.content.iter().any(|c| c.fg == theme::ERROR));
+        }
+    }
+    app.viewport = (80, 24);
+    app.keep_edits(root.path(), &store, false);
+    assert!(app.edits.files[0].kept);
+    screen(&mut app, 80, 24, "edits-kept");
+    app.prepare_revert(root.path(), &store, false);
+    assert!(app.edits.pending.is_some());
+    for (w, h) in [(80, 24), (40, 20)] {
+        let output = text(&screen(&mut app, w, h, "edits-revert"));
+        assert!(output.contains("proposed"));
+    }
+    let small = text(&screen(&mut app, 40, 14, "edits-revert-small"));
+    assert!(small.contains("Revert disabled"));
+    assert!(!small.contains("Revert [y]"));
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("bar.py")).unwrap(),
+        "start_service_async()\n"
+    );
+    app.edits.pending = None;
+    app.viewport = (80, 24);
+    std::fs::write(root.path().join("bar.py"), "manual adjustment\n").unwrap();
+    app.keep_edits(root.path(), &store, false);
+    let output = text(&screen(&mut app, 80, 24, "edits-drift"));
+    assert!(output.contains("Needs attention"));
     assert!(app.diagnostic.as_ref().unwrap().contains("differs"));
-    app.clear_diagnostic();app.edits.overview=true;app.keep_edits(root.path(),&store,true);
-    assert_eq!(store.history(&session).unwrap().iter().filter(|e|e.2=="edits.kept").count(),1);
-    assert_eq!(std::fs::read_to_string(root.path().join("bar.py")).unwrap(),"manual adjustment\n");
-    assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,0);
+    app.clear_diagnostic();
+    app.edits.overview = true;
+    app.keep_edits(root.path(), &store, true);
+    assert_eq!(
+        store
+            .history(&session)
+            .unwrap()
+            .iter()
+            .filter(|e| e.2 == "edits.kept")
+            .count(),
+        1
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("bar.py")).unwrap(),
+        "manual adjustment\n"
+    );
+    assert_eq!(
+        store
+            .usage_report(&session, crate::usage::Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        0
+    );
 }
 
 #[test]
 fn session_navigation_renders_candidates_without_switching_the_open_workspace() {
-    let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();let store=Store::open(root.path()).unwrap();
-    let a=store.create("fix-bug","Investigate Alpha startup delay","investigate").unwrap();
-    let mut b=store.create("fix-bug","Review Beta authentication fix","diagnose").unwrap();b.status="blocked".into();store.save(&b).unwrap();
-    store.event(&a,None,"user.message","Alpha workspace evidence remains open").unwrap();
-    let mut app=App::new(Some(&a.id));app.shell.project="sample-project".into();app.refresh(&store).unwrap();app.composer="Unsent Alpha instructions".into();
-    app.open_navigator(false);app.navigation.selected=Some(b.id.clone());app.navigation.refresh(&app.sessions,&app.session_query,&app.session_activity);
-    for (w,h) in [(120,36),(80,24),(40,14)] {
-        let output=text(&screen(&mut app,w,h,"sessions-browse"));
-        assert!(output.contains("Sessions"));assert!(output.contains("Open selected"));
-        assert!(!output.contains(&a.id));assert!(!output.contains(&b.id));
-        assert_eq!(app.session().unwrap().id,a.id);assert_eq!(app.composer,"Unsent Alpha instructions");
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let a = store
+        .create("fix-bug", "Investigate Alpha startup delay", "investigate")
+        .unwrap();
+    let mut b = store
+        .create("fix-bug", "Review Beta authentication fix", "diagnose")
+        .unwrap();
+    b.status = "blocked".into();
+    store.save(&b).unwrap();
+    store
+        .event(
+            &a,
+            None,
+            "user.message",
+            "Alpha workspace evidence remains open",
+        )
+        .unwrap();
+    let mut app = App::new(Some(&a.id));
+    app.shell.project = "sample-project".into();
+    app.refresh(&store).unwrap();
+    app.composer = "Unsent Alpha instructions".into();
+    app.open_navigator(false);
+    app.navigation.selected = Some(b.id.clone());
+    app.navigation
+        .refresh(&app.sessions, &app.session_query, &app.session_activity);
+    for (w, h) in [(120, 36), (80, 24), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "sessions-browse"));
+        assert!(output.contains("Sessions"));
+        assert!(output.contains("Open selected"));
+        assert!(!output.contains(&a.id));
+        assert!(!output.contains(&b.id));
+        assert_eq!(app.session().unwrap().id, a.id);
+        assert_eq!(app.composer, "Unsent Alpha instructions");
         assert!(output.contains("Review Beta"));
     }
-    app.searching=true;app.session_query="does not match".into();app.refresh(&store).unwrap();
-    for (w,h) in [(80,24),(40,14)] {
-        let output=text(&screen(&mut app,w,h,"sessions-no-matches"));assert!(output.contains("No sessions match"));assert!(output.contains("Clear search"));
-        assert_eq!(app.session().unwrap().id,a.id);
+    app.searching = true;
+    app.session_query = "does not match".into();
+    app.refresh(&store).unwrap();
+    for (w, h) in [(80, 24), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "sessions-no-matches"));
+        assert!(output.contains("No sessions match"));
+        assert!(output.contains("Clear search"));
+        assert_eq!(app.session().unwrap().id, a.id);
     }
-    app.activate(shell::Action::ClearSearch,root.path(),&store).unwrap();
-    app.session_query="Beta".into();app.refresh(&store).unwrap();screen(&mut app,80,24,"sessions-search");
-    app.open_candidate(&store).unwrap();assert_eq!(app.session().unwrap().id,b.id);assert!(app.composer.is_empty());
-    assert!(app.runner.is_none());assert_eq!(store.usage_report(&a,crate::usage::Scope::Session).unwrap().totals.requests,0);
+    app.activate(shell::Action::ClearSearch, root.path(), &store)
+        .unwrap();
+    app.session_query = "Beta".into();
+    app.refresh(&store).unwrap();
+    screen(&mut app, 80, 24, "sessions-search");
+    app.open_candidate(&store).unwrap();
+    assert_eq!(app.session().unwrap().id, b.id);
+    assert!(app.composer.is_empty());
+    assert!(app.runner.is_none());
+    assert_eq!(
+        store
+            .usage_report(&a, crate::usage::Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        0
+    );
 }
 #[test]
 fn empty_missing_and_discovery_failure_have_distinct_home_surfaces() {
-    let root=tempfile::tempdir().unwrap();crate::project::init(root.path()).unwrap();let store=Store::open(root.path()).unwrap();
-    let mut app=App::new(None);app.shell.project="sample-project".into();app.refresh(&store).unwrap();
-    for (w,h) in [(80,24),(40,14)] {
-        let output=text(&screen(&mut app,w,h,"home-empty"));assert!(output.contains("No sessions in this project"));assert!(output.contains("New session"));assert!(!output.contains("[1] Activity"));
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut app = App::new(None);
+    app.shell.project = "sample-project".into();
+    app.refresh(&store).unwrap();
+    for (w, h) in [(80, 24), (40, 14)] {
+        let output = text(&screen(&mut app, w, h, "home-empty"));
+        assert!(output.contains("No sessions in this project"));
+        assert!(output.contains("New session"));
+        assert!(!output.contains("[1] Activity"));
     }
-    app.requested_session=Some("missing-session".into());app.refresh(&store).unwrap();
-    let output=text(&screen(&mut app,80,24,"session-missing"));assert!(output.contains("Opened session unavailable"));assert!(!output.contains("No sessions in this project"));
-    store.db.execute("ALTER TABLE sessions RENAME TO hidden_sessions",[]).unwrap();app.refresh(&store).unwrap();
-    let output=text(&screen(&mut app,80,24,"sessions-error"));assert!(output.contains("Session discovery unavailable"));assert!(output.contains("Retry discovery"));
+    app.requested_session = Some("missing-session".into());
+    app.refresh(&store).unwrap();
+    let output = text(&screen(&mut app, 80, 24, "session-missing"));
+    assert!(output.contains("Opened session unavailable"));
     assert!(!output.contains("No sessions in this project"));
-    store.db.execute("ALTER TABLE hidden_sessions RENAME TO sessions",[]).unwrap();
+    store
+        .db
+        .execute("ALTER TABLE sessions RENAME TO hidden_sessions", [])
+        .unwrap();
+    app.refresh(&store).unwrap();
+    let output = text(&screen(&mut app, 80, 24, "sessions-error"));
+    assert!(output.contains("Session discovery unavailable"));
+    assert!(output.contains("Retry discovery"));
+    assert!(!output.contains("No sessions in this project"));
+    store
+        .db
+        .execute("ALTER TABLE hidden_sessions RENAME TO sessions", [])
+        .unwrap();
     assert!(store.list().unwrap().is_empty());
-    let no_setup=tempfile::tempdir().unwrap();let unconfigured=Store::open(no_setup.path()).unwrap();
-    let mut app=App::new(None);app.refresh(&unconfigured).unwrap();
-    let output=text(&screen(&mut app,80,24,"home-setup"));assert!(output.contains("Project setup needs attention"));assert!(output.contains("configuration unavailable"));
+    let no_setup = tempfile::tempdir().unwrap();
+    let unconfigured = Store::open(no_setup.path()).unwrap();
+    let mut app = App::new(None);
+    app.refresh(&unconfigured).unwrap();
+    let output = text(&screen(&mut app, 80, 24, "home-setup"));
+    assert!(output.contains("Project setup needs attention"));
+    assert!(output.contains("configuration unavailable"));
 }
 
 #[test]
 fn completed_activity_visibly_reopens_overview_after_navigating_away() {
-    use crossterm::event::{MouseEvent,MouseEventKind,MouseButton};
-    let (root,store,session,mut app,report)=fixture();
-    let before=store.history(&session).unwrap().len();
-    for (w,h) in [(120,36),(80,24),(40,14)] {
-        for code in [KeyCode::Char('2'),KeyCode::Char('1')] {
-            app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let (root, store, session, mut app, report) = fixture();
+    let before = store.history(&session).unwrap().len();
+    for (w, h) in [(120, 36), (80, 24), (40, 14)] {
+        for code in [KeyCode::Char('2'), KeyCode::Char('1')] {
+            app.on_key(KeyEvent::new(code, KeyModifiers::NONE), root.path(), &store)
+                .unwrap();
         }
         assert!(!app.result_open);
-        let output=text(&screen(&mut app,w,h,"activity-overview-link"));
-        assert!(output.contains("[s] Overview"),"Overview shortcut must remain readable at {w}x{h}: {output}");
+        let output = text(&screen(&mut app, w, h, "activity-overview-link"));
+        assert!(
+            output.contains("[s] Overview"),
+            "Overview shortcut must remain readable at {w}x{h}: {output}"
+        );
         assert!(app.footer_actions().contains(&shell::Action::Overview));
         for _ in 0..app.shell_actions().len() {
-            app.on_key(KeyEvent::new(KeyCode::Tab,KeyModifiers::NONE),root.path(),&store).unwrap();
-            if app.shell_actions()[app.shell.action_index]==shell::Action::Overview {break}
+            app.on_key(
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                root.path(),
+                &store,
+            )
+            .unwrap();
+            if app.shell_actions()[app.shell.action_index] == shell::Action::Overview {
+                break;
+            }
         }
-        assert_eq!(app.shell_actions()[app.shell.action_index],shell::Action::Overview);
-        app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE),root.path(),&store).unwrap();
+        assert_eq!(
+            app.shell_actions()[app.shell.action_index],
+            shell::Action::Overview
+        );
+        app.on_key(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            root.path(),
+            &store,
+        )
+        .unwrap();
         assert!(app.result_open);
-        assert_eq!(app.result_overview.as_ref().unwrap().report.as_ref().unwrap().1,report);
+        assert_eq!(
+            app.result_overview
+                .as_ref()
+                .unwrap()
+                .report
+                .as_ref()
+                .unwrap()
+                .1,
+            report
+        );
     }
-    app.result_open=false;app.shell.actions_focus=false;app.focus=Focus::Events;app.inspector_open=false;
-    let buffer=screen(&mut app,80,24,"activity-overview-link");
-    let location=buffer.content.chunks(80).enumerate().find_map(|(y,row)| {
-        let line=row.iter().map(|c|c.symbol()).collect::<String>();
-        line.find("[s] Overview").map(|x|(unicode_width::UnicodeWidthStr::width(&line[..x]) as u16,y as u16))
-    }).unwrap();
-    for kind in [MouseEventKind::Down(MouseButton::Left),MouseEventKind::Up(MouseButton::Left)] {
-        app.on_event(Event::Mouse(MouseEvent{kind,column:location.0,row:location.1,modifiers:KeyModifiers::NONE}),root.path(),&store).unwrap();
+    app.result_open = false;
+    app.shell.actions_focus = false;
+    app.focus = Focus::Events;
+    app.inspector_open = false;
+    let buffer = screen(&mut app, 80, 24, "activity-overview-link");
+    let location = buffer
+        .content
+        .chunks(80)
+        .enumerate()
+        .find_map(|(y, row)| {
+            let line = row.iter().map(|c| c.symbol()).collect::<String>();
+            line.find("[s] Overview").map(|x| {
+                (
+                    unicode_width::UnicodeWidthStr::width(&line[..x]) as u16,
+                    y as u16,
+                )
+            })
+        })
+        .unwrap();
+    for kind in [
+        MouseEventKind::Down(MouseButton::Left),
+        MouseEventKind::Up(MouseButton::Left),
+    ] {
+        app.on_event(
+            Event::Mouse(MouseEvent {
+                kind,
+                column: location.0,
+                row: location.1,
+                modifiers: KeyModifiers::NONE,
+            }),
+            root.path(),
+            &store,
+        )
+        .unwrap();
     }
     assert!(app.result_open);
-    app.switch_view(View::Artifacts);assert!(app.more_actions().contains(&shell::Action::Overview));
-    app.activate(shell::Action::Versions,root.path(),&store).unwrap();
+    app.switch_view(View::Artifacts);
+    assert!(app.more_actions().contains(&shell::Action::Overview));
+    app.activate(shell::Action::Versions, root.path(), &store)
+        .unwrap();
     assert!(app.more_actions().contains(&shell::Action::Overview));
     assert!(app.footer_actions().contains(&shell::Action::Overview));
-    app.on_key(KeyEvent::new(KeyCode::Char('s'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.result_open);assert!(app.artifact_browser.is_none());
-    assert_eq!(store.history(&session).unwrap().len(),before);
-    assert_eq!(store.usage_report(&session,crate::usage::Scope::Session).unwrap().totals.requests,0);
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(app.result_open);
+    assert!(app.artifact_browser.is_none());
+    assert_eq!(store.history(&session).unwrap().len(), before);
+    assert_eq!(
+        store
+            .usage_report(&session, crate::usage::Scope::Session)
+            .unwrap()
+            .totals
+            .requests,
+        0
+    );
 }
 
 #[test]
 fn footer_shortcuts_work_and_active_overview_is_distinct_from_keyboard_focus() {
-    let (root,store,session,mut app,_)=fixture();let before=store.history(&session).unwrap().len();
-    for (w,h) in [(120,36),(80,24),(40,14)] {
-        let buffer=screen(&mut app,w,h,"overview-active");let output=text(&buffer);
-        assert!(output.contains("[s] Overview"));assert!(output.contains("╔"));
-        assert!(!buffer.content.iter().any(|c|c.bg==theme::FOCUS));
-        if w>=80 {
-            for label in ["[o] Read final report","[3] Review edits","[.] More"] {assert!(output.contains(label),"missing {label}: {output}");}
+    let (root, store, session, mut app, _) = fixture();
+    let before = store.history(&session).unwrap().len();
+    for (w, h) in [(120, 36), (80, 24), (40, 14)] {
+        let buffer = screen(&mut app, w, h, "overview-active");
+        let output = text(&buffer);
+        assert!(output.contains("[s] Overview"));
+        assert!(output.contains("╔"));
+        assert!(!buffer.content.iter().any(|c| c.bg == theme::FOCUS));
+        if w >= 80 {
+            for label in ["[o] Read final report", "[3] Review edits", "[.] More"] {
+                assert!(output.contains(label), "missing {label}: {output}");
+            }
         }
-        let cell=buffer.content.chunks(w as usize).find_map(|row| {
-            let line=row.iter().map(|c|c.symbol()).collect::<String>();
-            line.find("[s] Overview").map(|x|&row[unicode_width::UnicodeWidthStr::width(&line[..x])])
-        }).unwrap();
-        assert_eq!(cell.fg,theme::FOCUS);assert!(cell.modifier.contains(Modifier::BOLD));assert_eq!(cell.bg,theme::PANEL);
+        let cell = buffer
+            .content
+            .chunks(w as usize)
+            .find_map(|row| {
+                let line = row.iter().map(|c| c.symbol()).collect::<String>();
+                line.find("[s] Overview")
+                    .map(|x| &row[unicode_width::UnicodeWidthStr::width(&line[..x])])
+            })
+            .unwrap();
+        assert_eq!(cell.fg, theme::FOCUS);
+        assert!(cell.modifier.contains(Modifier::BOLD));
+        assert_eq!(cell.bg, theme::PANEL);
     }
-    app.viewport=(80,24);
-    app.on_key(KeyEvent::new(KeyCode::Char('.'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.shell.more);
-    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();
-    app.on_key(KeyEvent::new(KeyCode::Char('o'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.artifact_browser.is_some());
-    assert!(!text(&screen(&mut app,80,24,"report-shortcuts")).contains("╔"),"Overview must not look active while reading a report");
-    app.on_key(KeyEvent::new(KeyCode::Char('s'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.result_open);
-    for code in [KeyCode::Char('3'),KeyCode::Char('1')] {app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();}
-    let output=text(&screen(&mut app,80,24,"activity-shortcuts"));
-    for label in ["[Enter] Open selected","[i] Compose","[s] Overview","[.] More"] {assert!(output.contains(label),"missing {label}: {output}");}
-    app.on_key(KeyEvent::new(KeyCode::Tab,KeyModifiers::NONE),root.path(),&store).unwrap();
-    app.on_key(KeyEvent::new(KeyCode::Char('i'),KeyModifiers::NONE),root.path(),&store).unwrap();
-    app.on_key(KeyEvent::new(KeyCode::Char('.'),KeyModifiers::NONE),root.path(),&store).unwrap();
-    assert_eq!(app.composer,".");assert!(!app.shell.more);
-    assert_eq!(store.history(&session).unwrap().len(),before);assert!(app.runner.is_none());assert!(app.manager_job.is_none());
+    app.viewport = (80, 24);
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(app.shell.more);
+    app.on_key(
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(app.artifact_browser.is_some());
+    assert!(
+        !text(&screen(&mut app, 80, 24, "report-shortcuts")).contains("╔"),
+        "Overview must not look active while reading a report"
+    );
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(app.result_open);
+    for code in [KeyCode::Char('3'), KeyCode::Char('1')] {
+        app.on_key(KeyEvent::new(code, KeyModifiers::NONE), root.path(), &store)
+            .unwrap();
+    }
+    let output = text(&screen(&mut app, 80, 24, "activity-shortcuts"));
+    for label in [
+        "[Enter] Open selected",
+        "[i] Compose",
+        "[s] Overview",
+        "[.] More",
+    ] {
+        assert!(output.contains(label), "missing {label}: {output}");
+    }
+    app.on_key(
+        KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(app.composer, ".");
+    assert!(!app.shell.more);
+    assert_eq!(store.history(&session).unwrap().len(), before);
+    assert!(app.runner.is_none());
+    assert!(app.manager_job.is_none());
 }
 
 #[test]
 fn conversation_dump_has_visible_refresh_and_full_export_controls_at_both_widths() {
-    let (root,store,session,mut app,_)=fixture();
-    store.event(&session,Some("baseline"),"model.output","action: shell\ninput: systemctl --user status pure-black").unwrap();
-    store.event(&session,Some("baseline"),"protocol.error","Invalid YAML action: unknown action shell. Re-emit action: tool, tool: shell.").unwrap();
-    assert!(app.more_actions().contains(&shell::Action::ConversationDump));
-    app.activate(shell::Action::ConversationDump,root.path(),&store).unwrap();
-    for (w,h) in [(80,24),(120,35)] {
-        let mut output=String::new();
+    let (root, store, session, mut app, _) = fixture();
+    store
+        .event(
+            &session,
+            Some("baseline"),
+            "model.output",
+            "action: shell\ninput: systemctl --user status pure-black",
+        )
+        .unwrap();
+    store
+        .event(
+            &session,
+            Some("baseline"),
+            "protocol.error",
+            "Invalid YAML action: unknown action shell. Re-emit action: tool, tool: shell.",
+        )
+        .unwrap();
+    assert!(app
+        .more_actions()
+        .contains(&shell::Action::ConversationDump));
+    app.activate(shell::Action::ConversationDump, root.path(), &store)
+        .unwrap();
+    for (w, h) in [(80, 24), (120, 35)] {
+        let mut output = String::new();
         for _ in 0..100 {
-            output=text(&screen(&mut app,w,h,"conversation-dump"));
-            if output.contains("Conversation snapshot") {break;}
+            output = text(&screen(&mut app, w, h, "conversation-dump"));
+            if output.contains("Conversation snapshot") {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        assert!(output.contains("Conversation snapshot"),"{output}");
-        for label in ["[R] Refresh","[w] Save full dump"] {assert!(output.contains(label),"{output}");}
+        assert!(output.contains("Conversation snapshot"), "{output}");
+        for label in ["[R] Refresh", "[w] Save full dump"] {
+            assert!(output.contains(label), "{output}");
+        }
     }
-    let before=store.history(&session).unwrap();
-    app.on_key(KeyEvent::new(KeyCode::Char('h'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.help);
-    app.on_key(KeyEvent::new(KeyCode::Char('w'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(!store.directory.parent().unwrap().join("exports").exists());
-    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();assert!(!app.help);
-    app.on_key(KeyEvent::new(KeyCode::Char('w'),KeyModifiers::NONE),root.path(),&store).unwrap();assert!(app.notice.starts_with("Saved full conversation dump:"));
-    assert_eq!(store.history(&session).unwrap(),before);
+    let before = store.history(&session).unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(app.help);
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(!store.directory.parent().unwrap().join("exports").exists());
+    app.on_key(
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(!app.help);
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(app.notice.starts_with("Saved full conversation dump:"));
+    assert_eq!(store.history(&session).unwrap(), before);
 }
 
 #[test]
 fn permission_popup_is_modal_dismissible_and_keeps_the_worker_waiting() {
-    let (root,store,session,mut app,_)=fixture();
-    let (_pt,prompts)=std::sync::mpsc::channel();
-    let (answers,received)=std::sync::mpsc::channel();
-    let (_ft,finished)=std::sync::mpsc::channel();
-    app.runner=Some(Runner{live:None,cancel_retry:None,session_id:Some(session.id.clone()),prompts,answers,finished});
+    let (root, store, session, mut app, _) = fixture();
+    let (_pt, prompts) = std::sync::mpsc::channel();
+    let (answers, received) = std::sync::mpsc::channel();
+    let (_ft, finished) = std::sync::mpsc::channel();
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: Some(session.id.clone()),
+        prompts,
+        answers,
+        finished,
+    });
     app.approval=Some(ApprovalPrompt{review:None,command:Some("find . -maxdepth 2 -type f".into()),mode:ApprovalMode::Persistent,content:"[approval required: shell]\nfind . -maxdepth 2 -type f\nScope: this exact command\n[y] once / [a] process / [p] project / [g] global / [n] deny".into()});
-    for (w,h) in [(80,24),(120,36)] {
-        let output=text(&screen(&mut app,w,h,"permission-popup"));
+    for (w, h) in [(80, 24), (120, 36)] {
+        let output = text(&screen(&mut app, w, h, "permission-popup"));
         assert!(output.contains("Permission required"));
         assert!(output.contains("find . -maxdepth 2 -type f"));
-        for key in ['y','a','p','g','n'] {assert!(output.contains(&format!("[{key}]")));}
-        for kind in [crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)] {
-            app.on_event(Event::Mouse(crossterm::event::MouseEvent{kind,column:0,row:0,modifiers:KeyModifiers::NONE}),root.path(),&store).unwrap();
+        for key in ['y', 'a', 'p', 'g', 'n'] {
+            assert!(output.contains(&format!("[{key}]")));
         }
-        assert!(received.try_recv().is_err());assert!(app.permission_popup_visible());
+        for kind in [
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+        ] {
+            app.on_event(
+                Event::Mouse(crossterm::event::MouseEvent {
+                    kind,
+                    column: 0,
+                    row: 0,
+                    modifiers: KeyModifiers::NONE,
+                }),
+                root.path(),
+                &store,
+            )
+            .unwrap();
+        }
+        assert!(received.try_recv().is_err());
+        assert!(app.permission_popup_visible());
     }
     // Workspace and Help shortcuts are inert while the modal is visible.
-    for code in [KeyCode::Char('h'),KeyCode::Char('3'),KeyCode::Char('i'),KeyCode::Enter] {
-        app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();
+    for code in [
+        KeyCode::Char('h'),
+        KeyCode::Char('3'),
+        KeyCode::Char('i'),
+        KeyCode::Enter,
+    ] {
+        app.on_key(KeyEvent::new(code, KeyModifiers::NONE), root.path(), &store)
+            .unwrap();
     }
-    assert!(!app.help && app.view==View::Conversation && app.approval_visible());
-    let before=store.history(&session).unwrap();
-    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();
-    assert!(received.try_recv().is_err());assert!(app.approval_hidden);
-    let output=text(&screen(&mut app,80,24,"permission-pending"));assert!(output.contains("[a] Review permission"));
-    for code in [KeyCode::Char('y'),KeyCode::Char('n'),KeyCode::Char('p'),KeyCode::Char('g'),KeyCode::Esc] {
-        app.on_key(KeyEvent::new(code,KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert!(!app.help && app.view == View::Conversation && app.approval_visible());
+    let before = store.history(&session).unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert!(received.try_recv().is_err());
+    assert!(app.approval_hidden);
+    let output = text(&screen(&mut app, 80, 24, "permission-pending"));
+    assert!(output.contains("[a] Review permission"));
+    for code in [
+        KeyCode::Char('y'),
+        KeyCode::Char('n'),
+        KeyCode::Char('p'),
+        KeyCode::Char('g'),
+        KeyCode::Esc,
+    ] {
+        app.on_key(KeyEvent::new(code, KeyModifiers::NONE), root.path(), &store)
+            .unwrap();
     }
-    assert!(received.try_recv().is_err());assert!(app.approval.is_some());
-    app.on_key(KeyEvent::new(KeyCode::Char('a'),KeyModifiers::NONE),root.path(),&store).unwrap();
+    assert!(received.try_recv().is_err());
+    assert!(app.approval.is_some());
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
     assert!(app.permission_popup_visible());
-    app.on_key(KeyEvent::new(KeyCode::Char('y'),KeyModifiers::NONE),root.path(),&store).unwrap();
-    assert_eq!(received.try_recv().unwrap(),"y");assert!(app.approval.is_none());
-    assert_eq!(store.history(&session).unwrap(),before);
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(received.try_recv().unwrap(), "y");
+    assert!(app.approval.is_none());
+    assert_eq!(store.history(&session).unwrap(), before);
 }
 
 #[test]
 fn provider_retry_popup_explains_the_next_action_without_tool_grant_choices() {
-    let (root,store,session,mut app,_)=fixture();
-    let (_pt,prompts)=std::sync::mpsc::channel();let (answers,received)=std::sync::mpsc::channel();let (_ft,finished)=std::sync::mpsc::channel();
-    app.runner=Some(Runner{live:None,cancel_retry:None,session_id:Some(session.id.clone()),prompts,answers,finished});
-    let failure=crate::provider_failure::Failure::http(429,&serde_json::json!({}),None);
-    app.approval=Some(ApprovalPrompt{review:None,command:None,mode:ApprovalMode::ProviderRetry,content:failure.retry_prompt("fixture")});
-    app.result_open=false;
-    for (w,h) in [(80,24),(120,36)] {
-        let output=text(&screen(&mut app,w,h,"provider-retry-popup"));
-        for label in ["Provider request paused","Retry request","Stop for now"] {assert!(output.contains(label),"{output}");}
+    let (root, store, session, mut app, _) = fixture();
+    let (_pt, prompts) = std::sync::mpsc::channel();
+    let (answers, received) = std::sync::mpsc::channel();
+    let (_ft, finished) = std::sync::mpsc::channel();
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: Some(session.id.clone()),
+        prompts,
+        answers,
+        finished,
+    });
+    let failure = crate::provider_failure::Failure::http(429, &serde_json::json!({}), None);
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
+        mode: ApprovalMode::ProviderRetry,
+        content: failure.retry_prompt("fixture"),
+    });
+    app.result_open = false;
+    for (w, h) in [(80, 24), (120, 36)] {
+        let output = text(&screen(&mut app, w, h, "provider-retry-popup"));
+        for label in ["Provider request paused", "Retry request", "Stop for now"] {
+            assert!(output.contains(label), "{output}");
+        }
         assert!(!output.contains("Allow once") && !output.contains("Review project grant"));
     }
-    app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE),root.path(),&store).unwrap();
-    let output=text(&screen(&mut app,80,24,"provider-retry-pending"));assert!(output.contains("Review retry"));
-    for c in ['y','p','g'] {app.on_key(KeyEvent::new(KeyCode::Char(c),KeyModifiers::NONE),root.path(),&store).unwrap();}
+    app.on_key(
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    let output = text(&screen(&mut app, 80, 24, "provider-retry-pending"));
+    assert!(output.contains("Review retry"));
+    for c in ['y', 'p', 'g'] {
+        app.on_key(
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+            root.path(),
+            &store,
+        )
+        .unwrap();
+    }
     assert!(received.try_recv().is_err());
-    app.on_key(KeyEvent::new(KeyCode::Char('a'),KeyModifiers::NONE),root.path(),&store).unwrap();
-    app.on_key(KeyEvent::new(KeyCode::Char('n'),KeyModifiers::NONE),root.path(),&store).unwrap();
-    assert_eq!(received.try_recv().unwrap(),"n");assert!(app.notice.contains("Stopped the provider retry"));
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(received.try_recv().unwrap(), "n");
+    assert!(app.notice.contains("Stopped the provider retry"));
 }

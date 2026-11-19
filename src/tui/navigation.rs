@@ -123,7 +123,11 @@ impl App {
         self.requested_session = Some(id);
         self.focus = self.main_focus();
         self.refresh(store)?;
-        self.notice = if self.navigation.load_error.is_some(){"Selected session data is unavailable; no different run was opened.".into()}else{"Opened selected session. No workflow was started or resumed.".into()};
+        self.notice = if self.navigation.load_error.is_some() {
+            "Selected session data is unavailable; no different run was opened.".into()
+        } else {
+            "Opened selected session. No workflow was started or resumed.".into()
+        };
         Ok(())
     }
 }

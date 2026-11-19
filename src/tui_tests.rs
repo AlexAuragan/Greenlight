@@ -7,14 +7,17 @@ fn disconnected_worker_expires_approval_and_does_not_replay_it() {
     let (answers, old_answers) = std::sync::mpsc::channel();
     let (finished_tx, finished) = std::sync::mpsc::channel();
     let mut app = App::new(None);
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         prompts,
         answers,
         finished,
         session_id: None,
     });
-    app.approval = Some(ApprovalPrompt { review: None, command: None,
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "old request".into(),
         mode: ApprovalMode::Persistent,
     });
@@ -28,7 +31,8 @@ fn disconnected_worker_expires_approval_and_does_not_replay_it() {
     let (_prompt_tx, prompts) = std::sync::mpsc::channel();
     let (answers, fresh_answers) = std::sync::mpsc::channel();
     let (_finished_tx, finished) = std::sync::mpsc::channel();
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         prompts,
         answers,
@@ -69,7 +73,8 @@ fn enter_toggles_evidence_and_i_opens_editable_composer() {
         KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
         root.path(),
         &store,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(app.focus, Focus::Compose);
     app.on_key(
         KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
@@ -240,14 +245,17 @@ fn approval_shortcuts_submit_immediately_but_enter_does_not() {
     let (answer_tx, answer_rx) = std::sync::mpsc::channel();
     let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
     let mut app = App::new(None);
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         session_id: None,
         prompts: prompts_rx,
         answers: answer_tx,
         finished: finish_rx,
     });
-    app.approval = Some(ApprovalPrompt { review: None, command: None,
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Approve a shell command".into(),
         mode: ApprovalMode::Persistent,
     });
@@ -292,14 +300,17 @@ fn human_approval_rejects_global_scope_and_escape_denies() {
     let (answer_tx, answer_rx) = std::sync::mpsc::channel();
     let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
     let mut app = App::new(None);
-    app.runner = Some(Runner { live:None,
+    app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         session_id: None,
         prompts: prompts_rx,
         answers: answer_tx,
         finished: finish_rx,
     });
-    app.approval = Some(ApprovalPrompt { review: None, command: None,
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Human checkpoint".into(),
         mode: ApprovalMode::Human,
     });
@@ -318,7 +329,9 @@ fn human_approval_rejects_global_scope_and_escape_denies() {
     )
     .unwrap();
     assert_eq!(answer_rx.try_recv().unwrap(), "n");
-    app.approval = Some(ApprovalPrompt { review: None, command: None,
+    app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Another human checkpoint".into(),
         mode: ApprovalMode::Human,
     });

@@ -123,7 +123,7 @@ impl Edits {
             .unwrap_or(self.index)
             .min(self.files.len().saturating_sub(1));
         self.generation = Some(generation);
-        self.reload=false;
+        self.reload = false;
         self.error = None;
         self.select(0);
         Ok(())
@@ -193,9 +193,11 @@ impl App {
             {
                 bail!("Session, branch or recorded revision changed; review the refreshed edits first.");
             }
-            let mut recorded=Edits::default();
-            recorded.load(store,&session)?;
-            if recorded.generation!=self.edits.generation {bail!("Recorded revisions changed during Keep; refresh and review again.");}
+            let mut recorded = Edits::default();
+            recorded.load(store, &session)?;
+            if recorded.generation != self.edits.generation {
+                bail!("Recorded revisions changed during Keep; refresh and review again.");
+            }
             let files = if all {
                 self.edits
                     .files
@@ -213,7 +215,18 @@ impl App {
                 bail!("No changed recorded files to Keep.");
             }
             for file in &files {
-                if !recorded.files.iter().any(|f|f.path==file.path && f.revision==file.revision && f.before==file.before && f.after==file.after && f.gap==file.gap) {bail!("Recorded snapshots changed while reviewing {}; refresh and review again.",file.path);}
+                if !recorded.files.iter().any(|f| {
+                    f.path == file.path
+                        && f.revision == file.revision
+                        && f.before == file.before
+                        && f.after == file.after
+                        && f.gap == file.gap
+                }) {
+                    bail!(
+                        "Recorded snapshots changed while reviewing {}; refresh and review again.",
+                        file.path
+                    );
+                }
                 if file.gap {
                     bail!("History gap for {}; Keep is unavailable.", file.path);
                 }
@@ -253,7 +266,7 @@ impl App {
             Ok(count)=>self.notice=format!("Kept {count} recorded file revision(s). Review saved; no files, permissions or Git state changed."),
             Err(error)=>self.raise_diagnostic(format!("Keep unavailable; no review saved: {error:#}")),
         }
-        self.edits.reload=true;
+        self.edits.reload = true;
         self.refresh_edits(store);
     }
     pub(super) fn refresh_revert(&mut self, store: &Store) {
@@ -335,8 +348,11 @@ impl App {
             } else {
                 selection.as_ref().unwrap()[0].clone()
             };
-            let reverse=plan.preview_text();
-            let reverse=reverse.split_once('\n').map(|(_,body)|body).unwrap_or(&reverse);
+            let reverse = plan.preview_text();
+            let reverse = reverse
+                .split_once('\n')
+                .map(|(_, body)| body)
+                .unwrap_or(&reverse);
             let preview=format!("Revert {label}\nProposed reverse diff · not applied yet\nRestore first recorded pre-edit contents.\nWorkspace only; history/artifacts retained. No fork or automatic resume.\n{}\n\nTechnical scope\nSession: {}\nBranch: {}\ny confirms · n/Esc cancels · Enter does nothing",reverse,session.id,session.active_branch);
             Ok(Pending {
                 plan,
@@ -351,7 +367,8 @@ impl App {
                 self.shell.request_epoch += 1;
                 self.edits.pending = Some(pending);
                 self.detail_scroll = 0;
-                self.notice="Revert preview prepared; no files changed. y confirms · n/Esc cancels.".into();
+                self.notice =
+                    "Revert preview prepared; no files changed. y confirms · n/Esc cancels.".into();
             }
             Err(error) => self.raise_diagnostic(format!("Revert unavailable: {error:#}")),
         }

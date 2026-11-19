@@ -5,7 +5,7 @@ use unicode_width::UnicodeWidthStr;
 
 #[derive(Default)]
 pub(super) struct Editor {
-    pub(super) drawn: Cell<Option<(ratatui::layout::Rect,usize)>>,
+    pub(super) drawn: Cell<Option<(ratatui::layout::Rect, usize)>>,
     cursor: Option<usize>, // None follows the end, including newly restored drafts.
     width: Cell<usize>,
     preferred_column: Option<usize>,
@@ -168,24 +168,45 @@ impl Editor {
             _ => {}
         }
     }
-    pub(super) fn contains(&self,x:u16,y:u16)->bool {self.drawn.get().is_some_and(|(area,_)|area.contains((x,y).into()))}
-    pub(super) fn click(&mut self,text:&str,x:u16,y:u16) {
-        if let Some((area,offset))=self.drawn.get() {
-            if !area.contains((x,y).into()){return;}
-            let (_,positions)=layout(text,area.width as usize);
-            let row=(y-area.y) as usize+offset;
-            let column=(x-area.x) as usize;
-            self.cursor=positions.iter().filter(|p|p.row==row).min_by_key(|p|p.column.abs_diff(column)).map(|p|p.byte).or(Some(text.len()));
-            self.preferred_column=None;
+    pub(super) fn contains(&self, x: u16, y: u16) -> bool {
+        self.drawn
+            .get()
+            .is_some_and(|(area, _)| area.contains((x, y).into()))
+    }
+    pub(super) fn click(&mut self, text: &str, x: u16, y: u16) {
+        if let Some((area, offset)) = self.drawn.get() {
+            if !area.contains((x, y).into()) {
+                return;
+            }
+            let (_, positions) = layout(text, area.width as usize);
+            let row = (y - area.y) as usize + offset;
+            let column = (x - area.x) as usize;
+            self.cursor = positions
+                .iter()
+                .filter(|p| p.row == row)
+                .min_by_key(|p| p.column.abs_diff(column))
+                .map(|p| p.byte)
+                .or(Some(text.len()));
+            self.preferred_column = None;
         }
     }
     pub(super) fn paste(&mut self, text: &mut String, pasted: &str, multiline: bool, limit: usize) {
         let at = self.position(text);
         let mut inserted = String::new();
         for c in pasted.chars() {
-            let c = if c == '\r' { continue } else if c == '\n' && !multiline { ' ' } else { c };
-            if c.is_control() && c != '\n' && c != '\t' { continue; }
-            if text.len() + inserted.len() + c.len_utf8() > limit { break; }
+            let c = if c == '\r' {
+                continue;
+            } else if c == '\n' && !multiline {
+                ' '
+            } else {
+                c
+            };
+            if c.is_control() && c != '\n' && c != '\t' {
+                continue;
+            }
+            if text.len() + inserted.len() + c.len_utf8() > limit {
+                break;
+            }
             inserted.push(c);
         }
         text.insert_str(at, &inserted);
@@ -225,7 +246,8 @@ impl Editor {
             })),
             area,
         );
-        self.drawn.set(if focused {Some((area,offset))}else{None});
+        self.drawn
+            .set(if focused { Some((area, offset)) } else { None });
         if focused {
             frame.set_cursor_position((
                 area.x + position.column as u16,

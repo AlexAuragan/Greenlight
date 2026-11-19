@@ -52,7 +52,7 @@ fn prepare(job: Job, cached: &mut Option<CachedDocument>) -> Prepared {
         .as_ref()
         .is_none_or(|c| c.revision != job.key.revision)
     {
-        let mut text = document_text(&job.source,job.markdown,job.diff);
+        let mut text = document_text(&job.source, job.markdown, job.diff);
         text.lines.splice(0..0, job.headers);
         *cached = Some(CachedDocument {
             revision: job.key.revision,
@@ -135,29 +135,62 @@ pub(super) fn draw_document(
     block: Block<'static>,
     area: Rect,
 ) {
-    draw_formatted(frame,app,document,block,area,false);
+    draw_formatted(frame, app, document, block, area, false);
 }
-pub(super) fn draw_diff_document(frame:&mut Frame,app:&App,document:Document<'_>,block:Block<'static>,area:Rect) {
-    draw_formatted(frame,app,document,block,area,true);
+pub(super) fn draw_diff_document(
+    frame: &mut Frame,
+    app: &App,
+    document: Document<'_>,
+    block: Block<'static>,
+    area: Rect,
+) {
+    draw_formatted(frame, app, document, block, area, true);
 }
-fn document_text(source:&str,markdown:bool,diff:bool)->Text<'static> {
-    let mut text=if markdown {crate::markdown::render(source)}else{crate::markdown::raw(source)};
+fn document_text(source: &str, markdown: bool, diff: bool) -> Text<'static> {
+    let mut text = if markdown {
+        crate::markdown::render(source)
+    } else {
+        crate::markdown::raw(source)
+    };
     if diff {
-        let mut in_diff=false;
+        let mut in_diff = false;
         for line in &mut text.lines {
-            let content=line.to_string();
-            if content.starts_with("--- ") {in_diff=true;}
-            if !in_diff {continue}
-            line.style=Style::default().fg(if content.starts_with("--- ") || content.starts_with("+++ "){theme::MUTED}else if content.starts_with('+'){theme::GOOD}else if content.starts_with('-'){theme::ERROR}else if content.starts_with("@@"){theme::FOCUS}else{theme::TEXT});
+            let content = line.to_string();
+            if content.starts_with("--- ") {
+                in_diff = true;
+            }
+            if !in_diff {
+                continue;
+            }
+            line.style = Style::default().fg(
+                if content.starts_with("--- ") || content.starts_with("+++ ") {
+                    theme::MUTED
+                } else if content.starts_with('+') {
+                    theme::GOOD
+                } else if content.starts_with('-') {
+                    theme::ERROR
+                } else if content.starts_with("@@") {
+                    theme::FOCUS
+                } else {
+                    theme::TEXT
+                },
+            );
         }
     }
     text
 }
-fn draw_formatted(frame:&mut Frame,app:&App,document:Document<'_>,block:Block<'static>,area:Rect,diff:bool) {
+fn draw_formatted(
+    frame: &mut Frame,
+    app: &App,
+    document: Document<'_>,
+    block: Block<'static>,
+    area: Rect,
+    diff: bool,
+) {
     if document.source.len() <= INLINE_BYTES
         && document.source.split('\n').take(INLINE_LINES + 1).count() <= INLINE_LINES
     {
-        let mut text = document_text(document.source,document.markdown,diff);
+        let mut text = document_text(document.source, document.markdown, diff);
         text.lines.splice(0..0, document.headers);
         draw_scrolled(
             frame,
@@ -355,7 +388,7 @@ mod tests {
             "# 漢字 **Heading**\n{}\n--- a/file\n+++ b/file\n@@ hunk @@\n-old\n+new\nTAIL",
             "e\u{301} 👩‍💻 `code` **bold**\n".repeat(500)
         );
-        for (markdown,diff) in [(true,false),(false,false),(false,true)] {
+        for (markdown, diff) in [(true, false), (false, false), (false, true)] {
             for width in [20, 60, 100] {
                 let job = Job {
                     diff,
@@ -370,7 +403,7 @@ mod tests {
                     headers: vec![Line::raw("Header")],
                 };
                 let result = prepare(job, &mut None);
-                let mut text = document_text(&source,markdown,diff);
+                let mut text = document_text(&source, markdown, diff);
                 text.lines.insert(0, Line::raw("Header"));
                 let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
                 let maximum = paragraph
@@ -513,14 +546,17 @@ mod approval_priority_tests {
         let (_pt, prompts) = mpsc::channel();
         let (answers, received) = mpsc::channel();
         let (_ft, finished) = mpsc::channel();
-        app.runner = Some(Runner { live:None,
+        app.runner = Some(Runner {
+            live: None,
             cancel_retry: None,
             session_id: None,
             prompts,
             answers,
             finished,
         });
-        app.approval = Some(ApprovalPrompt { review: None, command: None,
+        app.approval = Some(ApprovalPrompt {
+            review: None,
+            command: None,
             mode: ApprovalMode::Human,
             content: "Review this approval".into(),
         });

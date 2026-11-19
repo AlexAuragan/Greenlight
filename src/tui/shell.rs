@@ -4,7 +4,6 @@ use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
 use std::cell::RefCell;
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
     InspectAttention,
@@ -253,32 +252,55 @@ impl App {
         ) + &format!(
             ":{}:{}:{:?}",
             self.shell.more, self.shell.menu_index, self.shell.actions_focus
-        ) + &format!(":{:?}:{:?}:{:?}", self.details.page, self.details.selected, self.details.page.and(self.details.report.as_ref()).map(|r| r.calls.iter().map(|c|c.id.as_str()).collect::<Vec<_>>()))
-            + &format!(":{:?}:{}:{}", self.compose.mode, self.checkpoint.reading, self.checkpoint.index)
-            + &format!(":{}:{:?}:{:?}",self.edits.overview,self.navigation.selected,self.navigation.candidates.iter().map(|s|s.id.as_str()).collect::<Vec<_>>())
-            + &format!(":{}:{}:{}",self.navigation.error.is_some(),self.navigation.load_error.is_some(),self.navigation.missing.is_some())
-            + &format!(
-                ":{:?}",
-                self.sessions
-                    .iter()
-                    .map(|s| s.id.as_str())
-                    .collect::<Vec<_>>()
-            )
-            + &format!(
-                ":{:?}",
-                self.edits
-                    .files
-                    .iter()
-                    .map(|f| (&f.path, f.revision, f.kept))
-                    .collect::<Vec<_>>()
-            )
+        ) + &format!(
+            ":{:?}:{:?}:{:?}",
+            self.details.page,
+            self.details.selected,
+            self.details
+                .page
+                .and(self.details.report.as_ref())
+                .map(|r| r.calls.iter().map(|c| c.id.as_str()).collect::<Vec<_>>())
+        ) + &format!(
+            ":{:?}:{}:{}",
+            self.compose.mode, self.checkpoint.reading, self.checkpoint.index
+        ) + &format!(
+            ":{}:{:?}:{:?}",
+            self.edits.overview,
+            self.navigation.selected,
+            self.navigation
+                .candidates
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>()
+        ) + &format!(
+            ":{}:{}:{}",
+            self.navigation.error.is_some(),
+            self.navigation.load_error.is_some(),
+            self.navigation.missing.is_some()
+        ) + &format!(
+            ":{:?}",
+            self.sessions
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>()
+        ) + &format!(
+            ":{:?}",
+            self.edits
+                .files
+                .iter()
+                .map(|f| (&f.path, f.revision, f.kept))
+                .collect::<Vec<_>>()
+        )
     }
     pub(super) fn begin_frame(&self) {
         self.shell.hits.borrow_mut().clear();
         *self.shell.stamp.borrow_mut() = self.shell_stamp();
     }
     pub(super) fn blocking_surface(&self) -> bool {
-        self.shell.sessions || self.navigation.error.is_some() || self.navigation.load_error.is_some() || self.details.page.is_some()
+        self.shell.sessions
+            || self.navigation.error.is_some()
+            || self.navigation.load_error.is_some()
+            || self.details.page.is_some()
             || self.help
             || self.approval_visible()
             || self.shell.more
@@ -312,7 +334,7 @@ impl App {
         }
 
         if self.artifact_browser.is_some() {
-            let mut actions=vec![
+            let mut actions = vec![
                 Action::ConversationDump,
                 Action::Versions,
                 Action::Provenance,
@@ -320,11 +342,15 @@ impl App {
                 Action::Copy,
                 Action::Editor,
             ];
-            if self.session().is_some_and(|s|s.status=="completed"){actions.insert(0,Action::Overview);}
+            if self.session().is_some_and(|s| s.status == "completed") {
+                actions.insert(0, Action::Overview);
+            }
             return actions;
         }
 
-        if self.session().is_none() {return vec![Action::New,Action::Sessions,Action::Help];}
+        if self.session().is_none() {
+            return vec![Action::New, Action::Sessions, Action::Help];
+        }
         let mut actions = vec![
             Action::Activity,
             Action::Artifacts,
@@ -333,11 +359,17 @@ impl App {
             Action::Usage,
             Action::ConversationDump,
         ];
-        if self.session().is_some_and(|s|s.status=="completed") && !(self.result_open && self.view==View::Conversation) {
-            actions.insert(0,Action::Overview);
-            if self.view==View::Conversation{actions.push(Action::Compose);}
+        if self.session().is_some_and(|s| s.status == "completed")
+            && !(self.result_open && self.view == View::Conversation)
+        {
+            actions.insert(0, Action::Overview);
+            if self.view == View::Conversation {
+                actions.push(Action::Compose);
+            }
         }
-        if self.view==View::Edits && !self.edits.files.is_empty() {actions.splice(0..0,[Action::OpenEdit,Action::EditAll,Action::RevertAll]);}
+        if self.view == View::Edits && !self.edits.files.is_empty() {
+            actions.splice(0..0, [Action::OpenEdit, Action::EditAll, Action::RevertAll]);
+        }
         if self.focus != Focus::Compose {
             actions.extend([Action::Copy, Action::Editor]);
         }
@@ -365,24 +397,33 @@ impl App {
             actions.push(Action::ManagerReplies);
         }
         actions.push(Action::Sessions);
-        if self.session().is_some(){actions.push(Action::Details);}
+        if self.session().is_some() {
+            actions.push(Action::Details);
+        }
         actions.push(Action::Help);
         actions.extend([Action::Preview, Action::Expand]);
         actions
     }
     pub(super) fn header_actions(&self) -> Vec<Action> {
-        if self.blocking_surface() || self.session_total==0 {
+        if self.blocking_surface() || self.session_total == 0 {
             vec![Action::Help]
         } else if self.session().is_none() {
-            vec![Action::Sessions,Action::Help]
+            vec![Action::Sessions, Action::Help]
         } else {
             vec![Action::Sessions, Action::Details, Action::Help]
         }
     }
     pub(super) fn footer_actions(&self) -> Vec<Action> {
-        let mut actions=self.base_footer_actions();
+        let mut actions = self.base_footer_actions();
         if self.approval.is_some() && self.approval_hidden && !self.help && !self.shell.more {
-            actions.insert(0,if self.provider_retry_pending(){Action::ReviewProviderRetry}else{Action::ReviewPermission});
+            actions.insert(
+                0,
+                if self.provider_retry_pending() {
+                    Action::ReviewProviderRetry
+                } else {
+                    Action::ReviewPermission
+                },
+            );
         }
         actions
     }
@@ -390,25 +431,45 @@ impl App {
         if self.help {
             return vec![Action::Close, Action::Mouse];
         }
-        if self.permission_popup_visible() {return vec![];}
+        if self.permission_popup_visible() {
+            return vec![];
+        }
         if self.approval_visible() {
             if self.human_review().is_some() {
-                return if self.checkpoint.reading {vec![Action::ReviewBack,Action::Copy,Action::Help]} else {vec![Action::ReviewOpen,Action::Help]};
+                return if self.checkpoint.reading {
+                    vec![Action::ReviewBack, Action::Copy, Action::Help]
+                } else {
+                    vec![Action::ReviewOpen, Action::Help]
+                };
             }
             return vec![Action::Help];
         }
         if self.shell.sessions {
-            if self.navigation.error.is_some(){return vec![Action::RetryDiscovery,Action::CloseNavigator];}
-            let mut actions=Vec::new();
-            if self.navigation.candidate().is_some(){actions.push(Action::OpenCandidate);}
-            if !self.session_query.is_empty(){actions.push(Action::ClearSearch);}
-            if self.session_total==0{actions.push(Action::New);}
+            if self.navigation.error.is_some() {
+                return vec![Action::RetryDiscovery, Action::CloseNavigator];
+            }
+            let mut actions = Vec::new();
+            if self.navigation.candidate().is_some() {
+                actions.push(Action::OpenCandidate);
+            }
+            if !self.session_query.is_empty() {
+                actions.push(Action::ClearSearch);
+            }
+            if self.session_total == 0 {
+                actions.push(Action::New);
+            }
             actions.push(Action::CloseNavigator);
             return actions;
         }
-        if self.navigation.error.is_some(){return vec![Action::RetryDiscovery,Action::Help];}
-        if self.navigation.load_error.is_some(){return vec![Action::Sessions,Action::RetryDiscovery,Action::Help];}
-        if self.navigation.missing.is_some(){return vec![Action::Sessions,Action::New,Action::Help];}
+        if self.navigation.error.is_some() {
+            return vec![Action::RetryDiscovery, Action::Help];
+        }
+        if self.navigation.load_error.is_some() {
+            return vec![Action::Sessions, Action::RetryDiscovery, Action::Help];
+        }
+        if self.navigation.missing.is_some() {
+            return vec![Action::Sessions, Action::New, Action::Help];
+        }
         if self.new_session.is_some() {
             return if self.new_session.as_ref().is_some_and(|f| f.goal.is_some()) {
                 vec![
@@ -453,8 +514,17 @@ impl App {
             ];
         }
         if self.artifact_browser.is_some() {
-            if self.session().is_some_and(|s|s.status=="completed") {
-                return if self.viewport.0<60 {vec![Action::Overview,Action::Close,Action::More]}else{vec![Action::Versions,Action::Provenance,Action::Overview,Action::Close]};
+            if self.session().is_some_and(|s| s.status == "completed") {
+                return if self.viewport.0 < 60 {
+                    vec![Action::Overview, Action::Close, Action::More]
+                } else {
+                    vec![
+                        Action::Versions,
+                        Action::Provenance,
+                        Action::Overview,
+                        Action::Close,
+                    ]
+                };
             }
             return vec![Action::Versions, Action::Provenance, Action::Close];
         }
@@ -469,8 +539,12 @@ impl App {
             }
             return vec![Action::FullDiagnostic, Action::Close];
         }
-        if self.details.page.is_some() { return self.details.actions(); }
-        if self.edits.pending.is_some() {return vec![Action::CancelRevert,Action::ConfirmRevert,Action::Help];}
+        if self.details.page.is_some() {
+            return self.details.actions();
+        }
+        if self.edits.pending.is_some() {
+            return vec![Action::CancelRevert, Action::ConfirmRevert, Action::Help];
+        }
         if self.blocking_surface() {
             return vec![Action::Help, Action::Close];
         }
@@ -481,7 +555,21 @@ impl App {
             return self.attention.as_ref().unwrap().actions();
         }
         if self.result_open && self.view == View::Conversation {
-            if self.viewport.0<60{return vec![if self.result_overview.as_ref().is_some_and(|r|r.report.is_some()){Action::Report}else{Action::ResultEvidence},Action::Overview,Action::More];}
+            if self.viewport.0 < 60 {
+                return vec![
+                    if self
+                        .result_overview
+                        .as_ref()
+                        .is_some_and(|r| r.report.is_some())
+                    {
+                        Action::Report
+                    } else {
+                        Action::ResultEvidence
+                    },
+                    Action::Overview,
+                    Action::More,
+                ];
+            }
             return vec![
                 if self
                     .result_overview
@@ -498,14 +586,43 @@ impl App {
             ];
         }
         if self.view == View::Edits {
-            if self.edits.error.is_some() || self.edits.files.is_empty() {return vec![Action::More];}
-            let compact=self.viewport.0<60;
-            if self.edits.overview {
-                if !self.edits.files.iter().any(|f|f.changed() || f.gap){return vec![Action::OpenEdit,Action::More];}
-                return if compact{vec![Action::KeepAll,Action::RevertAll,Action::More]}else{vec![Action::KeepAll,Action::RevertAll,Action::OpenEdit,Action::More]};
+            if self.edits.error.is_some() || self.edits.files.is_empty() {
+                return vec![Action::More];
             }
-            if !self.edits.files.get(self.edits.index).is_some_and(|f|f.changed() && !f.gap){return vec![Action::EditAll,Action::More];}
-            return if compact{vec![Action::KeepFile,Action::RevertFile,Action::More]}else{vec![Action::KeepFile,Action::RevertFile,Action::EditAll,Action::More]};
+            let compact = self.viewport.0 < 60;
+            if self.edits.overview {
+                if !self.edits.files.iter().any(|f| f.changed() || f.gap) {
+                    return vec![Action::OpenEdit, Action::More];
+                }
+                return if compact {
+                    vec![Action::KeepAll, Action::RevertAll, Action::More]
+                } else {
+                    vec![
+                        Action::KeepAll,
+                        Action::RevertAll,
+                        Action::OpenEdit,
+                        Action::More,
+                    ]
+                };
+            }
+            if !self
+                .edits
+                .files
+                .get(self.edits.index)
+                .is_some_and(|f| f.changed() && !f.gap)
+            {
+                return vec![Action::EditAll, Action::More];
+            }
+            return if compact {
+                vec![Action::KeepFile, Action::RevertFile, Action::More]
+            } else {
+                vec![
+                    Action::KeepFile,
+                    Action::RevertFile,
+                    Action::EditAll,
+                    Action::More,
+                ]
+            };
         }
         if self.view == View::Artifacts {
             if self.artifact().is_none() {
@@ -521,14 +638,28 @@ impl App {
                 Action::More,
             ];
         }
-        if self.session().is_some_and(|s|s.status=="completed") {
-            return if self.viewport.0<60 {vec![Action::Open,Action::Overview,Action::More]}else{vec![Action::Open,Action::Compose,Action::Overview,Action::More]};
+        if self.session().is_some_and(|s| s.status == "completed") {
+            return if self.viewport.0 < 60 {
+                vec![Action::Open, Action::Overview, Action::More]
+            } else {
+                vec![
+                    Action::Open,
+                    Action::Compose,
+                    Action::Overview,
+                    Action::More,
+                ]
+            };
         }
         vec![Action::Open, Action::Compose, Action::More]
     }
     pub(super) fn shell_actions(&self) -> Vec<Action> {
         let mut actions = self.footer_actions();
-        if !self.blocking_surface() || self.new_session.is_some() || self.diagnostic.is_some() || self.details.page.is_some() || self.shell.sessions {
+        if !self.blocking_surface()
+            || self.new_session.is_some()
+            || self.diagnostic.is_some()
+            || self.details.page.is_some()
+            || self.shell.sessions
+        {
             actions.extend(self.header_actions());
         }
         actions
@@ -563,7 +694,14 @@ impl App {
     }
     pub(super) fn activate(&mut self, action: Action, root: &Path, store: &Store) -> Result<bool> {
         use Action::*;
-        if self.shell.sessions && matches!(action,Activity|Artifacts|Edits|Event(_)|Artifact(_)|Edit(_)|Details|Compose) {self.close_navigator();}
+        if self.shell.sessions
+            && matches!(
+                action,
+                Activity | Artifacts | Edits | Event(_) | Artifact(_) | Edit(_) | Details | Compose
+            )
+        {
+            self.close_navigator();
+        }
         self.shell.actions_focus = false;
         if self.composer_active()
             && !matches!(
@@ -587,32 +725,52 @@ impl App {
         let code = match action {
             ResumeProvider => {
                 self.refresh(store)?;
-                if !self.attention.as_ref().is_some_and(|s|s.kind==attention::Kind::Provider && s.resumable) {
+                if !self
+                    .attention
+                    .as_ref()
+                    .is_some_and(|s| s.kind == attention::Kind::Provider && s.resumable)
+                {
                     self.notice="Provider recovery state changed; inspect the current session before continuing.".into();
                     return Ok(false);
                 }
                 self.clear_diagnostic();
-                let draft=self.composer.clone();
-                let last_instruction=self.compose.last_instruction.clone();
-                self.resume_instruction(root,store,String::new());
-                self.composer=draft;
-                self.compose.last_instruction=last_instruction;
+                let draft = self.composer.clone();
+                let last_instruction = self.compose.last_instruction.clone();
+                self.resume_instruction(root, store, String::new());
+                self.composer = draft;
+                self.compose.last_instruction = last_instruction;
                 return Ok(false);
             }
-            ReviewProviderRetry => {self.reopen_permission();return Ok(false);}
-            ReviewPermission => {self.reopen_permission();return Ok(false);}
+            ReviewProviderRetry => {
+                self.reopen_permission();
+                return Ok(false);
+            }
+            ReviewPermission => {
+                self.reopen_permission();
+                return Ok(false);
+            }
             InspectAttention => {
                 self.inspect_attention();
                 return Ok(false);
             }
             ConversationDump => {
-                self.diagnostic=None;self.diagnostic_attention=false;
+                self.diagnostic = None;
+                self.diagnostic_attention = false;
                 self.open_conversation_dump(store);
                 return Ok(false);
             }
-            CopyDump => {self.start_copy();return Ok(false);}
-            RefreshDump => {self.reload_conversation_dump(store);return Ok(false);}
-            SaveDump => {self.save_conversation_dump(store);return Ok(false);}
+            CopyDump => {
+                self.start_copy();
+                return Ok(false);
+            }
+            RefreshDump => {
+                self.reload_conversation_dump(store);
+                return Ok(false);
+            }
+            SaveDump => {
+                self.save_conversation_dump(store);
+                return Ok(false);
+            }
             FullDiagnostic => {
                 if self.diagnostic_attention
                     || self.diagnostic.is_none() && self.attention_visible()
@@ -769,16 +927,26 @@ impl App {
                 return Ok(false);
             }
             Overview => {
-                if self.session().is_some_and(|s|s.status=="completed") && !self.approval_visible() && self.edits.pending.is_none() && self.restart_plan.is_none() {
-                    self.artifact_browser=None;
-                    self.context_detail=None;
+                if self.session().is_some_and(|s| s.status == "completed")
+                    && !self.approval_visible()
+                    && self.edits.pending.is_none()
+                    && self.restart_plan.is_none()
+                {
+                    self.artifact_browser = None;
+                    self.context_detail = None;
                     self.details.close();
                     self.switch_view(View::Conversation);
-                    self.result_open=true;self.focus=Focus::Detail;self.detail_scroll=0;
+                    self.result_open = true;
+                    self.focus = Focus::Detail;
+                    self.detail_scroll = 0;
                 }
                 return Ok(false);
             }
-            ReviewEdits => {self.switch_view(View::Edits);self.refresh_edits(store);return Ok(false);}
+            ReviewEdits => {
+                self.switch_view(View::Edits);
+                self.refresh_edits(store);
+                return Ok(false);
+            }
             Versions => {
                 self.open_artifact_mode(store, crate::artifact_history::Mode::Content)?;
                 return Ok(false);
@@ -792,16 +960,40 @@ impl App {
                 return Ok(false);
             }
             Sessions => {
-                if self.shell.sessions{self.close_navigator();}else{self.open_navigator(false);}
+                if self.shell.sessions {
+                    self.close_navigator();
+                } else {
+                    self.open_navigator(false);
+                }
                 return Ok(false);
             }
-            OpenCandidate => {self.open_candidate(store)?;return Ok(false);}
-            CloseNavigator => {self.close_navigator();return Ok(false);}
-            ClearSearch => {self.session_query.clear();self.session_editor.reset();self.refresh(store)?;return Ok(false);}
-            NavSearch => {self.searching=true;self.session_editor.reset();return Ok(false);}
-            RetryDiscovery => {self.refresh(store)?;return Ok(false);}
+            OpenCandidate => {
+                self.open_candidate(store)?;
+                return Ok(false);
+            }
+            CloseNavigator => {
+                self.close_navigator();
+                return Ok(false);
+            }
+            ClearSearch => {
+                self.session_query.clear();
+                self.session_editor.reset();
+                self.refresh(store)?;
+                return Ok(false);
+            }
+            NavSearch => {
+                self.searching = true;
+                self.session_editor.reset();
+                return Ok(false);
+            }
+            RetryDiscovery => {
+                self.refresh(store)?;
+                return Ok(false);
+            }
             Compose => {
-                if self.shell.sessions{self.close_navigator();}
+                if self.shell.sessions {
+                    self.close_navigator();
+                }
                 self.focus_composer();
                 return Ok(false);
             }
@@ -830,29 +1022,77 @@ impl App {
             Filter => KeyCode::Char('F'),
             ConfirmRevert => KeyCode::Char('y'),
             CancelRevert => KeyCode::Char('n'),
-            OpenEdit => {self.edits.overview=false;self.edits.select(0);self.focus=Focus::Detail;self.detail_scroll=0;return Ok(false);}
-            KeepFile => { self.keep_edits(root,store,false); return Ok(false); }
-            KeepAll => { self.keep_edits(root,store,true); return Ok(false); }
-            RevertFile => { self.prepare_revert(root,store,false); return Ok(false); }
-            RevertAll => { self.prepare_revert(root,store,true); return Ok(false); }
-            EditAll => { self.edits.overview=true;self.focus=Focus::Artifacts;self.detail_scroll=0;return Ok(false); }
-            ReviewOpen => { self.checkpoint_open(store); return Ok(false); }
-            ReviewBack => { self.checkpoint_back(store); return Ok(false); }
+            OpenEdit => {
+                self.edits.overview = false;
+                self.edits.select(0);
+                self.focus = Focus::Detail;
+                self.detail_scroll = 0;
+                return Ok(false);
+            }
+            KeepFile => {
+                self.keep_edits(root, store, false);
+                return Ok(false);
+            }
+            KeepAll => {
+                self.keep_edits(root, store, true);
+                return Ok(false);
+            }
+            RevertFile => {
+                self.prepare_revert(root, store, false);
+                return Ok(false);
+            }
+            RevertAll => {
+                self.prepare_revert(root, store, true);
+                return Ok(false);
+            }
+            EditAll => {
+                self.edits.overview = true;
+                self.focus = Focus::Artifacts;
+                self.detail_scroll = 0;
+                return Ok(false);
+            }
+            ReviewOpen => {
+                self.checkpoint_open(store);
+                return Ok(false);
+            }
+            ReviewBack => {
+                self.checkpoint_back(store);
+                return Ok(false);
+            }
             Usage => {
                 self.open_run_details(details::Page::Usage, store);
                 return Ok(false);
             }
-            Technical => { self.open_run_details(details::Page::Technical, store); return Ok(false); }
-            Requests => { self.open_run_details(details::Page::Requests, store); return Ok(false); }
-            UsageAccounting => { self.open_run_details(details::Page::Accounting, store); return Ok(false); }
-            DetailsBack => { self.back_run_details(store); return Ok(false); }
+            Technical => {
+                self.open_run_details(details::Page::Technical, store);
+                return Ok(false);
+            }
+            Requests => {
+                self.open_run_details(details::Page::Requests, store);
+                return Ok(false);
+            }
+            UsageAccounting => {
+                self.open_run_details(details::Page::Accounting, store);
+                return Ok(false);
+            }
+            DetailsBack => {
+                self.back_run_details(store);
+                return Ok(false);
+            }
             OpenRequest => {
-                if self.details.selected_call().is_some() { self.open_run_details(details::Page::Request, store); }
+                if self.details.selected_call().is_some() {
+                    self.open_run_details(details::Page::Request, store);
+                }
                 return Ok(false);
             }
             UsageRequest(index) => {
                 if self.details.page == Some(details::Page::Requests) {
-                    if let Some(call) = self.details.report.as_ref().and_then(|r|r.calls.get(index)) {
+                    if let Some(call) = self
+                        .details
+                        .report
+                        .as_ref()
+                        .and_then(|r| r.calls.get(index))
+                    {
                         self.details.selected = Some(call.id.clone());
                         self.open_run_details(details::Page::Request, store);
                     }
@@ -905,7 +1145,7 @@ impl App {
             Edit(i) => {
                 if i < self.edits.files.len() {
                     self.edits.index = i;
-                    self.edits.overview=false;
+                    self.edits.overview = false;
                     self.edits.select(0);
                     self.focus = Focus::Detail;
                     self.inspector_open = true;
@@ -914,9 +1154,11 @@ impl App {
                 return Ok(false);
             }
             Session(i) => {
-                if self.shell.sessions && i<self.navigation.candidates.len() {
-                    self.navigation.index=i;self.navigation.selected=Some(self.navigation.candidates[i].id.clone());
-                    self.searching=false;self.focus=Focus::Sessions;
+                if self.shell.sessions && i < self.navigation.candidates.len() {
+                    self.navigation.index = i;
+                    self.navigation.selected = Some(self.navigation.candidates[i].id.clone());
+                    self.searching = false;
+                    self.focus = Focus::Sessions;
                 }
                 return Ok(false);
             }
@@ -1072,16 +1314,28 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
     );
     // Primary action emphasis is independent from keyboard focus.
     let keyboard_focus = focused;
-    let active_overview=action==Action::Overview && app.result_open && app.view==View::Conversation && !app.blocking_surface();
+    let active_overview = action == Action::Overview
+        && app.result_open
+        && app.view == View::Conversation
+        && !app.blocking_surface();
     let base = if keyboard_focus {
         Style::default()
             .fg(theme::BACKGROUND)
             .bg(theme::FOCUS)
             .add_modifier(Modifier::BOLD)
-    } else if matches!(action,Action::ReviewPermission|Action::ReviewProviderRetry) {
-        Style::default().fg(theme::ATTENTION).bg(theme::PANEL).add_modifier(Modifier::BOLD)
+    } else if matches!(
+        action,
+        Action::ReviewPermission | Action::ReviewProviderRetry
+    ) {
+        Style::default()
+            .fg(theme::ATTENTION)
+            .bg(theme::PANEL)
+            .add_modifier(Modifier::BOLD)
     } else if active_overview {
-        Style::default().fg(theme::FOCUS).bg(theme::PANEL).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme::FOCUS)
+            .bg(theme::PANEL)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
             .fg(if primary { theme::FOCUS } else { theme::TEXT })
@@ -1127,14 +1381,38 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
             Action::GiveInstructions => "Compose",
             Action::RecoverOwner => "Recover",
             Action::WriteGuidance => "Recovery",
-            Action::Report => if available>=8 {"[o] Read"}else{"[o]"},
+            Action::Report => {
+                if available >= 8 {
+                    "[o] Read"
+                } else {
+                    "[o]"
+                }
+            }
             Action::ResultEvidence => "[e]",
             Action::Compose => "[i]",
-            Action::More => if available>=8 {"[.] More"}else{"[.]"},
+            Action::More => {
+                if available >= 8 {
+                    "[.] More"
+                } else {
+                    "[.]"
+                }
+            }
             Action::Versions => "[v]",
             Action::Provenance => "[p]",
-            Action::ReviewEdits => if available>=9{"[3] Edits"}else{"[3]"},
-            Action::Open => if available>=12{"[Enter] Open"}else{"[Enter]"},
+            Action::ReviewEdits => {
+                if available >= 9 {
+                    "[3] Edits"
+                } else {
+                    "[3]"
+                }
+            }
+            Action::Open => {
+                if available >= 12 {
+                    "[Enter] Open"
+                } else {
+                    "[Enter]"
+                }
+            }
             Action::Close => "[Esc]",
             Action::Mouse => "Mouse",
             _ => action.label(),
@@ -1155,12 +1433,18 @@ pub(super) fn button(frame: &mut Frame, app: &App, area: Rect, action: Action, f
         paragraph = paragraph.block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_type(if active_overview{ratatui::widgets::BorderType::Double}else{ratatui::widgets::BorderType::Rounded})
-                .border_style(Style::default().fg(if focused || primary || active_overview {
-                    theme::FOCUS
+                .border_type(if active_overview {
+                    ratatui::widgets::BorderType::Double
                 } else {
-                    theme::BORDER
-                })),
+                    ratatui::widgets::BorderType::Rounded
+                })
+                .border_style(
+                    Style::default().fg(if focused || primary || active_overview {
+                        theme::FOCUS
+                    } else {
+                        theme::BORDER
+                    }),
+                ),
         );
     }
     frame.render_widget(paragraph, area);
@@ -1276,7 +1560,8 @@ mod tests {
             answers,
             finished,
         });
-        app.approval = Some(ApprovalPrompt { review: None,
+        app.approval = Some(ApprovalPrompt {
+            review: None,
             command: Some("ls".into()),
             content: "Scope: exact command".into(),
             mode: ApprovalMode::Human,
@@ -1359,7 +1644,8 @@ mod tests {
             answers,
             finished,
         });
-        app.approval = Some(ApprovalPrompt { review: None,
+        app.approval = Some(ApprovalPrompt {
+            review: None,
             command: None,
             content: "First".into(),
             mode: ApprovalMode::Human,
@@ -1462,7 +1748,7 @@ mod tests {
     fn toolbar_and_more_are_reachable_without_function_keys_and_do_not_submit_on_focus() {
         let root = tempfile::tempdir().unwrap();
         let store = Store::open(root.path()).unwrap();
-        let session=store.create("demo","Workspace goal","work").unwrap();
+        let session = store.create("demo", "Workspace goal", "work").unwrap();
         let mut app = App::new(Some(&session.id));
         app.refresh(&store).unwrap();
         key(&mut app, root.path(), &store, KeyCode::BackTab);

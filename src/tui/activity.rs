@@ -1,7 +1,6 @@
 //! Recorded activity presentation and evidence inspection.
 use super::*;
 
-
 impl App {
     pub(super) fn inspect_blocker(&mut self) {
         self.attention_return = true;
@@ -319,7 +318,7 @@ fn draw_content(
             area,
         );
     } else {
-        let right=[ratatui::layout::Rect::default(),area];
+        let right = [ratatui::layout::Rect::default(), area];
         if show_detail {
             let detail = app.detail();
             let title = if app.diff.is_some() {
@@ -425,8 +424,16 @@ fn draw_content(
                 .highlight_symbol("▶ ")
                 .highlight_style(
                     Style::default()
-                        .fg(if app.shell.sessions{theme::MUTED}else{Color::Black})
-                        .bg(if app.shell.sessions{theme::PANEL}else{Color::Cyan})
+                        .fg(if app.shell.sessions {
+                            theme::MUTED
+                        } else {
+                            Color::Black
+                        })
+                        .bg(if app.shell.sessions {
+                            theme::PANEL
+                        } else {
+                            Color::Cyan
+                        })
                         .add_modifier(Modifier::BOLD),
                 );
             let mut selected = ListState::default();

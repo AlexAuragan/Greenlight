@@ -16,13 +16,39 @@ impl App {
         let (label, text) = if self.help {
             ("keyboard help".into(), HELP.into())
         } else if self.shell.sessions {
-            ("session browser snapshot · candidates only".into(),format!("Session candidates · query {}\n{}",self.session_query,self.navigation.candidates.iter().map(|s|format!("{} · {} · {}",s.goal,s.status,s.current_step)).collect::<Vec<_>>().join("\n")))
+            (
+                "session browser snapshot · candidates only".into(),
+                format!(
+                    "Session candidates · query {}\n{}",
+                    self.session_query,
+                    self.navigation
+                        .candidates
+                        .iter()
+                        .map(|s| format!("{} · {} · {}", s.goal, s.status, s.current_step))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            )
         } else if self.human_review().is_some() {
-            ("human review · selected recorded evidence".into(),self.review_document_text().unwrap_or_default())
+            (
+                "human review · selected recorded evidence".into(),
+                self.review_document_text().unwrap_or_default(),
+            )
         } else if let Some(text) = &self.diagnostic {
             ("diagnostic".into(), text.clone())
         } else if let Some(page) = self.details.page {
-            (format!("{page:?} · selected session/branch snapshot"), if page==details::Page::Conversation {self.details.dump.as_ref().map(|d|d.markdown()).unwrap_or_else(||self.details.text.clone())}else{self.details.text.clone()})
+            (
+                format!("{page:?} · selected session/branch snapshot"),
+                if page == details::Page::Conversation {
+                    self.details
+                        .dump
+                        .as_ref()
+                        .map(|d| d.markdown())
+                        .unwrap_or_else(|| self.details.text.clone())
+                } else {
+                    self.details.text.clone()
+                },
+            )
         } else if let Some(text) = &self.context_detail {
             ("attempt context".into(), text.clone())
         } else if let Some(browser) = &self.artifact_browser {

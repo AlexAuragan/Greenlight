@@ -255,7 +255,26 @@ impl SessionWorkspace {
                 .find_map(|(id, step, kind, _)| {
                     if *id > start && step == &s.current_step {
                         match kind.as_str() {
-                            "verification.passed" => Some(if history.iter().any(|e|e.0>start && e.1==s.current_step && e.2=="verification.none") && !history.iter().any(|e|e.0>start && e.1==s.current_step && matches!(e.2.as_str(),"verification.command"|"verification.agent"|"verification.human")) {"no checks required (policy accepted)"}else{"passed"}),
+                            "verification.passed" => Some(
+                                if history.iter().any(|e| {
+                                    e.0 > start
+                                        && e.1 == s.current_step
+                                        && e.2 == "verification.none"
+                                }) && !history.iter().any(|e| {
+                                    e.0 > start
+                                        && e.1 == s.current_step
+                                        && matches!(
+                                            e.2.as_str(),
+                                            "verification.command"
+                                                | "verification.agent"
+                                                | "verification.human"
+                                        )
+                                }) {
+                                    "no checks required (policy accepted)"
+                                } else {
+                                    "passed"
+                                },
+                            ),
                             "verification.failed" => Some("failed"),
                             _ => None,
                         }

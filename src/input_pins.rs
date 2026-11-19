@@ -24,9 +24,13 @@ pub(crate) struct Approval {
 }
 
 pub(crate) fn validate_recorded_event(kind: &str, raw: &str) -> Result<()> {
-    if kind=="human.approved" {
-        if !raw.is_empty() { serde_json::from_str::<Approval>(raw)?; }
-    } else { serde_json::from_str::<InputManifest>(raw)?; }
+    if kind == "human.approved" {
+        if !raw.is_empty() {
+            serde_json::from_str::<Approval>(raw)?;
+        }
+    } else {
+        serde_json::from_str::<InputManifest>(raw)?;
+    }
     Ok(())
 }
 
@@ -381,7 +385,11 @@ mod tests {
             crate::tui_actions::resume(root.path().into(), session.id.clone(), String::new());
         let prompt = fresh.prompts.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(prompt.content.contains("EDITED_PLAN"));
-        fresh.cancel_retry.as_ref().unwrap().store(true, std::sync::atomic::Ordering::SeqCst);
+        fresh
+            .cancel_retry
+            .as_ref()
+            .unwrap()
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         fresh.answers.send("y".into()).unwrap();
         fresh
             .finished
@@ -437,7 +445,10 @@ mod tests {
         store.switch_branch(&mut state, &branch, "approve").unwrap();
         let gate = crate::tui_actions::resume(root.path().into(), state.id.clone(), String::new());
         gate.prompts.recv_timeout(Duration::from_secs(5)).unwrap();
-        gate.cancel_retry.as_ref().unwrap().store(true, std::sync::atomic::Ordering::SeqCst);
+        gate.cancel_retry
+            .as_ref()
+            .unwrap()
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         gate.answers.send("y".into()).unwrap();
         gate.finished
             .recv_timeout(Duration::from_secs(5))
@@ -456,7 +467,7 @@ mod tests {
                 ]
                 .into(),
                 requests: Vec::new(),
-            ..Default::default()
+                ..Default::default()
             },
         )));
         tokio::runtime::Runtime::new()

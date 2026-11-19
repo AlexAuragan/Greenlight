@@ -641,14 +641,31 @@ mod tests {
     }
     #[test]
     fn blocked_provider_has_a_direct_continue_action_but_rechecks_changed_evidence() {
-        let (root,store,session,mut app)=fixture();
-        failure(&store,&session,"coding",ProviderKind::RateLimit);app.refresh(&store).unwrap();
-        app.blocker_card=true;app.clear_diagnostic();
-        assert!(app.footer_actions().contains(&shell::Action::ResumeProvider));
-        assert!(app.attention.as_ref().unwrap().impact.contains("new attempt"));
-        store.event(&session,Some(&session.current_step),"model.call-started","superseding-call").unwrap();
-        app.activate(shell::Action::ResumeProvider,root.path(),&store).unwrap();
-        assert!(app.runner.is_none());assert!(app.notice.contains("state changed"));
+        let (root, store, session, mut app) = fixture();
+        failure(&store, &session, "coding", ProviderKind::RateLimit);
+        app.refresh(&store).unwrap();
+        app.blocker_card = true;
+        app.clear_diagnostic();
+        assert!(app
+            .footer_actions()
+            .contains(&shell::Action::ResumeProvider));
+        assert!(app
+            .attention
+            .as_ref()
+            .unwrap()
+            .impact
+            .contains("new attempt"));
+        store
+            .event(
+                &session,
+                Some(&session.current_step),
+                "model.call-started",
+                "superseding-call",
+            )
+            .unwrap();
+        app.activate(shell::Action::ResumeProvider, root.path(), &store)
+            .unwrap();
+        assert!(app.runner.is_none());
+        assert!(app.notice.contains("state changed"));
     }
-
 }

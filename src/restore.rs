@@ -31,7 +31,8 @@ pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let p = Path::new(relative);
     if p.as_os_str().is_empty()
         || p.is_absolute()
-        || p.components().any(|part| !matches!(part, Component::Normal(_)))
+        || p.components()
+            .any(|part| !matches!(part, Component::Normal(_)))
     {
         bail!("unsafe restore path: {relative}");
     }
@@ -88,9 +89,15 @@ impl RestorePlan {
     }
 
     /// A file revert must not be blocked by drift in unrelated files.
-    pub fn prepare_paths(root: &Path, store: &Store, session: &Session, event: i64, paths: Option<&[String]>) -> Result<Self> {
+    pub fn prepare_paths(
+        root: &Path,
+        store: &Store,
+        session: &Session,
+        event: i64,
+        paths: Option<&[String]>,
+    ) -> Result<Self> {
         store.ensure_no_pending_writes()?;
-        let history=store.history(session)?;
+        let history = store.history(session)?;
         if !history.iter().any(|(id, _, _, _)| *id == event) {
             bail!("event #{event} is not in the active branch ancestry");
         }
@@ -100,7 +107,9 @@ impl RestorePlan {
         // A gap between writes indicates an out-of-band change.
         let mut states: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
         for edit in store.workspace_edits(session)? {
-            if paths.is_some_and(|paths| !paths.contains(&edit.path)) { continue; }
+            if paths.is_some_and(|paths| !paths.contains(&edit.path)) {
+                continue;
+            }
             let entry = states
                 .entry(edit.path.clone())
                 .or_insert_with(|| (edit.before.clone(), edit.before.clone()));
@@ -137,10 +146,18 @@ impl RestorePlan {
                 );
             }
             if current != desired {
-                items.push(RestoreItem { relative, current, desired });
+                items.push(RestoreItem {
+                    relative,
+                    current,
+                    desired,
+                });
             }
         }
-        Ok(Self { event, items, history_cutoff:history.last().map(|e|e.0) })
+        Ok(Self {
+            event,
+            items,
+            history_cutoff: history.last().map(|e| e.0),
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -160,12 +177,12 @@ impl RestorePlan {
             };
             output.push_str(&format!("\n[{operation}: {}]\n", item.relative));
             let mut diff = changes::unified(
-                &item.relative, item.current.as_deref(), item.desired.as_deref().unwrap_or(""),
+                &item.relative,
+                item.current.as_deref(),
+                item.desired.as_deref().unwrap_or(""),
             );
             if item.desired.is_none() {
-                diff = diff.replacen(
-                    &format!("+++ b/{}\n", item.relative), "+++ /dev/null\n", 1,
-                );
+                diff = diff.replacen(&format!("+++ b/{}\n", item.relative), "+++ /dev/null\n", 1);
             }
             output.push_str(&diff);
         }
@@ -188,12 +205,18 @@ impl RestorePlan {
         self.apply_inner(root, store, session, false)
     }
 
-    fn apply_inner(self, root: &Path, store: &Store, session: &Session, verbose: bool) -> Result<()> {
+    fn apply_inner(
+        self,
+        root: &Path,
+        store: &Store,
+        session: &Session,
+        verbose: bool,
+    ) -> Result<()> {
         let _session_lock = store.lock_idle_session(&session.id)?;
         if store.session(&session.id)?.active_branch != session.active_branch {
             bail!("session branch changed since restore preview");
         }
-        if store.history(session)?.last().map(|e|e.0)!=self.history_cutoff {
+        if store.history(session)?.last().map(|e| e.0) != self.history_cutoff {
             bail!("restore cancelled: history changed since preview; review a fresh preview");
         }
         let _lock = store.native_write_lock()?;
@@ -210,32 +233,44 @@ impl RestorePlan {
             let mut changed = false;
             let result: Result<()> = (|| {
                 if snapshot(root, &item.relative)? != item.current {
-                    bail!("{} changed during restore",item.relative);
+                    bail!("{} changed during restore", item.relative);
                 }
                 let path = checked_path(root, &item.relative)?;
                 match &item.desired {
                     Some(content) => atomic_write(&path, content)?,
-                    None => fs::remove_file(&path).with_context(|| format!("deleting {}",item.relative))?,
+                    None => fs::remove_file(&path)
+                        .with_context(|| format!("deleting {}", item.relative))?,
                 }
                 changed = true;
-                store.add_restoration(session,&item.relative,item.current.as_deref(),item.desired.as_deref())?;
+                store.add_restoration(
+                    session,
+                    &item.relative,
+                    item.current.as_deref(),
+                    item.desired.as_deref(),
+                )?;
                 Ok(())
             })();
             if let Err(error) = result {
                 let changed_count = applied + usize::from(changed);
                 let message = format!("Restore failed after {changed_count} file(s) changed ({applied} journaled), at {}: {error:#}. Filesystem may be partially restored. Inspect workspace and history; do not retry blindly.",item.relative);
                 let payload = serde_json::json!({"changed_files":changed_count,"journaled_files":applied,"path":item.relative,"error":message}).to_string();
-                if let Err(log_error) = store.event(session,None,"workspace.restore-failed",&payload) {
+                if let Err(log_error) =
+                    store.event(session, None, "workspace.restore-failed", &payload)
+                {
                     bail!("{message} Could not persist restore failure: {log_error:#}");
                 }
                 bail!("{message}");
             }
             applied += 1;
-            if verbose { println!("[restored] {}", item.relative); }
+            if verbose {
+                println!("[restored] {}", item.relative);
+            }
         }
         store.event(session,None,"workspace.restore-completed",&format!("{applied} tracked file(s) updated"))
             .with_context(||format!("{applied} files restored and journaled, but completion could not be recorded; inspect history"))?;
-        if verbose { println!("Restore complete: {applied} tracked file(s) updated."); }
+        if verbose {
+            println!("Restore complete: {applied} tracked file(s) updated.");
+        }
         Ok(())
     }
 }
@@ -284,15 +319,21 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let session = store.create("test", "goal", "step").unwrap();
         let file = root.path().join("file.txt");
-        store.add_change(&session, "step", "file.txt", Some("a\n"), "b\n").unwrap();
+        store
+            .add_change(&session, "step", "file.txt", Some("a\n"), "b\n")
+            .unwrap();
         let first = store.history(&session).unwrap().last().unwrap().0;
-        store.add_change(&session, "step", "file.txt", Some("b\n"), "c\n").unwrap();
+        store
+            .add_change(&session, "step", "file.txt", Some("b\n"), "c\n")
+            .unwrap();
         fs::write(&file, "c\n").unwrap();
         let plan = RestorePlan::prepare(root.path(), &store, &session, first).unwrap();
         assert_eq!(plan.items.len(), 1);
         plan.apply(root.path(), &store, &session).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "b\n");
-        assert!(RestorePlan::prepare(root.path(), &store, &session, first).unwrap().is_empty());
+        assert!(RestorePlan::prepare(root.path(), &store, &session, first)
+            .unwrap()
+            .is_empty());
         assert_eq!(store.workspace_edits(&session).unwrap().len(), 3);
     }
 
@@ -302,12 +343,20 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let session = store.create("test", "goal", "step").unwrap();
         let start = store.history(&session).unwrap()[0].0;
-        store.add_change(&session, "step", "new.txt", None, "created\n").unwrap();
+        store
+            .add_change(&session, "step", "new.txt", None, "created\n")
+            .unwrap();
         fs::write(root.path().join("new.txt"), "created\n").unwrap();
         let plan = RestorePlan::prepare(root.path(), &store, &session, start).unwrap();
         plan.apply(root.path(), &store, &session).unwrap();
         assert!(!root.path().join("new.txt").exists());
-        assert!(store.workspace_edits(&session).unwrap().last().unwrap().after.is_none());
+        assert!(store
+            .workspace_edits(&session)
+            .unwrap()
+            .last()
+            .unwrap()
+            .after
+            .is_none());
     }
 
     #[test]
@@ -316,10 +365,15 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let session = store.create("test", "goal", "step").unwrap();
         let start = store.history(&session).unwrap()[0].0;
-        store.add_change(&session, "step", "file.txt", Some("a\n"), "b\n").unwrap();
+        store
+            .add_change(&session, "step", "file.txt", Some("a\n"), "b\n")
+            .unwrap();
         fs::write(root.path().join("file.txt"), "manual\n").unwrap();
         assert!(RestorePlan::prepare(root.path(), &store, &session, start).is_err());
-        assert_eq!(fs::read_to_string(root.path().join("file.txt")).unwrap(), "manual\n");
+        assert_eq!(
+            fs::read_to_string(root.path().join("file.txt")).unwrap(),
+            "manual\n"
+        );
     }
 
     #[test]
@@ -341,13 +395,24 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let store = Store::open(root.path()).unwrap();
         let mut session = store.create("test", "goal", "step").unwrap();
-        let first = store.add_change(&session, "step", "a.txt", Some("old"), "one").unwrap();
-        store.add_change(&session, "step", "a.txt", Some("one"), "two").unwrap();
+        let first = store
+            .add_change(&session, "step", "a.txt", Some("old"), "one")
+            .unwrap();
+        store
+            .add_change(&session, "step", "a.txt", Some("one"), "two")
+            .unwrap();
         fs::write(root.path().join("a.txt"), "two").unwrap();
         RestorePlan::prepare(root.path(), &store, &session, first)
-            .unwrap().apply(root.path(), &store, &session).unwrap();
+            .unwrap()
+            .apply(root.path(), &store, &session)
+            .unwrap();
         store.fork(&mut session, first, "step").unwrap();
-        assert!(RestorePlan::prepare(root.path(), &store, &session, first).unwrap().is_empty());
-        assert_eq!(fs::read_to_string(root.path().join("a.txt")).unwrap(), "one");
+        assert!(RestorePlan::prepare(root.path(), &store, &session, first)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            fs::read_to_string(root.path().join("a.txt")).unwrap(),
+            "one"
+        );
     }
 }

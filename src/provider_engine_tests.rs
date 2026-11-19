@@ -425,64 +425,132 @@ async fn any_verification_still_accepts_later_check_after_a_genuine_rejection() 
 
 #[tokio::test]
 async fn conversation_dump_matches_exact_dispatched_messages_for_every_model_purpose() {
-    let (_root,engine,s)=fixture(vec![success(),success(),success(),success()]);
-    let messages=vec![serde_json::json!({"role":"system","content":"protocol"}),serde_json::json!({"role":"user","content":"Tool error: shell is disabled\nRetry with read"})];
-    for purpose in ["coding","verification","deviation-detector","manager"] {
-        engine.model_call(&s,"work",purpose,"fixture",&messages).await.unwrap();
+    let (_root, engine, s) = fixture(vec![success(), success(), success(), success()]);
+    let messages = vec![
+        serde_json::json!({"role":"system","content":"protocol"}),
+        serde_json::json!({"role":"user","content":"Tool error: shell is disabled\nRetry with read"}),
+    ];
+    for purpose in ["coding", "verification", "deviation-detector", "manager"] {
+        engine
+            .model_call(&s, "work", purpose, "fixture", &messages)
+            .await
+            .unwrap();
     }
-    let dump=crate::conversation_dump::Dump::load(&engine.store,&s.id,None,false).unwrap();
-    let recorded=dump.events.iter().filter(|e|e.kind=="model.request").map(|e|{
-        let event:serde_json::Value=serde_json::from_str(&e.data).unwrap();
-        event["messages"].as_array().unwrap().iter().map(|id|dump.messages[id.as_str().unwrap()].clone()).collect::<Vec<_>>()
-    }).collect::<Vec<_>>();
-    assert_eq!(recorded,engine.provider.script.as_ref().unwrap().lock().unwrap().requests);
-    assert_eq!(dump.events.iter().filter(|e|e.kind=="model.response").count(),4);
-    assert_eq!(dump.messages.len(),3);
-    assert!(!dump.diagnostics.iter().any(|d|d.contains("Legacy run") || d.contains("no response trace")));
+    let dump = crate::conversation_dump::Dump::load(&engine.store, &s.id, None, false).unwrap();
+    let recorded = dump
+        .events
+        .iter()
+        .filter(|e| e.kind == "model.request")
+        .map(|e| {
+            let event: serde_json::Value = serde_json::from_str(&e.data).unwrap();
+            event["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| dump.messages[id.as_str().unwrap()].clone())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        recorded,
+        engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+    );
+    assert_eq!(
+        dump.events
+            .iter()
+            .filter(|e| e.kind == "model.response")
+            .count(),
+        4
+    );
+    assert_eq!(dump.messages.len(), 3);
+    assert!(!dump
+        .diagnostics
+        .iter()
+        .any(|d| d.contains("Legacy run") || d.contains("no response trace")));
 }
 
 #[tokio::test]
 async fn failed_trace_persistence_prevents_http_dispatch() {
-    let (root,engine,s)=fixture(vec![success()]);
-    let blobs=engine.store.directory.join("blobs");
-    if blobs.exists() {std::fs::remove_dir(&blobs).unwrap();}
+    let (root, engine, s) = fixture(vec![success()]);
+    let blobs = engine.store.directory.join("blobs");
+    if blobs.exists() {
+        std::fs::remove_dir(&blobs).unwrap();
+    }
     #[cfg(unix)]
-    std::os::unix::fs::symlink(root.path(),&blobs).unwrap();
+    std::os::unix::fs::symlink(root.path(), &blobs).unwrap();
     #[cfg(not(unix))]
-    std::fs::write(&blobs,"not a directory").unwrap();
-    let error=engine.model_call(&s,"work","coding","fixture",&[serde_json::json!({"role":"user","content":"test"})]).await.unwrap_err();
+    std::fs::write(&blobs, "not a directory").unwrap();
+    let error = engine
+        .model_call(
+            &s,
+            "work",
+            "coding",
+            "fixture",
+            &[serde_json::json!({"role":"user","content":"test"})],
+        )
+        .await
+        .unwrap_err();
     assert!(format!("{error:#}").contains("request not sent"));
-    assert!(engine.provider.script.as_ref().unwrap().lock().unwrap().requests.is_empty());
-    let report=engine.store.usage_report(&s,Scope::Session).unwrap();
-    assert_eq!(report.calls[0].status,"not-sent");
+    assert!(engine
+        .provider
+        .script
+        .as_ref()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .requests
+        .is_empty());
+    let report = engine.store.usage_report(&s, Scope::Session).unwrap();
+    assert_eq!(report.calls[0].status, "not-sent");
 }
 
 #[test]
 fn manual_provider_retries_preserve_all_call_purposes_and_stop_does_not_dispatch() {
-    for (purpose,status,body,retry) in [
-        ("verification",503,"{}",true),
-        ("deviation-detector",401,"{}",true),
-        ("coding",402,"{}",true),
-        ("coding",429,"{}",false),
-        ("coding",429,r#"{"usage":{"prompt_tokens":12}}"#,false),
+    for (purpose, status, body, retry) in [
+        ("verification", 503, "{}", true),
+        ("deviation-detector", 401, "{}", true),
+        ("coding", 402, "{}", true),
+        ("coding", 429, "{}", false),
+        ("coding", 429, r#"{"usage":{"prompt_tokens":12}}"#, false),
     ] {
-        let failure=Completion::parse(status,body).unwrap();
-        let (_root,mut engine,s)=fixture(vec![failure,success()]);
-        engine.interactive_provider_retry=true;
-        let (pt,requests)=std::sync::mpsc::channel();let (answers,rx)=std::sync::mpsc::channel();engine.tools.use_tui(pt,rx);
-        let script=engine.provider.script.clone().unwrap();
-        let session=s.clone();let messages=vec![serde_json::json!({"role":"user","content":"exact original messages"})];
-        let worker=std::thread::spawn(move||{
-            let result=tokio::runtime::Runtime::new().unwrap().block_on(engine.model_call(&s,"work",purpose,"fixture",&messages));
-            (result,engine)
+        let failure = Completion::parse(status, body).unwrap();
+        let (_root, mut engine, s) = fixture(vec![failure, success()]);
+        engine.interactive_provider_retry = true;
+        let (pt, requests) = std::sync::mpsc::channel();
+        let (answers, rx) = std::sync::mpsc::channel();
+        engine.tools.use_tui(pt, rx);
+        let script = engine.provider.script.clone().unwrap();
+        let session = s.clone();
+        let messages = vec![serde_json::json!({"role":"user","content":"exact original messages"})];
+        let worker = std::thread::spawn(move || {
+            let result = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(engine.model_call(&s, "work", purpose, "fixture", &messages));
+            (result, engine)
         });
-        let prompt=requests.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
-        assert_eq!(prompt.mode,crate::tools::ApprovalMode::ProviderRetry);
+        let prompt = requests
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        assert_eq!(prompt.mode, crate::tools::ApprovalMode::ProviderRetry);
         assert!(prompt.content.contains("same request"));
-        if status==503 || body.contains("usage") {assert!(prompt.content.contains("billing remains uncertain"));}
-        answers.send(if retry {"y"}else{"n"}.into()).unwrap();
-        let (result,engine)=worker.join().unwrap();assert_eq!(result.is_ok(),retry);
-        let script=script.lock().unwrap();assert_eq!(script.requests.len(),if retry{2}else{1});if retry{assert_eq!(script.requests[0],script.requests[1]);}
-        assert_eq!(engine.store.attempts(&session).unwrap().len(),1);
+        if status == 503 || body.contains("usage") {
+            assert!(prompt.content.contains("billing remains uncertain"));
+        }
+        answers.send(if retry { "y" } else { "n" }.into()).unwrap();
+        let (result, engine) = worker.join().unwrap();
+        assert_eq!(result.is_ok(), retry);
+        let script = script.lock().unwrap();
+        assert_eq!(script.requests.len(), if retry { 2 } else { 1 });
+        if retry {
+            assert_eq!(script.requests[0], script.requests[1]);
+        }
+        assert_eq!(engine.store.attempts(&session).unwrap().len(), 1);
     }
 }
