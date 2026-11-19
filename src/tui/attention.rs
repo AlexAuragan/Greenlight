@@ -351,6 +351,19 @@ pub(super) fn draw(
                 .add_modifier(Modifier::BOLD),
         ),
     ];
+    if let Some(session) = app
+        .session()
+        .filter(|s| matches!(s.status.as_str(), "blocked" | "interrupted"))
+    {
+        let notice = app.edits.retained_changes_notice(session);
+        lines.push(Line::default());
+        lines.extend(
+            notice
+                .lines()
+                .map(|line| Line::styled(line.to_owned(), Style::default().fg(theme::ATTENTION))),
+        );
+        lines.push(Line::default());
+    }
     let mut chars = reason.chars();
     let preview = chars
         .by_ref()

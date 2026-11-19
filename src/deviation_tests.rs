@@ -639,3 +639,71 @@ async fn missing_action_fields_are_repaired_and_ambiguous_fences_never_execute()
         }));
     }
 }
+
+#[tokio::test]
+async fn repeated_protocol_failure_pauses_without_dispatching_tools() {
+    let mut h = Harness::new(PAUSE, vec![Ok("invalid"), Ok("invalid"), Ok("invalid")]);
+    h.run().await;
+    h.assert_calls(3);
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("protocol.repair-stopped"), 1);
+    assert_eq!(h.count("tool.request"), 0);
+}
+
+#[tokio::test]
+async fn conversation_budget_stops_before_a_provider_dispatch() {
+    let mut h = Harness::new(PAUSE, vec![]);
+    h.engine.cfg.session.max_conversation_bytes = 1;
+    h.run().await;
+    h.assert_calls(0);
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("context.limit-reached"), 1);
+    assert_eq!(h.count("model.request"), 0);
+}
+
+#[tokio::test]
+async fn previous_draft_is_reference_only_and_does_not_satisfy_new_outputs() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: []\noutputs:\n  required: [plan.md]"),
+    )
+    .unwrap();
+    let session = h.engine.store.session(&h.session).unwrap();
+    h.engine
+        .store
+        .add_artifact(&session, "step", "plan.md", "OLD_DRAFT_EVIDENCE")
+        .unwrap();
+    h.run().await;
+    assert_eq!(h.status(), "blocked");
+    let script = h.script.lock().unwrap();
+    let context = serde_json::to_string(&script.requests).unwrap();
+    assert!(context.contains("OLD_DRAFT_EVIDENCE"));
+    assert!(context.contains("does not satisfy this attempt"));
+    assert!(context.contains("Required artifact outputs"));
+    assert!(context.contains("Allowed deviation IDs"));
+}
+
+#[tokio::test]
+async fn growing_conversation_stops_after_preserving_registered_artifact() {
+    let large = format!(
+        "action: artifact\nname: notes.md\ncontent: {}",
+        "x".repeat(40_000)
+    );
+    let mut h = Harness::new(PAUSE, vec![Ok(&large)]);
+    h.engine.cfg.session.max_conversation_bytes = 30_000;
+    h.run().await;
+    h.assert_calls(1);
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("context.limit-reached"), 1);
+    let session = h.engine.store.session(&h.session).unwrap();
+    assert_eq!(
+        h.engine.store.artifacts(&session, "step").unwrap()[0]
+            .content
+            .len(),
+        40_000
+    );
+}

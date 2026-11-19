@@ -863,6 +863,46 @@ impl Engine {
                 artifact.name, artifact.event_id, artifact.content
             ));
         }
+        context.push_str(&crate::agent_protocol::step_contract(step));
+        let mut remaining_draft_bytes = 24_000usize.min(
+            self.cfg
+                .session
+                .max_artifact_bytes
+                .saturating_sub(context.len() + 4096),
+        );
+        let mut drafts = self.store.artifacts(s, &step.id)?;
+        drafts.sort_by_key(|draft| std::cmp::Reverse(draft.event_id));
+        for draft in drafts
+            .iter()
+            .filter(|draft| !inputs.iter().any(|input| input.event_id == draft.event_id))
+            .take(3)
+        {
+            context.push_str(&format!("\nPrevious-attempt draft reference: {} · event #{}\nUnapproved reference only; recheck against current source and approved inputs. It does not satisfy this attempt's outputs or carry approval.\n", draft.name, draft.event_id));
+            if draft.content.len() <= remaining_draft_bytes {
+                context.push_str(&draft.content);
+                context.push('\n');
+                remaining_draft_bytes -= draft.content.len();
+            } else {
+                context.push_str("Draft body omitted by the 24 KB reference budget; inspect the saved artifact rather than assuming its contents.\n");
+            }
+        }
+        let changed_paths: std::collections::BTreeSet<_> = self
+            .store
+            .history(s)?
+            .into_iter()
+            .filter(|(_, event_step, kind, _)| event_step == &step.id && kind == "file.changed")
+            .map(|(_, _, _, path)| path)
+            .collect();
+        if !changed_paths.is_empty() {
+            context.push_str("\nPreviously recorded native-write paths for this step (possibly later restored/manual-edited):\n");
+            for path in changed_paths.iter().take(20) {
+                context.push_str(&format!("- {path}\n"));
+            }
+            if changed_paths.len() > 20 {
+                context.push_str("Additional paths omitted; inspect Edits/history.\n");
+            }
+            context.push_str("Read current files before editing. These records are not a filesystem snapshot or verification result.\n");
+        }
         let default_tools = vec!["read".to_string(), "shell".to_string(), "write".to_string()];
         let tools = step.tools.as_deref().unwrap_or(&default_tools);
         context.push('\n');
@@ -876,9 +916,17 @@ impl Engine {
             json!({"role":"system","content":PROTOCOL}),
             json!({"role":"user","content":context}),
         ];
+        let mut repairs = crate::agent_protocol::Repairs::default();
         // Continue until the model finishes, reports a deviation, or execution fails/stops.
         // Legacy max_turns settings are accepted for compatibility, not enforced.
         loop {
+            let bytes = serde_json::to_vec(&messages)?.len();
+            if bytes > self.cfg.session.max_conversation_bytes {
+                let reason = format!("Prepared conversation is {bytes} bytes, exceeding session.max_conversation_bytes={}. Execution paused before another provider request; saved artifacts and applied edits remain available. Review inputs/drafts or increase the configured byte budget before continuing.", self.cfg.session.max_conversation_bytes);
+                self.store
+                    .event(s, Some(&step.id), "context.limit-reached", &reason)?;
+                bail!("{reason}");
+            }
             let raw = self
                 .model_call(s, &step.id, "coding", model, &messages)
                 .await?;
@@ -888,11 +936,19 @@ impl Engine {
             self.enforce_input_approvals(s, wf, step, &self.select_inputs(s, wf, step)?)?;
             messages.push(json!({"role":"assistant","content":raw}));
             let action = match parse_action(&raw) {
-                Ok(a) => a,
+                Ok(a) => {
+                    repairs.record(true);
+                    a
+                }
                 Err(e) => {
                     let result = crate::agent_protocol::correction(&e, tools);
                     self.store
                         .event(s, Some(&step.id), "protocol.error", &result)?;
+                    if let Some(reason) = repairs.record(false) {
+                        self.store
+                            .event(s, Some(&step.id), "protocol.repair-stopped", &reason)?;
+                        bail!("{reason}");
+                    }
                     messages.push(json!({"role":"user","content":result}));
                     continue;
                 }
@@ -936,7 +992,9 @@ impl Engine {
                         Err(anyhow!(
                             "tool {kind} is not enabled for this step (enabled: {}). This is a workflow restriction, not a protocol format error or proof that other tools are missing.",
                             tools.join(", ")
-                        ))
+                        ).context(if kind == "write" && action.path.as_ref().is_some_and(|path| step.outputs.required.contains(path)) {
+                            "This required output is an artifact: use action: artifact with its exact name and content. No project file is required, and artifact storage remains enabled."
+                        } else { "Use workflow-enabled operations or a configured deviation for a real blocker." }))
                     };
                     match execution {
                         Ok(result) => {

@@ -71,6 +71,12 @@ pub struct SessionConfig {
     pub max_turns_per_attempt: usize,
     #[serde(default = "default_artifact_bytes")]
     pub max_artifact_bytes: usize,
+    /// Full prepared coding conversation; execution pauses before exceeding this.
+    #[serde(default = "default_conversation_bytes")]
+    pub max_conversation_bytes: usize,
+}
+fn default_conversation_bytes() -> usize {
+    256_000
 }
 fn default_artifact_bytes() -> usize {
     100_000
@@ -80,6 +86,7 @@ impl Default for SessionConfig {
         Self {
             max_turns_per_attempt: 0,
             max_artifact_bytes: default_artifact_bytes(),
+            max_conversation_bytes: default_conversation_bytes(),
         }
     }
 }
@@ -249,6 +256,9 @@ pub fn load_config(root: &Path) -> Result<Config> {
         .is_some_and(|v| v.trim().is_empty())
     {
         bail!("manager model must not be empty");
+    }
+    if cfg.session.max_conversation_bytes == 0 {
+        bail!("max_conversation_bytes must be positive");
     }
     for metadata in cfg.provider.model_metadata.values() {
         metadata.validate()?;

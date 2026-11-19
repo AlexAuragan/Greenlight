@@ -61,6 +61,20 @@ pub(super) struct Edits {
     generation: Option<(String, String, Option<i64>)>,
 }
 impl Edits {
+    pub(super) fn retained_changes_notice(&self, session: &Session) -> String {
+        if self.error.is_some()
+            || !self
+                .generation
+                .as_ref()
+                .is_some_and(|g| g.0 == session.id && g.1 == session.active_branch)
+        {
+            return "Recorded change count unavailable · [3] Edits to inspect retained work."
+                .into();
+        }
+        let changed = self.files.iter().filter(|file| file.changed()).count();
+        let gaps = self.files.iter().filter(|file| file.gap).count();
+        format!("Work incomplete · {changed} file(s) with net recorded native changes{} · [3] Edits\nEdits apply as tools run; stopping does not roll them back or establish verification. Shell/manual changes are outside this count.", if gaps > 0 { format!(" · {gaps} history gap(s); inspect before retrying") } else { String::new() })
+    }
     pub fn load(&mut self, store: &Store, session: &Session) -> Result<()> {
         let history = store.history(session)?;
         let generation = (
@@ -600,4 +614,42 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         );
     }
     frame.render_widget(Paragraph::new("Keep saves review intent, not verification or tool approval.\nKept revision is not a live disk check; files are already applied.").style(Style::default().fg(theme::MUTED)).wrap(Wrap{trim:false}),panels[2]);
+}
+
+#[cfg(test)]
+mod retained_notice_tests {
+    use super::*;
+    #[test]
+    fn retained_counts_are_scoped_and_distinguish_restored_changes_and_gaps() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        let mut edits = Edits::default();
+        assert!(edits
+            .retained_changes_notice(&session)
+            .contains("unavailable"));
+        edits.generation = Some((session.id.clone(), session.active_branch.clone(), None));
+        edits.files = vec![File {
+            path: "clock.py".into(),
+            before: Some("old".into()),
+            after: Some("new".into()),
+            gap: false,
+            writes: 1,
+            revision: 1,
+            kept: false,
+        }];
+        assert!(edits
+            .retained_changes_notice(&session)
+            .contains("1 file(s)"));
+        edits.files[0].after = Some("old".into());
+        edits.files[0].gap = true;
+        let notice = edits.retained_changes_notice(&session);
+        assert!(notice.contains("0 file(s)"));
+        assert!(notice.contains("1 history gap(s)"));
+        let mut other = session.clone();
+        other.active_branch = "different".into();
+        assert!(edits
+            .retained_changes_notice(&other)
+            .contains("unavailable"));
+    }
 }

@@ -184,3 +184,12 @@ The [manager JSON interface](20-conversational-coordinator.md#manager-output-con
 Format feedback states that the rejected response attempted no tool, supplies the valid action names and a tool-specific syntax example, and asks for the original intended fields. A corrected request still goes through the step allowlist, host policy, approvals, private-path checks and sandbox. A disabled tool is a workflow restriction; denial is an authorization decision; execution errors can reflect paths, credentials or the sandbox. An execution error must not claim that nothing ran if it may have started. None of these establishes that all tools are missing.
 
 Previous model-authored artifacts claiming only `artifact` and `finish` exist are not authoritative capability declarations. Historical artifacts are retained unchanged; the current protocol and recorded outcomes govern a new attempt.
+
+
+## Bounded recovery and context
+
+Malformed action replies pause the attempt after three consecutive failures, or six failures among the latest twelve replies. Rejected actions never dispatch tools. Valid turns have no count limit. A leading orphan `</think>`, `</analysis>` or `</reasoning>` marker may precede an explicit YAML fence; unfinished thinking blocks and ambiguous multiple actions remain rejected.
+
+Each step receives the exact required artifact names and configured deviation IDs. Required reports use `action: artifact`, including when native project writes are disabled. On another attempt, up to three latest same-step artifacts can be supplied as unapproved draft references, with at most 24,000 bytes of bodies within the assembled-context budget. These references neither satisfy new outputs nor transfer approvals. Recorded native-write paths are hints to reread current files, not evidence of their current contents.
+
+`session.max_conversation_bytes` defaults to 256,000 bytes and must be positive. Before each coding-agent request, the runtime checks the serialized message list and pauses if it exceeds this budget. This is a byte guard, not a token count or adaptive compaction. Increase the configured budget or reduce inputs before starting another attempt. Artifacts, history and already-applied edits survive these pauses; pausing does not roll back source changes.

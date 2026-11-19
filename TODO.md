@@ -25,6 +25,10 @@ P0/P1 feature work is implemented on the feature branch; that is not a claim tha
 - [ ] **GL-016** — Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
 - [ ] **GL-017** — Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
 
+## Deferred sandbox follow-up
+
+- [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Deferred by the user after the clock-hover test.
+
 ## Later: scale and integrations
 
 - [ ] **GL-018** — Revisit full-workspace / multi-file atomic rollback only if measured drift and restoration failures justify the extra complexity; document the current restore's partial-error handling.

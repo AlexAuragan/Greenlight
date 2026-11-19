@@ -5,6 +5,7 @@ provider:
   max_tokens: 4096
 session:
   max_artifact_bytes: 100000
+  max_conversation_bytes: 256000
 permissions:
   shell: ask
   write: ask

@@ -23,6 +23,38 @@ pub fn tool_help(tools: &[String]) -> String {
     }
     text
 }
+/// Repair failures are bounded independently of productive agent/tool turns.
+#[derive(Default)]
+pub(crate) struct Repairs {
+    recent: std::collections::VecDeque<bool>,
+    consecutive: usize,
+}
+impl Repairs {
+    pub fn record(&mut self, valid: bool) -> Option<String> {
+        self.consecutive = if valid { 0 } else { self.consecutive + 1 };
+        self.recent.push_back(valid);
+        if self.recent.len() > 12 {
+            self.recent.pop_front();
+        }
+        let failures = self.recent.iter().filter(|valid| !**valid).count();
+        if !valid && (self.consecutive >= 3 || failures >= 6) {
+            Some(format!("Action-format recovery paused after {} consecutive failures / {failures} failures in the last {} responses. No rejected action was executed. Review the recorded replies and model/protocol compatibility before continuing; valid workflow turns have no turn limit.", self.consecutive, self.recent.len()))
+        } else {
+            None
+        }
+    }
+}
+
+pub(crate) fn step_contract(step: &crate::config::Step) -> String {
+    let deviations = step
+        .deviations
+        .iter()
+        .map(|rule| rule.id.as_str())
+        .collect::<Vec<_>>();
+    format!("\nExecution contract · step {}\nRequired artifact outputs: {}\nAllowed deviation IDs: {}\nRegister required outputs with action: artifact, name: the exact output name, and content: the document. These are harness artifacts; no project file is required for them. Native write edits project source and does not register an artifact.\nAfter all required artifacts are registered, finish the step. A disabled native write tool does not prevent artifact registration. Report only a configured deviation for an actual blocker.\nFor a feature plan, trace the actual visible/used caller and constructor chain before proposing edits; distinguish unused instances from displayed ones. Recheck integration and required arguments against the approved plan before source writes. Earlier draft notes do not override source evidence or approved inputs.\n", step.id,
+        serde_json::to_string(&step.outputs.required).unwrap(), serde_json::to_string(&deviations).unwrap())
+}
+
 pub fn correction(error: &anyhow::Error, tools: &[String]) -> String {
     let detail = format!("{error:#}");
     let mut excerpt = detail.chars().take(1200).collect::<String>();
@@ -35,6 +67,25 @@ pub fn correction(error: &anyhow::Error, tools: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repairs_bound_failures_without_limiting_productive_turns() {
+        let mut repairs = Repairs::default();
+        for _ in 0..1000 {
+            assert!(repairs.record(true).is_none());
+        }
+        assert!(repairs.record(false).is_none());
+        assert!(repairs.record(false).is_none());
+        assert!(repairs
+            .record(false)
+            .unwrap()
+            .contains("No rejected action was executed"));
+        let mut repairs = Repairs::default();
+        for _ in 0..5 {
+            assert!(repairs.record(false).is_none());
+            assert!(repairs.record(true).is_none());
+        }
+        assert!(repairs.record(false).is_some());
+    }
     #[test]
     fn every_prompt_example_is_a_separate_accepted_mapping() {
         let examples = SYSTEM

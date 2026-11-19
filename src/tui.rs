@@ -589,7 +589,12 @@ impl App {
         self.refresh_revert(store);
         self.refresh_checkpoint(store);
         self.refresh_run_details(store);
-        if self.view == View::Edits && self.edits.pending.is_none() {
+        if (self.view == View::Edits
+            || self
+                .session()
+                .is_some_and(|s| matches!(s.status.as_str(), "blocked" | "interrupted")))
+            && self.edits.pending.is_none()
+        {
             self.refresh_edits(store);
         }
         if self.session().is_none() {

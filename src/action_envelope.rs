@@ -2,7 +2,15 @@
 use anyhow::{bail, Result};
 
 pub fn yaml(text: &str) -> Result<&str> {
-    let text = text.trim();
+    let mut text = text.trim();
+    // A leading orphan closing marker can be adjacent to the explicit fence.
+    // Only remove known closing markers at the start, never a thinking body.
+    while let Some(rest) = ["</think>", "</analysis>", "</reasoning>"]
+        .iter()
+        .find_map(|tag| text.strip_prefix(tag))
+    {
+        text = rest.trim_start();
+    }
     let mut lines = Vec::new();
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
@@ -89,6 +97,17 @@ fn fence_start(line: &str) -> Option<(usize, &str)> {
 mod tests {
     use super::*;
     use crate::tools::parse_action;
+    #[test]
+    fn adjacent_orphan_thinking_closer_preserves_explicit_action() {
+        assert_eq!(
+            parse_action("</think>```yaml\naction: tool\ntool: read\npath: widgets/bar.py\n```")
+                .unwrap()
+                .path
+                .as_deref(),
+            Some("widgets/bar.py")
+        );
+        assert!(parse_action("<think>```yaml\naction: finish\n```").is_err());
+    }
     #[test]
     fn unambiguous_wrappers_are_accepted_without_changing_action_content() {
         let raw="I will inspect the source.</think>\n```yaml\naction: tool\ntool: read\npath: widgets/bar.py\n```\nThen report the findings.";
