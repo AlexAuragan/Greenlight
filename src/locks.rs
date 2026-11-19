@@ -4,6 +4,12 @@ use std::fs::{File, TryLockError};
 pub(crate) struct LockGuard(File);
 
 impl LockGuard {
+    /// Serialize short read-modify-write operations across processes.
+    pub(crate) fn wait(file: File) -> std::io::Result<Self> {
+        file.lock()?;
+        Ok(Self(file))
+    }
+
     pub(crate) fn acquire(file: File) -> Result<Self, TryLockError> {
         file.try_lock()?;
         Ok(Self(file))

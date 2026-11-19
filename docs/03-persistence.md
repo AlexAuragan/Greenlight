@@ -52,3 +52,7 @@ Atomic publication prevents an output/correlation pair from becoming partially v
 The card projection validates referenced events against current branch-visible history, step, order, request tool and exit code, and rejects references crossing attempt/fork boundaries or duplicate outcomes. Malformed correlation stays visible as raw diagnostic evidence. Historical output events without explicit correlation remain unlinked; no IDs are guessed or backfilled. UI inspection adds no execution/approval events.
 
 New model requests also record exact prepared message references in `model.request` and visible returned content in `model.response`. Immutable content-addressed message blobs avoid duplicating shared request prefixes. [Conversation dumps](35-conversation-dump.md) export this evidence with branch cutoffs and label missing legacy payloads; they never reconstruct private reasoning or execution outcomes.
+
+## Session and branch publication
+
+Session creation publishes its session, initial branch and start event in one SQLite transaction. Forking and branch selection likewise publish the branch/session update and audit event together. The caller’s in-memory session changes only after commit succeeds. Statement or commit failure leaves the previous history and selection intact, so a caller can safely inspect or retry publication. This does not create a workspace-wide execution lock or a transaction around external tool effects.

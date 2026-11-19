@@ -108,7 +108,6 @@ impl Store {
         )?;
         Ok(Self { db, directory })
     }
-    // TODO(GL-007): publish session, initial branch and start event in one transaction.
     pub fn create(&self, workflow: &str, goal: &str, start: &str) -> Result<Session> {
         let id = Uuid::new_v4().to_string();
         let branch = Uuid::new_v4().to_string();
@@ -120,6 +119,7 @@ impl Store {
             current_step: start.into(),
             status: "ready".into(),
         };
+        let transaction = self.db.unchecked_transaction()?;
         self.db.execute(
             "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6)",
             params![id, workflow, goal, branch, start, "ready"],
@@ -129,6 +129,7 @@ impl Store {
             params![branch, id],
         )?;
         self.event(&session, Some(start), "session.started", goal)?;
+        transaction.commit()?;
         Ok(session)
     }
     pub fn session(&self, id: &str) -> Result<Session> {
@@ -221,19 +222,22 @@ impl Store {
         if found != 1 {
             bail!("branch does not belong to this session");
         }
-        s.active_branch = branch.into();
-        s.current_step = step.into();
-        s.status = "ready".into();
-        self.save(s)?;
+        let transaction = self.db.unchecked_transaction()?;
+        let mut next = s.clone();
+        next.active_branch = branch.into();
+        next.current_step = step.into();
+        next.status = "ready".into();
+        self.save(&next)?;
         self.event(
-            s,
+            &next,
             Some(step),
             "branch.selected",
             "manual selection; filesystem unchanged",
         )?;
+        transaction.commit()?;
+        *s = next;
         Ok(())
     }
-    // TODO(GL-007): publish branch, selected session state and fork event atomically.
     pub fn fork(&self, s: &mut Session, event_id: i64, step: &str) -> Result<()> {
         let _lock = self.lock_idle_session(&s.id)?;
         self.ensure_no_pending_writes()?;
@@ -241,21 +245,25 @@ impl Store {
         if !valid {
             bail!("fork event is not part of current branch ancestry");
         }
+        let transaction = self.db.unchecked_transaction()?;
         let branch = Uuid::new_v4().to_string();
         self.db.execute(
             "INSERT INTO branches(id,session,parent,fork_event) VALUES (?1,?2,?3,?4)",
             params![branch, s.id, s.active_branch, event_id],
         )?;
-        s.active_branch = branch;
-        s.current_step = step.into();
-        s.status = "ready".into();
-        self.save(s)?;
+        let mut next = s.clone();
+        next.active_branch = branch;
+        next.current_step = step.into();
+        next.status = "ready".into();
+        self.save(&next)?;
         self.event(
-            s,
+            &next,
             Some(step),
             "branch.forked",
             &format!("from_event: {event_id}"),
         )?;
+        transaction.commit()?;
+        *s = next;
         Ok(())
     }
     pub(crate) fn lineage(&self, branch: &str) -> Result<Vec<(String, i64)>> {
@@ -903,5 +911,92 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("cross-session"));
+    }
+    #[test]
+    fn failed_session_publication_rolls_back_all_records() {
+        for commit_failure in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let store = Store::open(root.path()).unwrap();
+            let fault = if commit_failure {
+                "PRAGMA defer_foreign_keys=ON;
+                 CREATE TRIGGER fail_start BEFORE INSERT ON events WHEN NEW.kind='session.started'
+                 BEGIN INSERT INTO branches(id,session) VALUES ('bad','missing'); END;"
+            } else {
+                "CREATE TRIGGER fail_start BEFORE INSERT ON events WHEN NEW.kind='session.started'
+                 BEGIN SELECT RAISE(ABORT,'injected start failure'); END;"
+            };
+            store.db.execute_batch(fault).unwrap();
+            assert!(store.create("demo", "goal", "work").is_err());
+            assert!(store.list().unwrap().is_empty());
+            for table in ["branches", "events"] {
+                let count: i64 = store
+                    .db
+                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(count, 0);
+            }
+            store.db.execute_batch("DROP TRIGGER fail_start").unwrap();
+            assert!(store.create("demo", "retry", "work").is_ok());
+        }
+    }
+
+    #[test]
+    fn failed_branch_publication_preserves_database_and_in_memory_session() {
+        for switching in [false, true] {
+            for commit_failure in [false, true] {
+                let root = tempfile::tempdir().unwrap();
+                let store = Store::open(root.path()).unwrap();
+                let mut session = store.create("demo", "goal", "work").unwrap();
+                let original = session.active_branch.clone();
+                let mark = store.history(&session).unwrap().last().unwrap().0;
+                if switching {
+                    store.fork(&mut session, mark, "next").unwrap();
+                }
+                let before = serde_json::to_value(&session).unwrap();
+                let history = store.history(&session).unwrap();
+                let branches = store.branches(&session.id).unwrap().len();
+                let kind = if switching {
+                    "branch.selected"
+                } else {
+                    "branch.forked"
+                };
+                let body = if commit_failure {
+                    "INSERT INTO branches(id,session) VALUES ('bad','missing');"
+                } else {
+                    "SELECT RAISE(ABORT,'injected branch failure');"
+                };
+                store
+                    .db
+                    .execute_batch(&format!(
+                        "PRAGMA defer_foreign_keys=ON;
+                    CREATE TRIGGER fail_branch BEFORE INSERT ON events WHEN NEW.kind='{kind}'
+                    BEGIN {body} END;"
+                    ))
+                    .unwrap();
+                let result = if switching {
+                    store.switch_branch(&mut session, &original, "changed")
+                } else {
+                    store.fork(&mut session, mark, "changed")
+                };
+                assert!(result.is_err());
+                assert_eq!(serde_json::to_value(&session).unwrap(), before);
+                assert_eq!(
+                    serde_json::to_value(store.session(&session.id).unwrap()).unwrap(),
+                    before
+                );
+                assert_eq!(store.history(&session).unwrap(), history);
+                assert_eq!(store.branches(&session.id).unwrap().len(), branches);
+                store.db.execute_batch("DROP TRIGGER fail_branch").unwrap();
+                if switching {
+                    store
+                        .switch_branch(&mut session, &original, "retry")
+                        .unwrap();
+                } else {
+                    store.fork(&mut session, mark, "retry").unwrap();
+                }
+            }
+        }
     }
 }
