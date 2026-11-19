@@ -36,6 +36,7 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
             let mut engine = Engine::open(&root)?;
             engine.interactive_provider_retry = true;
             engine.provider.retry_cancel = worker_cancel;
+            worker_live.lock().unwrap().connection = Some(engine.provider.connection_info());
             engine.provider.live = Some(worker_live);
             engine.tools.use_tui(prompt_tx, answer_rx);
             let runtime = tokio::runtime::Builder::new_current_thread()

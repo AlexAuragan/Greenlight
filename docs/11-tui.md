@@ -236,3 +236,11 @@ A live workflow provider failure opens **Provider request paused**, with **[y] R
 ## Shared action routing
 
 Workspace shortcuts, button labels and the Help action reference share typed command metadata. Buttons invoke commands directly. Modal decision ownership is checked before command dispatch; text editors and contextual navigation keep their own input handling. Opening Sessions by button or `f` starts the same searchable picker. Tool/provider permission popups still ignore unrelated shortcuts, and Esc keeps their request pending.
+
+## Inspecting the provider and API key
+
+Open **[c] Details → Provider / API key**, or use the Provider button on the Usage page / More menu. If a tool/provider popup owns input, first press Esc to hide it without deciding. The Provider page shows endpoint origin, configured default model, API-key variable, masked key and credential source. Normal keys show the first five and last five characters; keys of ten characters or fewer, empty values and invalid values do not expose their contents. URL credentials, paths and query strings are excluded from the origin display.
+
+For this TUI's running/paused workflow, the page uses the worker's captured credential and latest requested model. Initialization gaps are explicit. Without that worker, it shows the viewer process's current configuration and says that this is not a historical request or another process's credential. Credential metadata is ephemeral: it is not added to usage records, events or conversation dumps. Explicitly copying the Provider page copies only its masked text.
+
+The inherited process environment wins over `.greenlight/.env`, which wins over the project's `.env`. An existing empty variable also overrides files. Dotenv files are loaded at process startup without overriding existing variables; editing them does not reload a running process. Provider construction captures the selected key, so an exact-request retry retains it. Restart Greenlight after changing credentials. For the default variable, `env -u DEEPINFRA_API_KEY greenlight` starts without the shell override and allows a project dotenv file to supply it; this does not edit the shell or any project file.

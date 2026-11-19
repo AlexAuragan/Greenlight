@@ -7,6 +7,7 @@ mod artifact_history;
 mod changes;
 mod config;
 mod conversation_dump;
+mod credentials;
 #[cfg(test)]
 mod deviation_tests;
 mod engine;

@@ -283,6 +283,7 @@ pub fn load_dotenv(path: &Path) -> Result<()> {
         };
         if std::env::var_os(key).is_none() {
             std::env::set_var(key, value);
+            crate::credentials::record_dotenv(key, value, path);
         }
     }
     Ok(())

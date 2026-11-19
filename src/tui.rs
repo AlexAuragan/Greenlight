@@ -279,6 +279,10 @@ impl App {
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
             let config = crate::config::load_config(root);
             self.details.configured_model = config.as_ref().ok().map(|c| c.provider.model.clone());
+            self.details.provider = config
+                .as_ref()
+                .ok()
+                .map(|c| crate::provider::ConnectionInfo::current(&c.provider));
             self.manager_enabled = config.map(|c| c.manager.enabled).unwrap_or(false);
         }
         self.remember_reading();

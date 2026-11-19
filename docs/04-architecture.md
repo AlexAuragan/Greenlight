@@ -24,6 +24,7 @@ flowchart TD
 
 ## Current modules
 
+- `credentials.rs` — immutable provider credentials, masked UI summaries and in-memory dotenv-source provenance; raw keys are never part of the UI metadata.
 - `config.rs` — strict serde YAML structs, workflow/step parse and validation, restricted prompt includes.
 - `engine.rs` — sequential execution, per-step fresh context, YAML action dispatch, verification and deviation routing.
 - `store.rs` — SQLite session/event/branch history, registered immutable artifacts and native-edit journals.

@@ -238,9 +238,12 @@ async fn provider_failure_during_verification_blocks_without_workflow_retry_or_d
 #[tokio::test]
 async fn local_auth_failure_is_not_sent_and_pre_cancel_creates_no_request() {
     let (_root, mut engine, s) = fixture(vec![]);
-    engine.provider.script = None;
-    engine.provider.cfg.api_key_env =
+    // Credentials are captured at construction; keep this preflight test local.
+    engine.cfg.provider.api_key_env =
         format!("GREENLIGHT_MISSING_{}", uuid::Uuid::new_v4().simple());
+    engine.cfg.provider.base_url = "http://127.0.0.1:9/v1".into();
+    engine.cfg.provider.pricing_discovery = false;
+    engine.provider = Provider::new(engine.cfg.provider.clone());
     let error = engine
         .model_call(&s, "work", "coding", "fixture", &[])
         .await

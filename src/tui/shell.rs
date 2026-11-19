@@ -156,6 +156,7 @@ impl App {
                 Action::RecordedActivity,
                 Action::AskManager,
                 Action::FullDiagnostic,
+                Action::Provider,
                 Action::ConversationDump,
             ];
             if (self.diagnostic.is_none() || self.diagnostic_attention)
@@ -190,6 +191,7 @@ impl App {
             Action::Edits,
             Action::New,
             Action::Usage,
+            Action::Provider,
             Action::ConversationDump,
         ];
         if self.session().is_some_and(|s| s.status == "completed")
@@ -898,6 +900,11 @@ impl App {
             }
             Usage => {
                 self.open_run_details(details::Page::Usage, store);
+            }
+            Provider => {
+                self.clear_diagnostic();
+                self.context_detail = None;
+                self.open_run_details(details::Page::Provider, store);
             }
             Technical => {
                 self.open_run_details(details::Page::Technical, store);

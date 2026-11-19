@@ -10,6 +10,7 @@ use std::sync::{atomic::AtomicBool, Arc};
 #[derive(Clone)]
 pub struct Provider {
     client: Client,
+    credential: crate::credentials::Credential,
     pub cfg: ProviderConfig,
     pub retry_cancel: Arc<AtomicBool>,
     pub live: Option<stream::Preview>,
@@ -28,6 +29,37 @@ pub struct Script {
     pub usages: std::collections::VecDeque<Option<Value>>,
     pub completions: std::collections::VecDeque<Completion>,
 }
+/// Safe, ephemeral UI metadata; never includes the full key or URL credentials.
+#[derive(Clone, Debug)]
+pub(crate) struct ConnectionInfo {
+    pub endpoint: String,
+    pub model: String,
+    pub credential: crate::credentials::Summary,
+}
+impl ConnectionInfo {
+    pub fn current(cfg: &ProviderConfig) -> Self {
+        Self::new(
+            cfg,
+            crate::credentials::Credential::capture(&cfg.api_key_env).summary,
+        )
+    }
+    fn new(cfg: &ProviderConfig, credential: crate::credentials::Summary) -> Self {
+        Self {
+            endpoint: reqwest::Url::parse(&cfg.base_url)
+                .ok()
+                .filter(|url| matches!(url.scheme(), "https" | "http") && url.host_str().is_some())
+                .map(|url| url.origin().ascii_serialization())
+                .unwrap_or_else(|| "[invalid endpoint]".into()),
+            model: cfg.model.clone(),
+            credential,
+        }
+    }
+    pub fn text(&self) -> String {
+        format!("Endpoint origin: {}\nConfigured default model: {}\nAPI-key variable: {}\nAPI key: {}\nCredential source: {}\n\nPrecedence: inherited environment > .greenlight/.env > project .env.\nAn existing empty variable also overrides files.\nCredentials are loaded at process startup; editing .env does not reload them.\nRestart Greenlight after changing keys. A paused retry retains its captured key.\nOnly the first/last five characters are shown; short keys stay fully hidden.",
+            self.endpoint, self.model, self.credential.name, self.credential.masked, self.credential.source)
+    }
+}
+
 pub struct Completion {
     pub failure: Option<Failure>,
     pub content: std::result::Result<String, String>,
@@ -114,6 +146,7 @@ impl Provider {
                 .retry(reqwest::retry::never())
                 .build()
                 .expect("HTTP client configuration is valid"),
+            credential: crate::credentials::Credential::capture(&cfg.api_key_env),
             cfg,
             retry_cancel: Arc::new(AtomicBool::new(false)),
             live: None,
@@ -121,11 +154,13 @@ impl Provider {
             script: None,
         }
     }
-    fn key(&self) -> Result<String> {
-        std::env::var(&self.cfg.api_key_env)
-            .ok()
-            .filter(|key| !key.is_empty() && key.bytes().all(|b| b.is_ascii_graphic()))
+    fn key(&self) -> Result<&str> {
+        self.credential
+            .value()
             .ok_or_else(|| Failure::local(Kind::Credentials).into())
+    }
+    pub(crate) fn connection_info(&self) -> ConnectionInfo {
+        ConnectionInfo::new(&self.cfg, self.credential.summary.clone())
     }
     pub async fn complete(&self, model: &str, messages: &[Value]) -> Result<Completion> {
         if let Some(live) = &self.live {
@@ -425,6 +460,7 @@ mod http_tests {
                 json!({"role":"system", "content":"fixture protocol"}),
                 json!({"role":"user", "content":"café fixture"}),
             ];
+            std::env::set_var(&key, "replacement-after-provider-start");
             provider.complete("fixture/model", &messages).await.unwrap();
             let request = server.join().unwrap();
             let end = request

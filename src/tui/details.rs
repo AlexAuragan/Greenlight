@@ -6,6 +6,7 @@ use crate::usage::{Call, Report, TokenCount, TokenTotals};
 pub(super) enum Page {
     Run,
     Technical,
+    Provider,
     Usage,
     Requests,
     Request,
@@ -18,6 +19,7 @@ pub(super) struct Details {
     pub report: Option<Report>,
     pub selected: Option<String>,
     pub configured_model: Option<String>,
+    pub provider: Option<crate::provider::ConnectionInfo>,
     pub text: String,
     pub dump: Option<crate::conversation_dump::Dump>,
     pub revision: u64,
@@ -43,7 +45,7 @@ impl Details {
         use shell::Action::*;
         match self.page {
             Some(Page::Conversation) => vec![Close, RefreshDump, SaveDump, CopyDump],
-            Some(Page::Run) => vec![DetailsBack, Usage, Technical],
+            Some(Page::Run) => vec![DetailsBack, Provider, Usage, Technical],
             Some(Page::Technical) => vec![DetailsBack, Usage, Copy],
             Some(Page::Usage) => {
                 let mut actions = vec![DetailsBack];
@@ -51,6 +53,7 @@ impl Details {
                     actions.push(Requests);
                 }
                 actions.push(UsageAccounting);
+                actions.push(Provider);
                 actions
             }
             Some(Page::Requests) => {
@@ -349,6 +352,18 @@ impl App {
                 } else { text.push_str("\nRoadmap unavailable; technical details contain the load error.\n"); }
                 text.push_str(&format!("\nExecution and evidence\n{ownership}"));
                 text
+            }
+            Page::Provider => {
+                if let Some(worker) = self.runner.as_ref().filter(|worker| worker.session_id.as_deref() == Some(session.id.as_str())) {
+                    let live = worker.live.as_ref().map(|live| live.lock().unwrap());
+                    match live.as_ref().and_then(|live| live.connection.as_ref()) {
+                        Some(info) => format!("Provider / API key · active workflow worker\n\n{}\n\nLatest worker request model: {}\n\nThis is the worker's captured credential, including while a retry waits.", info.text(), live.as_ref().map(|live|live.model.as_str()).filter(|model|!model.is_empty()).unwrap_or("No request started yet")),
+                        None => "Provider / API key\n\nWorker snapshot not available yet; waiting for initialization. No viewer credential has been substituted.".into(),
+                    }
+                } else {
+                    self.details.provider.as_ref().map(|info| format!("Provider / API key · current viewer process\n\n{}\n\n{ownership}\nThis is not a historical request's key or another process's worker credential.", info.text()))
+                        .unwrap_or_else(|| "Provider configuration unavailable in this viewer.".into())
+                }
             }
             Page::Technical => {
                 let mut text=format!("Technical details · selected session / active branch\n\nSession: {}\nBranch: {}\nState: {}\nStep: {}\nExecution: {ownership}\nState directory: {}\n\nConfigured model (current project configuration): {}\n",session.id,session.active_branch,session.status,session.current_step,store.directory.display(),self.details.configured_model.as_deref().unwrap_or("Unavailable"));
@@ -925,6 +940,7 @@ mod tests {
                 text: "PARTIAL_VISIBLE_TEXT".into(),
                 state: "Receiving model output…".into(),
                 truncated: true,
+                connection: None,
             }));
         app.runner = Some(Runner {
             live: Some(live),
@@ -961,5 +977,54 @@ mod tests {
             .unwrap()
             .text
             .contains("PARTIAL_VISIBLE_TEXT"));
+    }
+    #[test]
+    fn provider_page_shows_worker_snapshot_without_persisting_or_exporting_full_keys() {
+        let (root, store, session, mut app) = fixture();
+        let name = format!("GREENLIGHT_PROVIDER_UI_{}", uuid::Uuid::new_v4().simple());
+        std::env::set_var(&name, "start-private-middle-first");
+        let mut cfg = crate::config::load_config(root.path()).unwrap().provider;
+        cfg.api_key_env = name.clone();
+        cfg.base_url = "https://user:password@example.test/v1?token=url-secret".into();
+        let provider = crate::provider::Provider::new(cfg.clone());
+        let live = crate::provider::stream::Preview::default();
+        live.lock().unwrap().connection = Some(provider.connection_info());
+        // A new model turn preserves the worker's credential metadata.
+        live.lock().unwrap().start("step-model");
+        std::env::set_var(&name, "other-private-middle-final");
+        let (_prompts, prompts) = std::sync::mpsc::channel();
+        let (answers, _answers) = std::sync::mpsc::channel();
+        let (_finished, finished) = std::sync::mpsc::channel();
+        app.runner = Some(Runner {
+            live: Some(live),
+            cancel_retry: None,
+            session_id: Some(session.id.clone()),
+            prompts,
+            answers,
+            finished,
+        });
+        app.details.provider = Some(crate::provider::ConnectionInfo::current(&cfg));
+        let before = store.history(&session).unwrap();
+        app.open_run_details(Page::Provider, &store);
+        assert!(app.details.text.contains("active workflow worker"));
+        assert!(app.details.text.contains("start…first"));
+        assert!(app.details.text.contains("step-model"));
+        assert!(!app.details.text.contains("other…final"));
+        let exported = app.export_snapshot().unwrap().text;
+        for secret in [
+            "start-private-middle-first",
+            "other-private-middle-final",
+            "password",
+            "url-secret",
+        ] {
+            assert!(!exported.contains(secret), "{secret}");
+        }
+        assert_eq!(store.history(&session).unwrap(), before);
+        app.runner = None;
+        app.details.provider = Some(crate::provider::ConnectionInfo::current(&cfg));
+        app.refresh_run_details(&store);
+        assert!(app.details.text.contains("current viewer process"));
+        assert!(app.details.text.contains("other…final"));
+        std::env::remove_var(name);
     }
 }

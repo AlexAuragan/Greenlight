@@ -63,3 +63,9 @@ A local HTTP/CLI fixture exercised the actual engine with no paid provider calls
 | Model-overloaded detail response, no retryable code | 1 | 1 | 1 |
 
 A separate native PTY fixture confirms that a manually retried streaming request preserves exact messages and does not repeat the earlier tool, branch or attempt. These fixtures rule out request fan-out in the exercised paths; they cannot identify an already-discarded live response or reproduce provider account policy. Input context grows as tool results accumulate, so a token-throughput rejection, if reported, needs separate investigation from concurrent-request counts.
+
+## Verify the credential used by a paused request
+
+The [Provider / API key page](11-tui.md#inspecting-the-provider-and-api-key) exposes first/last-five masking and source precedence, with the active worker's captured snapshot. Changing `.env` does not override a preexisting exported variable and does not reload a running process. Normal provider construction now captures credentials once; manual retry cannot silently switch keys if the process environment changes later. No full key or credential snapshot is persisted in accounting or audit events.
+
+A retry succeeding after a brief pause is consistent with temporary throttling or model capacity, but does not identify which limit was enforced. Checking the masked key rules out a credential-selection mistake; it does not independently resolve an HTTP 429's cause.

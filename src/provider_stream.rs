@@ -7,6 +7,7 @@ pub type Preview = Arc<Mutex<LiveOutput>>;
 #[derive(Default)]
 pub struct LiveOutput {
     pub model: String,
+    pub connection: Option<super::ConnectionInfo>,
     pub text: String,
     pub state: String,
     pub truncated: bool,
@@ -15,6 +16,7 @@ impl LiveOutput {
     pub fn start(&mut self, model: &str) {
         *self = Self {
             model: model.into(),
+            connection: self.connection.clone(),
             state: "Waiting for model…".into(),
             ..Self::default()
         };
