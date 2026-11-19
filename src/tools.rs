@@ -151,7 +151,9 @@ impl PromptDriver {
                 print!("> ");
                 io::stdout().flush()?;
                 let mut answer = String::new();
-                io::stdin().read_line(&mut answer)?;
+                if io::stdin().read_line(&mut answer)? == 0 {
+                    bail!("stdin closed; request not authorized");
+                }
                 Ok(answer.trim().to_string())
             }
             Self::Tui { requests, answers } => {
@@ -343,13 +345,19 @@ impl Tools {
                 ));
                 Ok(())
             }
-            _ => {
+            "n" => {
                 self.decisions
                     .push(format!("{kind}: denied by user — {detail}"));
                 bail!("user denied {kind}")
             }
+            _ => {
+                self.decisions
+                    .push(format!("{kind}: no affirmative authorization — {detail}"));
+                bail!("{kind} was not authorized")
+            }
         }
     }
+    // TODO(GL-003): anchor file IO to directory descriptors; path checks can race.
     fn safe_path(&self, relative: &str) -> Result<PathBuf> {
         let p = Path::new(relative);
         if p.as_os_str().is_empty()
@@ -359,11 +367,7 @@ impl Tools {
         {
             bail!("only paths beneath project root are allowed");
         }
-        let sensitive = [".git", ".env", ".ssh"];
-        if p.components()
-            .any(|c| sensitive.contains(&c.as_os_str().to_string_lossy().as_ref()))
-            || crate::paths::is_private_path(p)
-        {
+        if crate::paths::is_private_path(p) {
             bail!("agent file access to sensitive internal path is denied");
         }
         let root = self.root.canonicalize()?;
@@ -389,11 +393,7 @@ impl Tools {
             .context("path escapes project root via symlink")?;
         // Check the resolved target too, including canonical parents of new
         // files. An innocently named alias cannot expose secrets or state.
-        if relative
-            .components()
-            .any(|c| sensitive.contains(&c.as_os_str().to_string_lossy().as_ref()))
-            || crate::paths::is_private_path(relative)
-        {
+        if crate::paths::is_private_path(relative) {
             bail!("agent file access to sensitive internal path is denied");
         }
         Ok(resolved)
@@ -489,14 +489,12 @@ impl Tools {
                 if content.len() > 100_000 {
                     bail!("write exceeds 100KB limit");
                 }
-                let before = match tokio::fs::read(&file).await {
-                    Ok(bytes) => Some(
-                        String::from_utf8(bytes)
-                            .context("write journaling requires UTF-8 original file")?,
-                    ),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-                    Err(e) => return Err(e.into()),
-                };
+                let root = self.root.canonicalize()?;
+                let relative = file
+                    .strip_prefix(&root)?
+                    .to_str()
+                    .context("non-UTF-8 write path")?;
+                let before = crate::restore::snapshot(&root, relative)?;
                 if before.as_deref() == Some(content) {
                     return Ok(format!("unchanged {path}"));
                 }
@@ -510,23 +508,12 @@ impl Tools {
                 self.prompt_context = None;
                 approval?;
                 // Recheck to avoid overwriting changes made while approval was pending.
-                let current = match tokio::fs::read(&file).await {
-                    Ok(bytes) => {
-                        Some(String::from_utf8(bytes).context("file changed to non-UTF-8")?)
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-                    Err(e) => return Err(e.into()),
-                };
+                let current = crate::restore::snapshot(&root, relative)?;
                 if current != before {
                     bail!("file changed during write approval; edit not applied");
                 }
                 let (store, session, step) =
                     journal.context("native writes require a durable session journal")?;
-                let root = self.root.canonicalize()?;
-                let relative = file
-                    .strip_prefix(&root)?
-                    .to_str()
-                    .context("non-UTF-8 write path")?;
                 store.apply_native_write(
                     &root,
                     session,
@@ -580,6 +567,63 @@ impl Tools {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_or_invalid_permission_answers_are_not_recorded_as_explicit_denials() {
+        for answer in ["", "invalid", "n"] {
+            let root = tempfile::tempdir().unwrap();
+            let mut tools = Tools::new(root.path().into(), Permissions::default()).unwrap();
+            tools.policies.read = "ask".into();
+            tools.approvals = ApprovalStore::isolated(root.path()).unwrap();
+            let (requests, _prompts) = std::sync::mpsc::channel();
+            let (answers, responses) = std::sync::mpsc::channel();
+            tools.use_tui(requests, responses);
+            answers.send(answer.to_owned()).unwrap();
+            assert!(tools.permission("read", "file.txt").is_err());
+            assert_eq!(
+                tools.decisions.last().unwrap().contains("denied by user"),
+                answer == "n"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn oversized_preimages_fail_before_write_approval_or_mutation() {
+        let root = tempfile::tempdir().unwrap();
+        let file = std::fs::File::create(root.path().join("large.txt")).unwrap();
+        file.set_len(1024 * 1024 * 1024).unwrap();
+        let mut tools = Tools::new(root.path().into(), Permissions::default()).unwrap();
+        let action =
+            parse_action("action: tool\ntool: write\npath: large.txt\ncontent: replacement\n")
+                .unwrap();
+        let error = tools.call(&action).await.unwrap_err();
+        assert!(error.to_string().contains("20 MiB"));
+        assert!(tools.decisions.is_empty());
+        assert_eq!(file.metadata().unwrap().len(), 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn closed_terminal_input_is_not_a_human_denial() {
+        const MARKER: &str = "GREENLIGHT_TEST_CLOSED_APPROVAL_INPUT";
+        if std::env::var_os(MARKER).is_some() {
+            let error = PromptDriver::Terminal
+                .ask_with_command("fixture", ApprovalMode::Tool, None)
+                .unwrap_err();
+            assert!(error.to_string().contains("stdin closed"));
+            return;
+        }
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tools::tests::closed_terminal_input_is_not_a_human_denial",
+            ])
+            .env(MARKER, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+
     #[test]
     fn persistent_grants_require_a_separate_confirmation() {
         for scope in ['p', 'g'] {

@@ -354,36 +354,110 @@ impl Engine {
         messages: &[serde_json::Value],
         interaction: Option<(&str, &str)>,
     ) -> Result<String> {
-        let result=async {
+        let result: Result<String> = async {
             loop {
-                match self.dispatch_model_call(s,step,purpose,model,messages,interaction).await {
-                    Ok(text)=>return Ok(text),
-                    Err(error)=>{
-                        let Some(failure)=error.downcast_ref::<crate::provider_failure::Failure>().cloned() else {return Err(error);};
-                        if !self.interactive_provider_retry || !self.tools.is_tui()
-                            || failure.kind==crate::provider_failure::Kind::Cancelled
-                            || self.provider.retry_cancel.load(std::sync::atomic::Ordering::SeqCst) {return Err(error);}
-                        let waiting=std::time::Instant::now();
-                        let source=self.store.history(s)?.into_iter().rev().find_map(|(_,event_step,kind,data)|{
-                            if event_step!=step || kind!="provider.failure" {return None;}
-                            let value:serde_json::Value=serde_json::from_str(&data).ok()?;
-                            (value["purpose"].as_str()==Some(purpose)).then(||value["call_id"].as_str().map(str::to_owned)).flatten()
-                        });
-                        self.store.event(s,Some(step),"provider.retry-pending",&json!({"call_id":source,"purpose":purpose,"failure":failure}).to_string())?;
-
-                        let retry=self.tools.ask_provider_retry(&failure.retry_prompt(model))?;
-                        self.store.event(s,Some(step),"provider.retry-decision",&json!({"call_id":source,"purpose":purpose,"retry":retry}).to_string())?;
-                        if !retry {return Err(error);}
-                        let remaining=std::time::Duration::from_secs(failure.retry_after_seconds.unwrap_or(0)).saturating_sub(waiting.elapsed());
-                        self.store.event(s,Some(step),"provider.retry",&json!({"call_id":source,"purpose":purpose,"manual":true,"wait_ms":remaining.as_millis(),"message":"User requested retry of the same prepared messages; waiting for any remaining provider cooldown. x stops future requests."}).to_string())?;
-                        if let Err(cancelled)=crate::provider_failure::wait(remaining,&self.provider.retry_cancel).await {
-                            self.store.event(s,Some(step),"provider.retry-cancelled",&cancelled.to_string())?;
-                            return Err(cancelled.into());
+                let error = match self
+                    .dispatch_model_call(s, step, purpose, model, messages, interaction)
+                    .await
+                {
+                    Ok(text) => break Ok(text),
+                    Err(error) => error,
+                };
+                let Some(failure) = error
+                    .downcast_ref::<crate::provider_failure::Failure>()
+                    .cloned()
+                else {
+                    break Err(error);
+                };
+                if !self.interactive_provider_retry
+                    || !self.tools.is_tui()
+                    || failure.kind == crate::provider_failure::Kind::Cancelled
+                    || self
+                        .provider
+                        .retry_cancel
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    break Err(error);
+                }
+                let waiting = std::time::Instant::now();
+                let source = {
+                    let mut statement = self.store.db.prepare(
+                        "SELECT data FROM events
+                         WHERE session=?1 AND branch=?2 AND step=?3 AND kind='provider.failure'
+                         ORDER BY id DESC",
+                    )?;
+                    let mut rows =
+                        statement.query(rusqlite::params![s.id, s.active_branch, step])?;
+                    let mut source = None;
+                    while let Some(row) = rows.next()? {
+                        let data: String = row.get(0)?;
+                        let Ok(value) = serde_json::from_str::<serde_json::Value>(&data) else {
+                            continue;
+                        };
+                        if value["purpose"].as_str() == Some(purpose) {
+                            source = value["call_id"].as_str().map(str::to_owned);
+                            if source.is_some() {
+                                break;
+                            }
                         }
                     }
+                    source
+                };
+                self.store.event(
+                    s,
+                    Some(step),
+                    "provider.retry-pending",
+                    &json!({
+                        "call_id": source, "purpose": purpose, "failure": failure
+                    })
+                    .to_string(),
+                )?;
+                let retry = self
+                    .tools
+                    .ask_provider_retry(&failure.retry_prompt(model))?;
+                self.store.event(
+                    s,
+                    Some(step),
+                    "provider.retry-decision",
+                    &json!({
+                        "call_id": source, "purpose": purpose, "retry": retry
+                    })
+                    .to_string(),
+                )?;
+                if !retry {
+                    break Err(error);
+                }
+                let remaining =
+                    std::time::Duration::from_secs(failure.retry_after_seconds.unwrap_or(0))
+                        .saturating_sub(waiting.elapsed());
+                self.store.event(
+                    s,
+                    Some(step),
+                    "provider.retry",
+                    &json!({
+                        "call_id": source, "purpose": purpose, "manual": true,
+                        "wait_ms": remaining.as_millis(),
+                        "message": concat!(
+                            "User requested retry of the same prepared messages; ",
+                            "waiting for any remaining provider cooldown. x stops future requests."
+                        )
+                    })
+                    .to_string(),
+                )?;
+                if let Err(cancelled) =
+                    crate::provider_failure::wait(remaining, &self.provider.retry_cancel).await
+                {
+                    self.store.event(
+                        s,
+                        Some(step),
+                        "provider.retry-cancelled",
+                        &cancelled.to_string(),
+                    )?;
+                    break Err(cancelled.into());
                 }
             }
-        }.await;
+        }
+        .await;
         result.context(crate::provider_failure::ModelCallFailed)
     }
     async fn dispatch_model_call(
@@ -1214,21 +1288,20 @@ enum Outcome {
 }
 
 fn project_instructions(root: &Path) -> Result<String> {
-    let current = root.join(crate::paths::PROJECT_DIR).join("instructions.md");
-    match std::fs::read_to_string(&current) {
-        Ok(instructions) => Ok(instructions),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let legacy = root
-                .join(crate::paths::LEGACY_PROJECT_DIR)
-                .join("instructions.md");
-            match std::fs::read_to_string(&legacy) {
-                Ok(instructions) => Ok(instructions),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-                Err(error) => Err(error).with_context(|| format!("reading {}", legacy.display())),
+    for directory in [crate::paths::PROJECT_DIR, crate::paths::LEGACY_PROJECT_DIR] {
+        let path = root.join(directory).join("instructions.md");
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => {
+                return std::fs::read_to_string(crate::paths::project_file(root, &path)?)
+                    .with_context(|| format!("reading {}", path.display()))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error).with_context(|| format!("checking {}", path.display()))
             }
         }
-        Err(error) => Err(error).with_context(|| format!("reading {}", current.display())),
     }
+    Ok(String::new())
 }
 
 #[cfg(test)]
@@ -1290,6 +1363,20 @@ mod name_tests {
             project_instructions(root.path()).unwrap(),
             "new instructions"
         );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn instructions_cannot_follow_an_outside_symlink() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".greenlight")).unwrap();
+        std::fs::write(outside.path().join("instructions.md"), "outside").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("instructions.md"),
+            root.path().join(".greenlight/instructions.md"),
+        )
+        .unwrap();
+        assert!(project_instructions(root.path()).is_err());
     }
 }
 

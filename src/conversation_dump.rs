@@ -36,9 +36,13 @@ fn hash(bytes: &[u8]) -> String {
 }
 fn trace_directory(store: &Store) -> Result<std::path::PathBuf> {
     let path = store.directory.join("blobs");
-    std::fs::create_dir_all(&path)?;
-    if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
-        bail!("trace blob directory is a symlink");
+    match std::fs::create_dir(&path) {
+        Ok(()) => std::fs::File::open(&store.directory)?.sync_all()?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    if !std::fs::symlink_metadata(&path)?.file_type().is_dir() {
+        bail!("trace blob directory is not a real directory");
     }
     Ok(path)
 }
@@ -64,6 +68,7 @@ fn save_message(store: &Store, message: &Value) -> Result<String> {
         }
         Err(e) => return Err(e.into()),
     }
+    std::fs::File::open(path.parent().context("missing trace directory")?)?.sync_all()?;
     Ok(id)
 }
 fn load_message(store: &Store, id: &str) -> Result<Value> {

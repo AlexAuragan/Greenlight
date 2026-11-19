@@ -108,6 +108,7 @@ impl Store {
         )?;
         Ok(Self { db, directory })
     }
+    // TODO(GL-007): publish session, initial branch and start event in one transaction.
     pub fn create(&self, workflow: &str, goal: &str, start: &str) -> Result<Session> {
         let id = Uuid::new_v4().to_string();
         let branch = Uuid::new_v4().to_string();
@@ -232,6 +233,7 @@ impl Store {
         )?;
         Ok(())
     }
+    // TODO(GL-007): publish branch, selected session state and fork event atomically.
     pub fn fork(&self, s: &mut Session, event_id: i64, step: &str) -> Result<()> {
         let _lock = self.lock_idle_session(&s.id)?;
         self.ensure_no_pending_writes()?;
@@ -260,7 +262,24 @@ impl Store {
         let mut line = vec![];
         let mut cursor = branch.to_string();
         let mut cutoff = i64::MAX;
+        let mut visited = std::collections::HashSet::new();
+        let owner: String = self.db.query_row(
+            "SELECT session FROM branches WHERE id=?1",
+            [branch],
+            |row| row.get(0),
+        )?;
         loop {
+            if !visited.insert(cursor.clone()) {
+                bail!("corrupt branch ancestry: cycle");
+            }
+            let session: String = self.db.query_row(
+                "SELECT session FROM branches WHERE id=?1",
+                [&cursor],
+                |row| row.get(0),
+            )?;
+            if session != owner {
+                bail!("corrupt branch ancestry: cross-session parent");
+            }
             line.push((cursor.clone(), cutoff));
             let b = self.branch(&cursor)?;
             match (b.parent, b.fork_event) {
@@ -275,6 +294,7 @@ impl Store {
         line.reverse();
         Ok(line)
     }
+    // TODO(GL-005): load bounded event windows and immutable bodies on demand.
     pub fn history(&self, s: &Session) -> Result<Vec<(i64, String, String, String)>> {
         let mut result = vec![];
         for (branch, cutoff) in self.lineage(&s.active_branch)? {
@@ -852,5 +872,36 @@ mod tests {
             .unwrap()
             .iter()
             .any(|(_, _, _, d)| d == "should disappear"));
+    }
+    #[test]
+    fn corrupt_branch_ancestry_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let first = store.create("demo", "one", "plan").unwrap();
+        let second = store.create("demo", "two", "plan").unwrap();
+        store
+            .db
+            .execute(
+                "UPDATE branches SET parent=id,fork_event=1 WHERE id=?1",
+                [&first.active_branch],
+            )
+            .unwrap();
+        assert!(store
+            .history(&first)
+            .unwrap_err()
+            .to_string()
+            .contains("cycle"));
+        store
+            .db
+            .execute(
+                "UPDATE branches SET parent=?1 WHERE id=?2",
+                params![second.active_branch, first.active_branch],
+            )
+            .unwrap();
+        assert!(store
+            .history(&first)
+            .unwrap_err()
+            .to_string()
+            .contains("cross-session"));
     }
 }

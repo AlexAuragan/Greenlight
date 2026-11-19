@@ -13,7 +13,9 @@ pub fn yaml(text: &str) -> Result<&str> {
     let mut closing = None;
     for (i, (_, line)) in lines.iter().enumerate() {
         if let Some((_, width)) = opening {
-            if closing.is_none() && fence_end(line, width) {
+            let delimiter = line.trim_end();
+            let is_closing = delimiter.len() >= width && delimiter.bytes().all(|byte| byte == b'`');
+            if closing.is_none() && is_closing {
                 closing = Some(i);
             } else if closing.is_some() && fence_start(line).is_some() {
                 bail!("multiple fenced blocks are ambiguous; return exactly one YAML action");
@@ -82,10 +84,6 @@ pub fn yaml(text: &str) -> Result<&str> {
 fn fence_start(line: &str) -> Option<(usize, &str)> {
     let width = line.bytes().take_while(|b| *b == b'`').count();
     (width >= 3).then(|| (width, line[width..].trim()))
-}
-fn fence_end(line: &str, width: usize) -> bool {
-    let line = line.trim_end();
-    line.len() >= width && line.bytes().all(|b| b == b'`')
 }
 #[cfg(test)]
 mod tests {

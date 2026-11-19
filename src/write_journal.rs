@@ -1,6 +1,6 @@
 //! Durable intent before mutation; explicit reconciliation never rewrites files.
 use crate::{
-    restore::checked_path,
+    restore::{checked_path, snapshot},
     store::{Session, Store},
 };
 use anyhow::{bail, Context, Result};
@@ -16,15 +16,6 @@ struct Intent {
     path: String,
     before: Option<String>,
     after: String,
-}
-
-fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
-    let path = checked_path(root, relative)?;
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
 }
 
 impl Store {

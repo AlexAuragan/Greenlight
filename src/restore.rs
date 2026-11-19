@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use std::{
     collections::BTreeMap,
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
 };
 use uuid::Uuid;
@@ -27,6 +27,7 @@ struct RestoreItem {
 
 /// Reject traversal and all symlinks, including inside the project.
 /// These checks are deliberately stricter than ordinary file reads/writes.
+// TODO(GL-003): descriptor-anchored IO must also protect concurrent parent swaps.
 pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let p = Path::new(relative);
     if p.as_os_str().is_empty()
@@ -37,11 +38,7 @@ pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
         bail!("unsafe restore path: {relative}");
     }
     let parts: Vec<_> = p.components().collect();
-    if parts.iter().any(|part| {
-        let name = part.as_os_str().to_string_lossy();
-        matches!(name.as_ref(), ".git" | ".env" | ".ssh")
-    }) || crate::paths::is_private_path(p)
-    {
+    if crate::paths::is_private_path(p) {
         bail!("internal or sensitive path cannot be restored: {relative}");
     }
 
@@ -72,15 +69,29 @@ pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
+/// Exact preimages are bounded; oversized files require manual handling.
+pub(crate) fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
+    const LIMIT: u64 = 20 * 1024 * 1024;
     let path = checked_path(root, relative)?;
-    match fs::read(path) {
-        Ok(data) => Ok(Some(String::from_utf8(data).with_context(|| {
-            format!("non-UTF-8 file cannot be safely restored: {relative}")
-        })?)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err).with_context(|| format!("reading restore target {relative}")),
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("reading restore target {relative}"))
+        }
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        bail!("snapshot requires a regular file of at most 20 MiB: {relative}");
     }
+    let mut data = Vec::new();
+    file.take(LIMIT + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > LIMIT {
+        bail!("snapshot exceeds 20 MiB: {relative}");
+    }
+    Ok(Some(String::from_utf8(data).with_context(|| {
+        format!("non-UTF-8 file cannot be safely restored: {relative}")
+    })?))
 }
 
 impl RestorePlan {
@@ -414,5 +425,16 @@ mod tests {
             fs::read_to_string(root.path().join("a.txt")).unwrap(),
             "one"
         );
+    }
+    #[test]
+    fn snapshots_reject_large_files_without_changing_them() {
+        let root = tempfile::tempdir().unwrap();
+        let file = fs::File::create(root.path().join("large.txt")).unwrap();
+        file.set_len(1024 * 1024 * 1024).unwrap();
+        assert!(snapshot(root.path(), "large.txt")
+            .unwrap_err()
+            .to_string()
+            .contains("20 MiB"));
+        assert_eq!(file.metadata().unwrap().len(), 1024 * 1024 * 1024);
     }
 }

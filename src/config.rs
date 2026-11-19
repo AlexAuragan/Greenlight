@@ -293,8 +293,9 @@ pub fn load_workflow(root: &Path, id: &str) -> Result<LoadedWorkflow> {
         bail!("invalid workflow name");
     }
     let folder = crate::paths::workflows_directory(root)?.join(id);
-    let definition: Workflow =
-        serde_yaml::from_str(&fs::read_to_string(folder.join("workflow.yaml"))?)?;
+    let definition: Workflow = serde_yaml::from_str(&fs::read_to_string(
+        crate::paths::project_file(root, &folder.join("workflow.yaml"))?,
+    )?)?;
     if definition.id != id {
         bail!("workflow id does not match directory");
     }
@@ -303,8 +304,11 @@ pub fn load_workflow(root: &Path, id: &str) -> Result<LoadedWorkflow> {
         if name.contains('/') || name.contains('\\') || name.contains("..") {
             bail!("invalid step filename {name}");
         }
-        let source = fs::read_to_string(folder.join(format!("{name}.md")))
-            .with_context(|| format!("missing step {name}.md"))?;
+        let source = fs::read_to_string(crate::paths::project_file(
+            root,
+            &folder.join(format!("{name}.md")),
+        )?)
+        .with_context(|| format!("missing step {name}.md"))?;
         let (header, body) = frontmatter(&source)?;
         let mut step: Step = serde_yaml::from_str(header)?;
         step.prompt = body.to_string();
@@ -400,6 +404,7 @@ pub fn frontmatter(src: &str) -> Result<(&str, &str)> {
 }
 
 pub fn render_includes(text: &str, root: &Path, folder: &Path) -> Result<String> {
+    // TODO(GL-005): bound expanded template bytes, not only recursion depth.
     // Intentional restricted template syntax: includes only; no template expressions.
     let mut result = text.to_owned();
     for _ in 0..12 {
@@ -409,14 +414,8 @@ pub fn render_includes(text: &str, root: &Path, folder: &Path) -> Result<String>
         let at = start + "{{ include \"".len();
         let end = result[at..].find("\" }}").context("unterminated include")? + at;
         let name = &result[at..end];
-        let path = folder
-            .join(name)
-            .canonicalize()
-            .with_context(|| format!("missing include {name}"))?;
-        let root_abs = root.canonicalize()?;
-        if !path.starts_with(&root_abs) {
-            bail!("include escapes project root");
-        }
+        let path = crate::paths::project_file(root, &folder.join(name))
+            .with_context(|| format!("missing include {name} or inaccessible project file"))?;
         let content = fs::read_to_string(&path)?;
         result.replace_range(start..end + "\" }}".len(), &content);
     }
@@ -497,5 +496,55 @@ mod tests {
     #[test]
     fn dotenv_missing_file_is_ignored() {
         assert!(load_dotenv(Path::new("/nonexistent/greenlight/.env")).is_ok());
+    }
+    #[test]
+    fn includes_keep_private_files_out_of_model_context() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("public.md"), "public").unwrap();
+        fs::write(root.path().join(".env"), "fixture secret").unwrap();
+        assert_eq!(
+            render_includes("{{ include \"public.md\" }}", root.path(), root.path()).unwrap(),
+            "public"
+        );
+        assert!(render_includes("{{ include \".env\" }}", root.path(), root.path()).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = tempfile::tempdir().unwrap();
+            fs::write(outside.path().join("outside.md"), "outside").unwrap();
+            symlink(
+                outside.path().join("outside.md"),
+                root.path().join("escape.md"),
+            )
+            .unwrap();
+            symlink(root.path().join(".env"), root.path().join("alias.md")).unwrap();
+            for name in ["escape.md", "alias.md"] {
+                assert!(render_includes(
+                    &format!("{{{{ include \"{name}\" }}}}"),
+                    root.path(),
+                    root.path()
+                )
+                .is_err());
+            }
+        }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn workflow_step_cannot_follow_a_private_alias() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("workflows/demo");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("workflow.yaml"),
+            "id: demo\ntitle: Demo\nstart: work\nsteps: [work]\n",
+        )
+        .unwrap();
+        fs::write(root.path().join(".env"), "fixture secret").unwrap();
+        std::os::unix::fs::symlink(root.path().join(".env"), folder.join("work.md")).unwrap();
+        assert!(load_workflow(root.path(), "demo")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("private"));
     }
 }

@@ -38,7 +38,7 @@ pub fn resolve_root(explicit: Option<&Path>, cwd: &Path, initializing: bool) -> 
 }
 
 pub fn load_environment(root: &Path) -> Result<()> {
-    crate::paths::check_control_directory(root)?;
+    crate::paths::existing_directory(&root.join(crate::paths::PROJECT_DIR))?;
     crate::config::load_dotenv(&root.join(".greenlight/.env"))?;
     crate::config::load_dotenv(&root.join(".env"))
 }

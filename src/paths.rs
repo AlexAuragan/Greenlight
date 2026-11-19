@@ -10,11 +10,6 @@ use std::{
 pub const PROJECT_DIR: &str = ".greenlight";
 pub const LEGACY_PROJECT_DIR: &str = ".stepwright";
 
-pub fn check_control_directory(root: &Path) -> Result<()> {
-    existing_directory(&root.join(PROJECT_DIR))?;
-    Ok(())
-}
-
 /// User-owned host settings/credentials must not be accessible to agent tools.
 pub fn is_private_path(relative: &Path) -> bool {
     is_internal_state(relative)
@@ -22,9 +17,32 @@ pub fn is_private_path(relative: &Path) -> bool {
             relative.to_str(),
             Some("greenlight.yaml" | "stepwright.yaml" | ".greenlight/config.yaml")
         )
-        || relative
-            .components()
-            .any(|part| part.as_os_str().to_string_lossy().starts_with(".env"))
+        || relative.components().any(|part| {
+            let name = part.as_os_str().to_string_lossy();
+            name.starts_with(".env") || matches!(name.as_ref(), ".git" | ".ssh")
+        })
+}
+
+/// Read model-visible project files under the same privacy boundary as tools.
+// TODO(GL-003): use descriptor-anchored access to close concurrent path swaps.
+pub(crate) fn project_file(root: &Path, path: &Path) -> Result<PathBuf> {
+    let root = root.canonicalize()?;
+    if let Ok(relative) = path.strip_prefix(&root) {
+        if is_private_path(relative) {
+            bail!("private project file: {}", path.display());
+        }
+    }
+    let resolved = path.canonicalize()?;
+    let relative = resolved
+        .strip_prefix(&root)
+        .context("file escapes project root")?;
+    if is_private_path(relative) {
+        bail!("private project file: {}", path.display());
+    }
+    if !resolved.is_file() {
+        bail!("project file is not a regular file: {}", path.display());
+    }
+    Ok(resolved)
 }
 
 pub fn config_path(root: &Path) -> Result<PathBuf> {
@@ -61,7 +79,7 @@ pub fn is_internal_state(relative: &Path) -> bool {
         && matches!(parts.next(), Some(Component::Normal(state)) if state == "state")
 }
 
-fn existing_directory(path: &Path) -> Result<bool> {
+pub(crate) fn existing_directory(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => Ok(true),
         Ok(_) => bail!(

@@ -111,7 +111,7 @@ impl ApprovalStore {
                 .context("global approvals unavailable: set HOME or an absolute XDG_CONFIG_HOME")?,
         };
         // Reload before editing so independent processes do not normally drop
-        // each other's grants. Concurrent writes still need locking eventually.
+        // each other's grants. TODO(GL-004): lock reload/merge/save across processes to avoid lost grants.
         let mut updated = Self::read(path)?;
         match kind {
             "shell" => {

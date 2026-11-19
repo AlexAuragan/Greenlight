@@ -132,13 +132,11 @@ impl Snapshot {
     }
 }
 
-fn workflow_digest(wf: &config::LoadedWorkflow) -> Result<String> {
-    let steps: BTreeMap<_, _> = wf.steps.iter().collect();
-    Ok(hash(&serde_json::to_vec(
-        &json!({"workflow":wf.definition,"steps":steps}),
-    )?))
-}
 fn control(store: &Store, s: &Session, wf: &config::LoadedWorkflow) -> Result<String> {
+    let steps: BTreeMap<_, _> = wf.steps.iter().collect();
+    let definition = hash(&serde_json::to_vec(
+        &json!({"workflow":wf.definition,"steps":steps}),
+    )?);
     let token: Option<String> = store
         .db
         .query_row(
@@ -152,7 +150,7 @@ fn control(store: &Store, s: &Session, wf: &config::LoadedWorkflow) -> Result<St
         .last()
         .map(|a| json!({"id":a.id,"start":a.start_event,"end":a.end_event,"status":a.status}));
     Ok(hash(&serde_json::to_vec(
-        &json!({"session":s,"definition":workflow_digest(wf)?,"owner":token,"attempt":last,"native_recovery_clear":store.ensure_no_pending_writes().is_ok()}),
+        &json!({"session":s,"definition":definition,"owner":token,"attempt":last,"native_recovery_clear":store.ensure_no_pending_writes().is_ok()}),
     )?))
 }
 

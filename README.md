@@ -110,96 +110,9 @@ Start with the [documentation index](docs/README.md), [current TUI controls](doc
 
 ## Roadmap / TODO
 
-> **Status (2026-11-19):** this checklist tracks **remaining** work, not all ideas ever discussed. The TUI, workspace manifests, Markdown preview and Greenlight rename landed in PRs #6–#9. For settled decisions see [the decision log](docs/16-decision-log.md), and for a repeatable manual exercise see [the smoke-test guide](docs/17-smoke-test.md). The current executable behavior is described in the specialized docs and Rust sources.
+The indexed [open backlog](TODO.md) is the single source of remaining work, ordered by recovery/correctness, supervised workflows, then scale and integrations. P0/P1 implementation is complete on the feature branch; review and merge remain separate. Completed milestones are recoverable from Git and the [decision log](docs/16-decision-log.md).
 
-### Implemented baseline (not the finished UX)
-
-- [x] CLI and Ratatui TUI share the engine, branch-aware event store, approvals and guarded restart/restore paths (PR #6).
-- [x] Native-write journal, file diffs and tracked-file restoration; step-boundary SHA-256 workspace manifests and read-only `workspace-status` (PR #7 for manifests; earlier PRs for journal/restore).
-- [x] Rendered Markdown subset with raw toggle, focus-based Left/Right/Enter/Escape navigation, `i` to compose, and Up/Down or `j/k` scrolling (PR #8).
-- [x] Greenlight executable/configuration/state naming, with guarded migration of legacy project state (PR #9).
-- [x] Local user validation of the pre-rename `master` integration: 57 passing Rust tests, one environment-dependent sandbox test ignored, and clean Clippy. The rename was subsequently reported good locally; automated CI evidence is not available. See [validation](docs/06-validation.md).
-
-### P0 — stabilize the current interactive baseline
-- [x] Use typed, explicit approval choices with inert Enter and ignored key repeats; project/global grants require a separate scope confirmation. Cancellation, disconnection or save failure never authorizes the request.
-- [x] Surface worker errors, blocked steps, malformed structured events, missing artifact bodies and partial restores in scrollable diagnostics. Preserve raw evidence; failed restores report changed/journaled counts and cannot silently fork or claim success.
-- [x] Enforce one execution owner per session with an OS lock and persisted owner record; recover interrupted runs explicitly with `recover-session` or TUI `/recover`. Competing CLI/TUI resumes cannot change the live owner's state.
-- [x] Discard unanswered permission requests on worker loss; disconnected TUI workers clear pending dialogs, and session recovery preserves already-saved grants. A real durable session grant (today `a` only covers the process) remains separate work.
-- [x] Publish artifact metadata and its success event in one SQLite transaction after syncing the blob; test blob, database insertion and commit failures, preserving prior versions and allowing retries. A crash before publication may leave an unreferenced blob for future cleanup.
-- [x] Consolidate deviation detection into one shared evaluator and retain its verdict through routing. Accepted reports are checked once; rejected agent reports continue in the same conversation, while detector errors block. Tests cover pause/retry/goto and engine-generated failures.
-- [x] Persist native-write intent/preimage before atomic file replacement; reconcile interrupted writes explicitly with `recover-writes`, preserving manual edits and blocking execution/restore while unresolved. Process-death and journal-failure tests cover recovery.
-- [x] Add engine-backed 80×24 terminal-buffer acceptance tests for deny/confirm/cancel, native writes, failed verification, artifact inspection, revised instructions, human gates, worker loss/recovery and completion, using a scripted provider. Separate tests cover process death and injected partial-restore failures.
-
-### P1 — TUI redesign for daily use
-
-- [x] Add **LLM provider failure management** with safe CLI/TUI guidance for missing/invalid credentials, credit/quota exhaustion, rate limits, permission/request errors and temporary outages. Retry only explicit rejected rate limits without usage and pre-response connection failures (3 requests maximum); respect short `Retry-After` waits and allow TUI `x` cancellation. Preserve one usage record per request and uncertain billing. Unknown 429s, timeouts and server errors require an explicit user decision. See [provider failures](docs/19-provider-failures.md).
-
-- [x] Persist input/cached-input/output usage for every current coding, verification and detector request, including failures and retries. Prefer provider counts; use labelled tiktoken estimates otherwise, retaining unknown cache/billing values. Report per-request/attempt/model totals in CLI/TUI and distinguish session, branch and inherited history. See [usage and pricing](docs/18-token-usage-and-pricing.md).
-- [x] Support explicit per-model pricing with currency, source/effective date and per-request snapshots. `model-info`, `models --pricing`, `usage` and TUI `/usage` expose configured or unknown rates/counts and estimated costs without counting cached input twice.
-- [x] Discover default on-demand token rates from DeepInfra's authoritative public catalog, with local caching, explicit overrides and automatic freshness warnings. Support explicit whole-request context tiers and cache-creation/TTL rates without double billing. Unsupported providers/billing modes stay unknown; no guessed rates or historical repricing. See [pricing discovery and limits](docs/18-token-usage-and-pricing.md#public-pricing-discovery-and-freshness). Budgets remain P2.
-- [x] Replace the raw log-centric layout with a session workspace: **status + stepper + context + primary action**, projected from persisted attempts, input manifests, verification events and execution ownership. `c` / `/context` shows saved attempt context; legacy gaps remain explicit.
-- [x] Add a session picker with goal names, blocked-first sorting, last recorded activity (UTC), case-insensitive search (`f`) and an in-TUI creation flow (`n`). Choose a validated workflow and editable goal; Enter creates and starts the session through the existing engine. Active input fields use blinking carets, and TUI-owned model requests show a separate live streaming preview. Selection stays stable as activity reorders the list.
-- [x] Implement contextual blocked-state cards with recorded reason/evidence and guarded resume/restart guidance. `e` opens the exact blocker, `h` opens Help, `2` opens artifacts, and `i` / `r` use the existing resume/restart controls. Interrupted ownership and pending writes require recovery first.
-- [x] Extend pane/focus navigation with scrollable `?` / `/help`, explicit activity follow/pause (`End` resumes), per-session in-memory drafts, wrapped-content scroll bounds and compact/resize behavior. Arrows and `j/k` remain primary scrolling keys; optional PgUp/PgDn and Home/End work in reading panels. Drafts are not persisted across exits.
-- [x] Harden Markdown and literal artifact previews: visibly escape terminal/bidirectional controls, align ordinary tables by terminal width, handle longer fences, and bound preview bytes/lines/table padding with explicit truncation. Tests cover ANSI/OSC/C1 controls, CJK/combining/emoji widths, malformed markup and oversized documents. Stored source stays unchanged; full CommonMark/GFM and inline images are not a goal.
-- [x] Persist exact selected-input versions and approval references per attempt; human gates approve displayed versions and downstream consumers require reapproval after changes.
-- [x] Add branch-visible artifact history (`v` in Artifacts), exact creation/attempt/branch provenance and recorded consumer/human-approval references (`p`), plus adjacent-version diffs (`d`). Inspect immutable versions without following latest updates; `artifact --event ID` exports a visible historical version. Missing historical bodies retain metadata access.
-- [x] Show semantic activity cards for correlated tool calls, verification checks/verdicts, native file changes, artifact versions and structured failures. Enter expands recorded evidence; `d` opens journal diffs, `o` opens an artifact card’s exact version, and `v` / `/events` retains raw audit history. Legacy/unlinked outputs remain explicit; model reports do not become verification facts.
-- [x] Support optional model-authored **activity titles** at each coding response/action boundary. Validate bounded plain text, record exact response links and show separate **Agent intent** cards; permissions, outcomes and verification remain factual. Successive responses may have different titles within a step; no separate phase lifecycle. See [agent protocol](docs/13-agent-action-protocol.md#4-optional-activity-title-implemented).
-- [x] Build a workflow stepper showing latest recorded outcome per step, retry/loop attempt counts, current attempt ID, aggregate verification and next action. Long workflows window around the current step. This is an overview, not a full graph or attempt browser.
-- [x] Persist a UUID for each new step attempt with definition/start/end event references and outcome; expose branch-visible history through `attempts`. Worker recovery marks interrupted attempts without replaying approvals. Historical sessions are not backfilled.
-- [x] Capture each attempt's input manifest with exact artifact creation events and applicable human approval events, linked to its saved step definition. Agent context uses the selected snapshots; a future UI must not reconstruct them from latest-by-name state.
-- [x] Correlate SHA-256 manifests with the branch-visible native write/restore journal, checking every before/after hash in the interval. Report journal-explained, unexplained and coverage-unknown paths in CLI/TUI, preserve net-zero journal/gap evidence, and record scan metrics. Real-project measurements and limits are in [workspace recording](docs/14-workspace-recording.md#measured-scan-overhead). Hashes do not restore file contents or prove authorship.
-- [x] Draft the [conversational coordinator routing contract](docs/20-conversational-coordinator.md) and [manager prompt](docs/prompts/manager-v1.md). The first [read-only Q&A stage](docs/21-manager-qa.md) is implemented; executing targeted forwards, guarded restart proposals and next-call delivery remain P2 work subject to the contract's acceptance scenarios.
-- [x] Split the TUI into focus/routing, activity, layout, reader, approval and recovery components. Large artifact/version previews parse, wrap and paint on a bounded background worker; the UI paints only a ready viewport and discards stale results. Storage refresh and explicit diff construction retain their existing synchronous paths.
-- [x] Preserve per-session drafts and per-session/branch tab selections, scroll, follow state and journal-diff reading in memory. `F` filters activity metadata/summaries; `C` sends full selected text to a local clipboard utility; `E` opens a private temporary review snapshot in VISUAL/EDITOR, without importing edits. New artifact versions reset stale offsets. See [TUI reading/export controls](docs/11-tui.md#reading-state-filtering-and-export).
-
-- [x] Offer a live workflow **Retry request / Stop for now** provider popup, preserving exact prepared messages, attempt and branch without replaying tools. Respect remaining provider cooldowns and expose possible duplicate billing. Stopped provider failures expose **Continue step** with fresh-attempt semantics. See [manual provider retry](docs/19-provider-failures.md#explicit-retry-in-the-workflow-tui).
-
-- [x] Add bounded native directory discovery and filename/path filtering through the existing read capability, with read-policy enforcement and private/state/cache/symlink exclusions. Accept a single unambiguous fenced action with surrounding commentary, preserve literal contents and reject multiple actions; repair missing required fields before dispatch. See [discovery](docs/36-native-file-discovery.md) and [the action contract](docs/13-agent-action-protocol.md).
-
-### P2 — supervised intelligence and stronger recovery
-
-- [ ] Design explicit **retry of individual failed tool calls**: pause before asking the model to improvise, retain the exact arguments and conversation position, let the user repair the environment and retry, or explicitly return the failure to the model. Distinguish pre-execution rejection, partial effects and unknown outcomes; verify side effects/idempotency, recheck permissions and workspace changes, and define branch/history/usage semantics before replaying anything. Cover shell/network/native writes and interrupted workers. No automatic replay of possibly completed operations.
-- [ ] Persist suspended provider-request continuations across TUI/process restarts, including manager side questions, with exact-message checkpoints, credential/config reload semantics and validation of intervening workspace changes. In-process workflow Retry request preserves messages; ordinary Resume/Continue step starts a fresh step attempt.
-
-
-- [ ] Consider an inexpensive **optional summarizer** for long steps or completed workflows, run asynchronously and display evidence-linked output when ready; compare it against coding-agent-authored short activity titles. Never block execution on summarization.
-- [x] Formalize optional `activity_title` validation and update the [agent YAML contract reference](docs/13-agent-action-protocol.md), embedded model prompt, runtime parser and protocol tests together. Keep these synchronized with future protocol changes.
-- [x] Implement grounded read-only [manager Q&A](docs/21-manager-qa.md), context preview, separate saved exchanges, strict JSON/citation/destination validation and accounted `manager` requests. Ordinary TUI messages route to the manager when enabled; explicit CLI/TUI ask works without enabling the default route. Forwards remain visibly unexecuted.
-- [ ] Continue the [coordinator design](docs/20-conversational-coordinator.md) with targeted idle delivery/guarded restart proposals, then a durable live-owner inbox. Preserve original message bytes, attempt/branch scope, execution ownership, permission checks and verification.
-- [ ] Complete delivery status UI (**Queued for STEP**, **Included in request**, **Restart proposed**) as those stages land. Current manager cards show answers, clarification, unavailable proposals and stale-state review. Keep deterministic commands/approval controls separate; explicit direct-agent mode is a later option.
-- [ ] Support manager **side questions** that cite a consistent evidence snapshot without changing the coding-agent context; make question history/retention explicit.
-- [ ] Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
-- [ ] Evaluate **snapshotting changed file bodies** at step boundaries only after hash manifests reveal a useful gap; define size/privacy/caches policy and whether external edits should be restored or simply protected from overwrite.
-- [ ] **Design command-level shell grants together before implementation:** allow selected executables (e.g. `ls`) across approved argument/path variations without approving a whole shell string by prefix. Define argument/option restrictions, path and executable identity, wrappers/interpreters, pipelines/AND/OR/sequences, redirections, substitutions and environment assignments; validate every executed component or request approval for the whole compound command. Regression case: granting `cat` must never auto-approve `cat something.txt | ./harmful_script.sh` (nor hidden substitutions). Keep exact-command grants until this design is agreed.
-- [ ] Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
-- [ ] Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
-- [x] Add completed-run results with agent conclusions, pinned reports, verification scope and recorded edit counts; **3 Edits** shows per-file net native diffs and guarded single/all-file revert previews.
-- [ ] Extend diff review with hunk navigation and exportable verification evidence.
-- [ ] Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
-- [ ] Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
-
-### P3 — longer-term capabilities
-
-- [ ] Implement **manager-proposed** retry/goto/restart after deterministic recovery actions are available; validate proposed target/checkpoint in Rust and show the normal restore/confirmation screen.
-- [ ] Optimize artifact loading when profiling warrants it: fetch lightweight metadata, load the selected body on demand, and cache by immutable version ID. Keep as a documented scaling task, not an immediate blocker.
-- [ ] Revisit full-workspace / multi-file atomic rollback only if measured drift and restoration failures justify the extra complexity; document the current restore's partial-error handling.
-
-- [ ] Extend the implemented model preview/future-request stop controls with safe in-flight cancel/interrupt/queue semantics and durable continuation across process restarts.
-- [ ] Safe Git-aware checkpoints and patch export; do not imply native restore captures arbitrary workspace changes.
-- [ ] Parallel/subworkflow orchestration with explicit session ownership and approval routing.
-- [ ] Provider flexibility, context compaction, bounded code retrieval/indexing and opt-in MCP tool integrations.
-- [ ] More complete sandbox resource limits and secret-handling defenses, plus security regression tests.
-- [ ] Add optional desktop notifications, authenticated remote decisions and customizable keybindings/themes. Outbound Discord notifications are already supported.
-- [ ] Branch graph/time-travel visualization, saved views, accessibility/contrast testing and performance profiling.
-- [ ] Generate complete contextual Help from shared action definitions; retain keyboard/mouse parity and literal text editing.
-- [ ] Improve approval-decision provenance (request identity and UI action/key source) without persisting or replaying unanswered approvals.
-- [ ] Keep current docs and the decision log synchronized with runtime changes; retain unfinished designs, with completed proposals recoverable from Git.
-
-**Prioritization rule:** build and validate one feature at a time. Harden native-write crash consistency, and evaluate recorded workspace manifests against the native journal before expanding restoration; broader rollback can wait for real coverage evidence. Keep the ambitious TUI direction, but distinguish execution facts from model-authored UI titles, preserve saved grants while dropping pending requests after crashes, and keep the existing native-write rollback scope explicit. Models may coordinate, summarize and propose; the harness applies permissions, verification and transitions.
-
-Current verification evidence: [validation](docs/06-validation.md). Repeatable acceptance steps: [smoke tests](docs/17-smoke-test.md).
+Current evidence: [validation](docs/06-validation.md). Repeatable checks: [smoke tests](docs/17-smoke-test.md). The [code review](docs/code-review.md) explains the latest cleanup and outstanding findings.
 
 ## Caveats (read before use)
 

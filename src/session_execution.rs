@@ -79,6 +79,7 @@ impl Store {
         Ok(lock)
     }
 
+    // TODO(GL-007): session ownership does not coordinate separate sessions editing one project.
     pub fn claim_execution(&self, id: &str, instruction: Option<&str>) -> Result<ExecutionOwner> {
         let lock = self.lock_idle_session(id)?;
         self.ensure_no_pending_writes()?;

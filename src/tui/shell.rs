@@ -692,6 +692,7 @@ impl App {
         self.detail_scroll = 0;
         Ok(())
     }
+    // TODO(GL-006): share action dispatch with shortcuts and contextual Help.
     pub(super) fn activate(&mut self, action: Action, root: &Path, store: &Store) -> Result<bool> {
         use Action::*;
         if self.shell.sessions

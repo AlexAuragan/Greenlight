@@ -222,8 +222,7 @@ pub(super) fn draw(
         app,
         Paragraph::new(approval_text(prompt))
             .wrap(Wrap { trim: false })
-            .block(
-                border("", true).title(format!(
+            .block(border("", true).title(format!(
                     "{} · {}",
                     title.trim(),
                     super::view::fit(
@@ -232,8 +231,7 @@ pub(super) fn draw(
                             .unwrap_or("Current request"),
                         40
                     )
-                )),
-            ),
+                ))),
         approval_areas[0],
     );
     let keys = ['y', 'a', 'p', 'g', 'n']
