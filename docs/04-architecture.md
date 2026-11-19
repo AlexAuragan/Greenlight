@@ -105,3 +105,13 @@ The [coordinator contract](20-conversational-coordinator.md) now has a [read-onl
 Project setup and root discovery live in `src/project.rs`; embedded resources are listed in `src/project_templates.rs`. `src/paths.rs` selects canonical/legacy config and workflow paths and protects private settings/state. The standalone `install.sh` maintains its source/build cache outside projects; see [installation and projects](22-installation-and-projects.md).
 
 `src/agent_protocol.rs` compiles the [coding-agent system prompt](prompts/coding-agent-v1.md), provides scoped tool examples and constructs protocol-format repair messages. The parser still rejects tool-named actions; syntax guidance never dispatches or authorizes an operation.
+
+## Patterns used to keep the implementation local
+
+- **Typed commands and shared metadata:** `tui/actions.rs` owns action identities and the shortcut/label registry used by workspace keyboard routing, buttons and the Help reference. `tui/shell.rs` dispatches those actions directly; it does not convert commands into artificial keypresses. Context-specific navigation and literal text editing remain explicit in `tui/routing.rs`.
+- **Decision input ownership:** the derived `DecisionLayer` identifies Help, tool/provider permissions, human choices, human evidence, revert confirmation or ordinary workspace input. Both keyboard routing and direct actions respect the top layer. Esc hides tool/provider popups without deciding; human evidence cannot approve; Help cannot forward a decision underneath itself. This projects existing state rather than adding another persisted state machine.
+- **Units of work:** session creation and branch publication wrap their related rows and audit event in a single transaction. Branch operations prepare a local next session and expose it to the caller only after commit.
+- **Serialized read–modify–write:** approval grants hold an OS lock on a stable sibling file while reloading, merging and atomically publishing one scope. Locks are advisory and do not govern external editors.
+- **Shared policy boundaries:** project paths and exact file snapshots retain shared guards, while read/write/restore differences remain explicit.
+
+Keep orchestration flat. Extract shared rules or substantial operations, not single-expression forwarding functions. Durable continuations and a broader execution state machine remain separate designs; these changes do not replay failed tools or change workflow transitions.

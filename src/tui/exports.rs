@@ -14,7 +14,7 @@ pub(super) struct Snapshot {
 impl App {
     pub(super) fn export_snapshot(&self) -> Result<Snapshot> {
         let (label, text) = if self.help {
-            ("keyboard help".into(), HELP.into())
+            ("keyboard help".into(), help_text().into())
         } else if self.shell.sessions {
             (
                 "session browser snapshot · candidates only".into(),

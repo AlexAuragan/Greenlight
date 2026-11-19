@@ -80,7 +80,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
                 "Workspace"
             },
             if app.shell.mouse { "on" } else { "off" },
-            HELP
+            help_text()
         );
         draw_scrolled(
             frame,

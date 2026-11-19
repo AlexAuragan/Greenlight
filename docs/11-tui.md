@@ -232,3 +232,7 @@ Letters and slash-prefixed text remain literal in Step and Manager messages. Fro
 ## Retry a failed provider request
 
 A live workflow provider failure opens **Provider request paused**, with **[y] Retry request**, **[n] Stop for now**, and Esc to hide without answering. Retry keeps the exact messages, current attempt and branch; earlier tools are not replayed. Fix credits/connectivity or wait for a rate limit, then retry; any remaining provider cooldown is honored. Billing uncertainty remains visible for timeouts/server errors. **[a] Review retry** returns to a hidden popup. If the worker has already stopped, **[t] Continue step** starts a new step attempt without typing an instruction; the screen warns that earlier tools may run again. See [retry behavior and limits](19-provider-failures.md#explicit-retry-in-the-workflow-tui).
+
+## Shared action routing
+
+Workspace shortcuts, button labels and the Help action reference share typed command metadata. Buttons invoke commands directly. Modal decision ownership is checked before command dispatch; text editors and contextual navigation keep their own input handling. Opening Sessions by button or `f` starts the same searchable picker. Tool/provider permission popups still ignore unrelated shortcuts, and Esc keeps their request pending.

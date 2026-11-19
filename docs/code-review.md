@@ -14,10 +14,14 @@ This review prioritizes readable control flow, shared safety policies and concre
 
 ## Deferred findings
 
-[GL-003 through GL-007](../TODO.md) track concurrent path swaps, concurrent approval-store updates, large-history/body memory use, duplicated action/shortcut dispatch and project-level coordination. Nearby code comments reference the backlog. Exact tool retry and durable provider continuation remain GL-001/GL-002; they require explicit side-effect and recovery semantics.
+[GL-003, GL-005 and GL-007](../TODO.md) track concurrent path swaps, large-history/body memory use and project-level coordination. GL-004 (approval-store locking) and GL-006 (typed action registry/direct dispatch) were completed in the subsequent pattern pass; session/branch publication is now transactional. Nearby code comments reference the backlog. Exact tool retry and durable provider continuation remain GL-001/GL-002; they require explicit side-effect and recovery semantics.
 
 ## Readability conventions
 
 Use standard rustfmt. Prefer early exits and local variables over nested success/error branches. Keep one-use logic local when it makes the caller easier to read; retain a helper when it names a substantial operation or enforces a shared boundary. Avoid hiding a single expression behind a forwarding function. Keep persisted schemas, factual verification and model-authored claims distinct.
 
 Validation results are recorded in [validation](06-validation.md). Existing terminal snapshots must remain unchanged for this cleanup.
+
+## Design-pattern follow-up
+
+Use the [architecture pattern notes](04-architecture.md#patterns-used-to-keep-the-implementation-local) for the implemented command registry, decision input ownership, transactions and serialized approval updates. Tests exercise concurrent processes, injected SQL/commit failures and keyboard/direct-action parity. Existing 80×24 result/artifact captures remain unchanged.

@@ -25,14 +25,10 @@ impl App {
 
         self.sync_draft();
         // Help owns input above every decision; no keys fall through to a prompt.
-        if self.help {
+        if self.decision_layer() == actions::DecisionLayer::Help {
             match key.code {
-                KeyCode::Esc | KeyCode::Char('h' | '?') => {
-                    self.help = false;
-                    self.refresh_checkpoint(store);
-                    self.detail_scroll = self.shell.help_scroll;
-                }
-                KeyCode::Char('M') => self.shell.mouse = !self.shell.mouse,
+                KeyCode::Esc | KeyCode::Char('h' | '?') => self.close_surface(store)?,
+                KeyCode::Char('M') => return self.activate(shell::Action::Mouse, root, store),
                 KeyCode::Char('C') => self.start_copy(),
                 KeyCode::Tab | KeyCode::BackTab => {
                     if self.shell.help_actions {
@@ -66,9 +62,9 @@ impl App {
         }
         // Permission popups own input before workspace shortcuts or text editors.
         // Esc only hides the layer: no answer is sent to the waiting worker.
-        if self.permission_popup_visible() {
+        if self.decision_layer() == actions::DecisionLayer::Permission {
             match key.code {
-                KeyCode::Esc => self.dismiss_permission(),
+                KeyCode::Esc => self.close_surface(store)?,
                 KeyCode::Char(choice)
                     if key.kind == KeyEventKind::Press
                         && !self.too_small()
@@ -128,31 +124,19 @@ impl App {
             }
             return Ok(false);
         }
-        if !typing && !self.shell.more {
-            let shortcut = match key.code {
-                KeyCode::Char('t') => Some(shell::Action::ResumeProvider),
-                KeyCode::Char('a') if self.approval_hidden => {
-                    Some(if self.provider_retry_pending() {
-                        shell::Action::ReviewProviderRetry
-                    } else {
-                        shell::Action::ReviewPermission
-                    })
-                }
-                KeyCode::Char('.') => Some(shell::Action::More),
-                KeyCode::Char('i') => Some(shell::Action::Compose),
-                KeyCode::Char('s') => Some(shell::Action::Overview),
-                KeyCode::Char('o') => Some(shell::Action::Report),
-                KeyCode::Char('e') => Some(shell::Action::ResultEvidence),
-                KeyCode::Char('3') => Some(shell::Action::ReviewEdits),
-                KeyCode::Char('v') => Some(shell::Action::Versions),
-                KeyCode::Char('p') => Some(shell::Action::Provenance),
-                _ => None,
-            };
-            if let Some(action) = shortcut.filter(|a| self.footer_actions().contains(a)) {
+        if !typing
+            && !self.shell.more
+            && matches!(key.code, KeyCode::Char(_))
+            && key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            if let Some(action) = shell::Action::for_key(key.code, &self.footer_actions()) {
                 return self.activate(action, root, store);
             }
         }
-        if !typing && matches!(key.code, KeyCode::Char('h' | '?')) {
+        if !typing && shell::Action::Help.matches_key(key.code) {
             self.open_help();
             return Ok(false);
         }
@@ -240,8 +224,7 @@ impl App {
                     self.session_editor.reset();
                 }
                 KeyCode::Char('n') if !self.searching => {
-                    self.close_navigator();
-                    return self.on_key(key, root, store);
+                    return self.activate(shell::Action::New, root, store);
                 }
                 _ if self.searching => {
                     self.session_editor
@@ -354,7 +337,7 @@ impl App {
                 return Ok(false);
             }
         }
-        if self.human_review().is_some() && self.checkpoint.reading {
+        if self.decision_layer() == actions::DecisionLayer::HumanEvidence {
             match key.code {
                 KeyCode::Esc => self.checkpoint_back(store),
                 KeyCode::Char('C') => self.start_copy(),
@@ -457,14 +440,8 @@ impl App {
             && self.new_session.is_none()
         {
             match key.code {
-                KeyCode::Char('C') => {
-                    self.start_copy();
-                    return Ok(false);
-                }
-                KeyCode::Char('E') => {
-                    self.request_editor();
-                    return Ok(false);
-                }
+                KeyCode::Char('C') => return self.activate(shell::Action::Copy, root, store),
+                KeyCode::Char('E') => return self.activate(shell::Action::Editor, root, store),
                 _ => {}
             }
         }
@@ -570,22 +547,6 @@ impl App {
                 _ => {}
             }
             self.artifact_browser = Some(browser);
-            return Ok(false);
-        }
-        if self.help {
-            match key.code {
-                KeyCode::Esc | KeyCode::Char('?') => {
-                    self.help = false;
-                    self.detail_scroll = 0;
-                }
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
-                KeyCode::PageDown => self.scroll_detail(8),
-                KeyCode::PageUp => self.scroll_detail(-8),
-                KeyCode::Home => self.detail_scroll = 0,
-                KeyCode::End => self.detail_scroll = u16::MAX,
-                _ => {}
-            }
             return Ok(false);
         }
         if self.details.page.is_some() && !self.approval_visible() && self.diagnostic.is_none() {
@@ -762,45 +723,7 @@ impl App {
                         .modifiers
                         .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) =>
                 {
-                    let form = self.new_session.as_mut().unwrap();
-                    if form.goal.is_none() {
-                        if let Some(choice) = form.workflows.get(form.cursor) {
-                            if let Some(error) = &choice.error {
-                                form.error = Some(error.clone());
-                            } else {
-                                form.goal = Some(self.compose.creation_goal.clone());
-                                self.goal_editor.reset();
-                                form.error = None;
-                            }
-                        }
-                    } else {
-                        match form.create(root, store) {
-                            Ok(session) => {
-                                self.new_session = None;
-                                self.session_query.clear();
-                                self.requested_session = Some(session.id.clone());
-                                self.diagnostic = None;
-                                self.context_detail = None;
-                                self.details.close();
-                                self.refresh(store)?;
-                                self.focus = Focus::Events;
-                                self.runner = Some(tui_actions::resume(
-                                    root.to_path_buf(),
-                                    session.id,
-                                    String::new(),
-                                ));
-                                self.view = View::Conversation;
-                                self.follow_activity = true;
-                                self.activity_query.clear();
-                                self.compose.creation_goal.clear();
-                                self.compose.creation_workflow.clear();
-                                self.notice = "Starting workflow. Model output and approval requests will appear here.".into();
-                            }
-                            Err(error) => {
-                                form.error = Some(format!("Cannot create session: {error:#}"))
-                            }
-                        }
-                    }
+                    self.submit_new_session(root, store)?;
                 }
                 KeyCode::Down | KeyCode::Char('j')
                     if self.new_session.as_ref().unwrap().goal.is_none() =>
@@ -922,29 +845,27 @@ impl App {
             return Ok(false);
         }
 
+        let workspace_actions = [
+            shell::Action::Preview,
+            shell::Action::Expand,
+            shell::Action::New,
+            shell::Action::Sessions,
+            shell::Action::Filter,
+            shell::Action::Details,
+            shell::Action::Activity,
+            shell::Action::Artifacts,
+            shell::Action::Edits,
+            shell::Action::Overview,
+            shell::Action::Open,
+            shell::Action::Compose,
+        ];
+        if let Some(action) = shell::Action::for_key(key.code, &workspace_actions)
+            .filter(|action| *action != shell::Action::Filter || self.view == View::Conversation)
+        {
+            return self.activate(action, root, store);
+        }
         match key.code {
             KeyCode::Char('?') => self.open_help(),
-            KeyCode::Char('P') => self.shell.preview = !self.shell.preview,
-            KeyCode::Char('Z') => self.shell.expanded = !self.shell.expanded,
-            KeyCode::Char('F') if self.view == View::Conversation => {
-                self.activity_filtering = true;
-                self.filter_editor.reset();
-            }
-            KeyCode::Char('f') => self.open_navigator(true),
-            KeyCode::Char('n') => {
-                if self.runner.is_some() {
-                    self.notice =
-                        "Wait for the active worker before creating another session.".into();
-                } else {
-                    match self.new_form(root) {
-                        Ok(()) => {}
-                        Err(error) => {
-                            self.raise_diagnostic(format!("Cannot list workflows: {error:#}"))
-                        }
-                    }
-                }
-            }
-            KeyCode::Char('c') => self.open_run_details(details::Page::Run, store),
             KeyCode::Char('o') if self.view == View::Conversation => {
                 self.open_card_artifact(store)?
             }
@@ -978,18 +899,6 @@ impl App {
                 self.shell.action_index = 0;
             }
             KeyCode::Esc | KeyCode::Left => self.focus_left(),
-            KeyCode::Char('1') => self.switch_view(View::Conversation),
-            KeyCode::Char('2') => self.switch_view(View::Artifacts),
-            KeyCode::Char('3') => {
-                self.switch_view(View::Edits);
-                self.refresh_edits(store);
-            }
-            KeyCode::Char('s') if self.session().is_some_and(|s| s.status == "completed") => {
-                self.switch_view(View::Conversation);
-                self.result_open = true;
-                self.focus = Focus::Detail;
-                self.detail_scroll = 0;
-            }
             KeyCode::Char('u') if self.view == View::Edits => {
                 self.prepare_revert(root, store, false)
             }
@@ -1000,23 +909,6 @@ impl App {
                 self.render_markdown = !self.render_markdown;
                 self.detail_scroll = 0;
             }
-            KeyCode::Enter => {
-                if self.blocker_card
-                    && self.view == View::Conversation
-                    && self.focus == Focus::Events
-                {
-                    self.inspect_blocker();
-                } else if self.focus == Focus::Detail {
-                    self.focus_left();
-                } else if self.focus == Focus::Sessions {
-                    self.open_candidate(store)?;
-                } else {
-                    self.inspector_open = true;
-                    self.focus = Focus::Detail;
-                    self.follow_activity = false;
-                }
-            }
-            KeyCode::Char('i') => self.focus_composer(),
             KeyCode::Char('/') => {
                 self.set_message_mode(compose::Mode::Command);
                 self.focus_composer();

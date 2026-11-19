@@ -9,10 +9,8 @@ P0/P1 feature work is implemented on the feature branch; that is not a claim tha
 - [ ] **GL-001** — Design explicit **retry of individual failed tool calls**: pause before asking the model to improvise, retain the exact arguments and conversation position, let the user repair the environment and retry, or explicitly return the failure to the model. Distinguish pre-execution rejection, partial effects and unknown outcomes; verify side effects/idempotency, recheck permissions and workspace changes, and define branch/history/usage semantics before replaying anything. Cover shell/network/native writes and interrupted workers. No automatic replay of possibly completed operations.
 - [ ] **GL-002** — Persist suspended provider-request continuations across TUI/process restarts, including manager side questions, with exact-message checkpoints, credential/config reload semantics and validation of intervening workspace changes. In-process workflow Retry request preserves messages; ordinary Resume/Continue step starts a fresh step attempt.
 - [ ] **GL-003** — Close concurrent path-swap races with descriptor-anchored file access across tools, include loading, journal snapshots, restore and private blob storage. Current canonicalization/lstat checks reject static escapes but do not make later opens race-free.
-- [ ] **GL-004** — Serialize project/global approval reload–merge–save across processes so concurrent grants cannot overwrite each other. Keep atomic replacement and failure-closed behavior.
 - [ ] **GL-005** — Bound expanded includes, artifact/trace reads and history/export memory. Profile refresh/diff work, load lightweight event metadata and selected immutable bodies on demand, and avoid full-history scans on interactive paths. Define configurable limits and legacy-file behavior before changing schemas.
-- [ ] **GL-006** — Centralize action definitions, shortcuts, Help and mouse dispatch. Replace synthetic key redispatch with direct actions while preserving literal text entry, modal priority and stale-mouse protection.
-- [ ] **GL-007** — Define project-level execution coordination before parallel workflows: session ownership and per-write locking do not prevent concurrent sessions reasoning over stale project state. Review transactional session creation/fork publication at the same time.
+- [ ] **GL-007** — Define project-level execution coordination before parallel workflows: session ownership and per-write locking do not prevent concurrent sessions reasoning over stale project state. Session creation, branch switching and fork publication are now transactional; project-level execution coordination remains open.
 
 ## Supervised workflows and review
 
@@ -42,3 +40,10 @@ P0/P1 feature work is implemented on the feature branch; that is not a claim tha
 ## Dependencies and design gates
 
 GL-001 needs explicit side-effect and idempotency rules. GL-002 needs durable message checkpoints and workspace validation. GL-007 precedes parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
+
+## Completed in the design-pattern pass
+
+- [x] **GL-004** — Serialize approval reload–merge–save with a stable per-scope OS lock; sync atomic replacements. Concurrent project/global process tests cover preservation of all grants.
+- [x] **GL-006** — Share typed action definitions, shortcut labels and the Help reference; dispatch buttons directly without synthetic keys. Keep contextual navigation/text editing explicit and guard decision-layer ownership. Keyboard/button parity, literal input and stale-mouse regressions pass.
+
+Session/branch publication now commits its records and audit event together, updating the caller’s session only after commit. Fault-injection tests cover statement and commit failures. IDs remain reserved; do not reuse them.

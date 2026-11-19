@@ -16,6 +16,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
+mod actions;
 mod activity;
 mod approval;
 mod attention;
@@ -44,7 +45,7 @@ mod shell;
 mod theme;
 mod view;
 use activity::{conversational_label, invalid_event_payload, is_chatter};
-use help::HELP;
+use help::text as help_text;
 use view::draw;
 
 use std::{

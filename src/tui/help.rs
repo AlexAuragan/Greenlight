@@ -1,2 +1,72 @@
-//! Current keyboard reference. Controls and shortcuts have the same action paths.
-pub(super) const HELP: &str = "Navigation\nArrows or j/k: select or scroll the current region\nTab / Shift+Tab: focus and cycle workspace action buttons\nEnter: open selected evidence or activate an ordinary focused button\nEsc: leave actions, close a reader/layer, or toggle the sidebar\nh or ?: Help · H: recorded activity\n1 Activity · 2 Artifacts · 3 Edits · s Overview\n.: More actions · overview o: final report · overview e: full result\nf: browse/search sessions · n: choose workflow, enter goal, start\nSession rows are candidates; Enter/Open selected switches workspace\nBack/Esc cancels browsing; Clear search resets the filter\nSearch letters/paste stay literal; arrows select candidates\ni: compose on demand · Esc closes and retains draft\n\nDecisions\nAll valid grant choices appear in each typed approval.\nUse the displayed decision key or click its row; Enter never decides.\nHuman checkpoint: Tab/Shift+Tab cycles documents; Enter/e opens evidence.\nEvidence reader: y/n are inert; Esc returns to the review.\nTool permissions open a modal popup; unrelated shortcuts are ignored.\nEsc hides the popup without deciding; the agent keeps waiting.\n[a] Review permission reopens it; decision keys work only inside.\nDismiss the popup before opening Help. Human checkpoints retain h Help.\nEsc closes Help only; a human checkpoint still uses n/Esc to decline.\nProvider pause: y retries the exact request, n stops, Esc hides.\n[a] Review retry returns; blocked-provider t continues a fresh step attempt.\nRevert/restart: y confirms; n/Esc cancels. Enter is inert.\n\nEvidence and actions\nC: copy full selected text · E: external snapshot editor (idle only)\nc: run overview · Technical details opens recorded context\n/dump or More > Conversation dump: recorded transcript; R refreshes, w saves full file\n/usage or More > Usage: session token/cost summary\nRequest details: arrows/j/k select · Enter/click opens exact dispatch\nBack/Esc returns within details, then to the workspace\nF: filter activity · v: raw events / artifact versions\no: exact artifact version · p: provenance · d: previous/journal diff\nm: artifact Markdown/raw · u/U: file/all recorded revert preview\nEdits: Tab cycles All files/files; Enter focuses actions, Esc returns\nKeep file/all saves revision review; files are already applied\nKeep is not a tool grant, correctness check or Git staging\ne: blocker evidence · b: blocker card · r: restart preview\nEnd/G: follow latest activity · Home/g: pause at first\nP: show/hide live preview · Z: expand/collapse preview\nx: stop future requests/retry waits; in-flight request may finish\n\nText editing\nArrows move the caret; Home/End and Delete/Backspace edit.\nEnter sends/starts · Ctrl+J or Alt+Enter: newline\nLetters h/j/k and pasted text stay literal while typing.\nPaste never sends; blue is user input. Focused carets blink.\nDrafts are memory-only, scoped by session, branch and recipient.\nChange recipient selects manager or step; navigation / opens Commands.\nSlash-prefixed text in message modes stays literal.\nClosing an editor does not send it.\n\nMouse\nClick buttons/rows to open; scroll with the wheel.\nM toggles mouse capture here for terminal text selection.\nNo function keys are required.\n\nReading and exit\nPgUp/PgDn: page · Home/End: top/bottom\nLive output and model claims are not executed/verified evidence.\nArtifact revisions are documents; Edits covers native recorded writes.\n/resume continues ready/blocked work; /recover never resumes it.\n/ask QUESTION asks the read-only manager; routes do not execute.\nq quits only when there is no local worker/manager job.\n";
+//! Shortcut reference generated from command metadata, plus contextual safety rules.
+const GUIDE: &str = r"Navigation
+Arrows or j/k select or scroll the current region.
+Tab / Shift+Tab focus and cycle action buttons; Enter activates the focused action.
+Esc leaves actions, closes a reader/layer, or toggles the sidebar.
+Help also accepts ?. H returns to recorded activity.
+Sessions opens search; arrows select candidates, Enter opens the selected session.
+Back/Esc cancels browsing; Clear search resets the filter.
+Search letters and paste stay literal. Compose closes without discarding its draft.
+
+Decisions
+Use the displayed decision key or click its row; Enter never decides.
+Human checkpoint: Tab/Shift+Tab cycles documents; Enter/e opens evidence.
+Evidence readers disable y/n; Esc returns to the review.
+Tool permissions own input; unrelated shortcuts are ignored.
+Esc hides the popup without deciding; the agent keeps waiting.
+Review permission / Review retry reopens the pending request.
+Dismiss tool popups before opening Help; human checkpoints retain h Help.
+Help owns input above the pending decision; Esc closes Help only.
+Provider pause: y retries the exact request, n stops, Esc hides.
+Continue step starts a fresh attempt; it does not replay an exact request.
+Revert/restart: y confirms, n/Esc cancels; Enter is inert.
+
+Evidence and actions
+Copy exports full selected text. Editor opens a private snapshot while idle.
+More > Conversation dump or /dump opens the recorded transcript.
+More > Usage or /usage opens session token/cost accounting.
+Request details: arrows/j/k select, Enter/click opens the exact dispatch.
+Back/Esc returns within details before returning to the workspace.
+v shows raw events in Activity, or artifact versions in Artifacts.
+o opens the exact artifact; p shows provenance; d opens previous/journal diff.
+m switches artifact Markdown/raw; u/U previews file/all recorded reverts.
+Edits: Tab cycles All files/files; Enter focuses actions; Esc returns.
+Keep saves review intent for already-applied files, not tool grants or Git staging.
+e opens blocker evidence; b opens its card; r previews restart.
+End/G follows latest activity; Home/g pauses at the first record.
+Stop requests cancels retry waits; an in-flight request may finish.
+
+Text editing
+Arrows move the caret; Home/End and Delete/Backspace edit.
+Enter sends/starts; Ctrl+J or Alt+Enter inserts a newline.
+Letters h/j/k and pasted text stay literal while typing. Paste never sends.
+Blue denotes user input; focused carets blink.
+Drafts are memory-only, scoped by session, branch and recipient.
+Change recipient selects manager or step; navigation / opens Commands.
+Slash-prefixed text in message modes stays literal. Closing never sends.
+
+Mouse and reading
+Click buttons/rows to open; scroll with the wheel.
+M toggles mouse capture here for terminal text selection.
+No function keys are required.
+PgUp/PgDn pages; Home/End moves to the top/bottom of a reader.
+Live output and model claims are not executed/verified evidence.
+Artifact revisions are documents; Edits covers native recorded writes.
+/resume continues ready/blocked work; /recover never resumes it.
+/ask QUESTION asks the read-only manager; routes do not execute.
+q quits only when there is no local worker or manager job.
+";
+
+pub(super) fn text() -> &'static str {
+    static HELP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HELP.get_or_init(|| {
+        let mut text = String::from("Action shortcuts · available in their displayed context\n");
+        for binding in super::actions::BINDINGS {
+            text.push_str(binding.label);
+            text.push('\n');
+        }
+        text.push_str("\nContext and safety rules\n\n");
+        text.push_str(GUIDE);
+        text
+    })
+}

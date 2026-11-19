@@ -4,175 +4,8 @@ use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
 use std::cell::RefCell;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Action {
-    InspectAttention,
-    ReviewPermission,
-    ReviewProviderRetry,
-    ResumeProvider,
-    FullDiagnostic,
-    ConversationDump,
-    RefreshDump,
-    SaveDump,
-    CopyDump,
-    RecordedActivity,
-    GiveInstructions,
-    AskManager,
-    RecoverOwner,
-    WriteGuidance,
-    RestartReview,
-    StopManager,
-    SendStep,
-    SendQuestion,
-    SendCommand,
-    Commands,
-    ManagerReplies,
-    Recipient,
-    Cancel,
-    Continue,
-    StartWorkflow,
-    ClearGoal,
-    BackWorkflow,
-    RestoreInstruction,
-    Workflow(usize),
-    Overview,
-    Report,
-    ResultEvidence,
-    ReviewEdits,
-    Versions,
-    Provenance,
-    Compare,
-    Sessions,
-    Compose,
-    Details,
-    Help,
-    More,
-    Close,
-    Mouse,
-    Activity,
-    Artifacts,
-    Edits,
-    New,
-    Open,
-    Copy,
-    Editor,
-    Filter,
-    Usage,
-    Technical,
-    Requests,
-    OpenRequest,
-    UsageAccounting,
-    DetailsBack,
-    UsageRequest(usize),
-    OpenCandidate,
-    CloseNavigator,
-    ClearSearch,
-    NavSearch,
-    RetryDiscovery,
-    OpenEdit,
-    KeepFile,
-    KeepAll,
-    RevertFile,
-    RevertAll,
-    ConfirmRevert,
-    CancelRevert,
-    EditAll,
-    ReviewOpen,
-    ReviewBack,
-    Follow,
-    Stop,
-    Preview,
-    Expand,
-    Caret(u16, u16),
-    Decision(char),
-    Event(i64),
-    Artifact(i64),
-    Session(usize),
-    Edit(usize),
-}
-impl Action {
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::ResumeProvider => "[t] Continue step",
-            Self::ReviewProviderRetry => "[a] Review retry",
-            Self::ReviewPermission => "[a] Review permission",
-            Self::InspectAttention => "Inspect evidence",
-            Self::ConversationDump => "Conversation dump",
-            Self::RefreshDump => "[R] Refresh",
-            Self::CopyDump => "[C] Copy full dump",
-            Self::SaveDump => "[w] Save full dump",
-            Self::FullDiagnostic => "Full diagnostic",
-            Self::RecordedActivity => "Recorded activity",
-            Self::GiveInstructions => "Give instructions",
-            Self::AskManager => "Ask manager",
-            Self::RecoverOwner => "Recover owner",
-            Self::WriteGuidance => "Recovery guidance",
-            Self::RestartReview => "Restart review",
-            Self::StopManager => "Stop manager retries",
-            Self::SendStep => "Send & resume",
-            Self::SendQuestion => "Send question",
-            Self::SendCommand => "Run command",
-            Self::Commands => "Commands",
-            Self::ManagerReplies => "Manager replies",
-            Self::Recipient => "Change recipient",
-            Self::Cancel => "Cancel",
-            Self::Continue => "Continue",
-            Self::StartWorkflow => "Start workflow",
-            Self::ClearGoal => "Clear draft",
-            Self::BackWorkflow => "Back",
-            Self::RestoreInstruction => "Restore instructions",
-            Self::Overview => "[s] Overview",
-            Self::Report => "[o] Read final report",
-            Self::ResultEvidence => "[e] Full result",
-            Self::ReviewEdits => "[3] Review edits",
-            Self::Versions => "[v] Versions",
-            Self::Provenance => "[p] Version details",
-            Self::Compare => "Compare previous",
-            Self::Sessions => "[f] Sessions",
-            Self::Compose => "[i] Compose",
-            Self::Details => "[c] Details",
-            Self::Help => "[h] Help",
-            Self::More => "[.] More",
-            Self::Close => "[Esc] Back",
-            Self::Mouse => "Toggle mouse M",
-            Self::Activity => "[1] Activity",
-            Self::Artifacts => "[2] Artifacts",
-            Self::Edits => "[3] Edits",
-            Self::New => "New session",
-            Self::Open => "[Enter] Open selected",
-            Self::Copy => "Copy",
-            Self::Editor => "Editor",
-            Self::Filter => "Filter",
-            Self::OpenCandidate => "Open selected",
-            Self::CloseNavigator => "Back",
-            Self::ClearSearch => "Clear search",
-            Self::NavSearch => "Search [f]",
-            Self::RetryDiscovery => "Retry discovery",
-            Self::OpenEdit => "Open selected diff",
-            Self::KeepFile => "Keep file",
-            Self::KeepAll => "Keep all",
-            Self::RevertFile => "Preview file revert",
-            Self::RevertAll => "Preview all reverts",
-            Self::ConfirmRevert => "Revert [y]",
-            Self::CancelRevert => "Cancel [n]",
-            Self::EditAll => "All files",
-            Self::ReviewOpen => "[e] Full evidence",
-            Self::ReviewBack => "Back to review",
-            Self::Usage => "Usage",
-            Self::Technical => "Technical details",
-            Self::Requests => "Request details",
-            Self::OpenRequest => "Open request",
-            Self::UsageAccounting => "Full accounting",
-            Self::DetailsBack => "Back",
-            Self::UsageRequest(_) => "Request",
-            Self::Follow => "Follow latest",
-            Self::Stop => "Stop requests",
-            Self::Preview => "Toggle preview",
-            Self::Expand => "Expand preview",
-            _ => "Select",
-        }
-    }
-}
+pub(super) use super::actions::Action;
+
 #[derive(Clone, Debug)]
 pub(super) struct Hit {
     area: Rect,
@@ -692,9 +525,23 @@ impl App {
         self.detail_scroll = 0;
         Ok(())
     }
-    // TODO(GL-006): share action dispatch with shortcuts and contextual Help.
     pub(super) fn activate(&mut self, action: Action, root: &Path, store: &Store) -> Result<bool> {
+        use super::actions::DecisionLayer;
         use Action::*;
+        let allowed = match self.decision_layer() {
+            DecisionLayer::Help => matches!(action, Close | Mouse | Copy),
+            DecisionLayer::Permission => matches!(action, Close | Decision(_)),
+            DecisionLayer::HumanEvidence => matches!(action, ReviewBack | Copy | Help | Close),
+            DecisionLayer::HumanChoice => matches!(action, ReviewOpen | Help | Close | Decision(_)),
+            DecisionLayer::Revert => matches!(
+                action,
+                ConfirmRevert | CancelRevert | Help | Close | Copy | Editor
+            ),
+            DecisionLayer::Workspace => !matches!(action, Decision(_)),
+        };
+        if !allowed {
+            return Ok(false);
+        }
         if self.shell.sessions
             && matches!(
                 action,
@@ -723,7 +570,7 @@ impl App {
         if !matches!(action, Help | Close | Mouse) {
             self.shell.more = false;
         }
-        let code = match action {
+        match action {
             ResumeProvider => {
                 self.refresh(store)?;
                 if !self
@@ -740,37 +587,26 @@ impl App {
                 self.resume_instruction(root, store, String::new());
                 self.composer = draft;
                 self.compose.last_instruction = last_instruction;
-                return Ok(false);
             }
-            ReviewProviderRetry => {
+            ReviewProviderRetry | ReviewPermission => {
                 self.reopen_permission();
-                return Ok(false);
-            }
-            ReviewPermission => {
-                self.reopen_permission();
-                return Ok(false);
             }
             InspectAttention => {
                 self.inspect_attention();
-                return Ok(false);
             }
             ConversationDump => {
                 self.diagnostic = None;
                 self.diagnostic_attention = false;
                 self.open_conversation_dump(store);
-                return Ok(false);
             }
             CopyDump => {
                 self.start_copy();
-                return Ok(false);
             }
             RefreshDump => {
                 self.reload_conversation_dump(store);
-                return Ok(false);
             }
             SaveDump => {
                 self.save_conversation_dump(store);
-                return Ok(false);
             }
             FullDiagnostic => {
                 if self.diagnostic_attention
@@ -800,38 +636,31 @@ impl App {
                 } else {
                     self.inspect_attention();
                 }
-                return Ok(false);
             }
             RecordedActivity => {
                 self.attention_history();
-                return Ok(false);
             }
             GiveInstructions => {
                 self.clear_diagnostic();
                 self.set_message_mode(compose::Mode::Step);
                 self.focus_composer();
-                return Ok(false);
             }
             AskManager => {
                 self.clear_diagnostic();
                 self.set_message_mode(compose::Mode::Manager);
                 self.focus_composer();
-                return Ok(false);
             }
             RecoverOwner => {
                 self.recover_owner_action(store)?;
-                return Ok(false);
             }
             WriteGuidance => {
                 self.clear_diagnostic();
                 self.context_detail=Some(format!("Native-write recovery\n\nProject: {}\n\nFrom this project, run:\n  greenlight recover-writes\n\nThis reconciles recorded write intents with current disk contents; it does not overwrite source files. Read the CLI result before resuming. Recovery can refuse drift or an active native-write lock.\n\nOwner recovery (/recover) is a separate operation and never resumes work.",root.display()));
                 self.detail_scroll = 0;
-                return Ok(false);
             }
             RestartReview => {
                 self.clear_diagnostic();
                 self.open_restart(root, store);
-                return Ok(false);
             }
             SendStep | SendQuestion | SendCommand => {
                 let expected = match action {
@@ -843,11 +672,9 @@ impl App {
                     bail!("Message target changed; review the recipient before sending")
                 }
                 self.send_message(root, store);
-                return Ok(false);
             }
             StopManager => {
                 self.cancel_manager();
-                return Ok(false);
             }
             Commands => {
                 self.set_message_mode(compose::Mode::Command);
@@ -855,7 +682,6 @@ impl App {
                 if self.composer.is_empty() {
                     self.composer.push('/');
                 }
-                return Ok(false);
             }
             ManagerReplies => {
                 self.result_open = false;
@@ -865,18 +691,19 @@ impl App {
                 self.commit_activity_filter();
                 self.focus = Focus::Events;
                 self.follow_activity = false;
-                return Ok(false);
             }
             Recipient => {
                 self.choose_recipient();
-                return Ok(false);
             }
             RestoreInstruction => {
                 self.restore_instruction();
-                return Ok(false);
             }
-            Continue | StartWorkflow => KeyCode::Enter,
-            Cancel => KeyCode::Esc,
+            Continue | StartWorkflow => {
+                self.submit_new_session(root, store)?;
+            }
+            Cancel | Close => {
+                self.close_surface(store)?;
+            }
             ClearGoal => {
                 self.compose.creation_goal.clear();
                 if let Some(form) = &mut self.new_session {
@@ -884,7 +711,6 @@ impl App {
                     form.error = None;
                 }
                 self.goal_editor.reset();
-                return Ok(false);
             }
             BackWorkflow => {
                 self.remember_creation();
@@ -892,7 +718,6 @@ impl App {
                     form.goal = None;
                     form.error = None;
                 }
-                return Ok(false);
             }
             Workflow(index) => {
                 if let Some(form) = &mut self.new_session {
@@ -901,12 +726,10 @@ impl App {
                         form.error = None;
                     }
                 }
-                return Ok(false);
             }
             ResultEvidence => {
                 self.context_detail = Some(self.result_text.clone());
                 self.detail_scroll = 0;
-                return Ok(false);
             }
             Report => {
                 let (name, id) = self
@@ -925,7 +748,6 @@ impl App {
                 browser.load(store, session);
                 self.artifact_browser = Some(browser);
                 self.detail_scroll = 0;
-                return Ok(false);
             }
             Overview => {
                 if self.session().is_some_and(|s| s.status == "completed")
@@ -941,150 +763,158 @@ impl App {
                     self.focus = Focus::Detail;
                     self.detail_scroll = 0;
                 }
-                return Ok(false);
             }
             ReviewEdits => {
                 self.switch_view(View::Edits);
                 self.refresh_edits(store);
-                return Ok(false);
             }
             Versions => {
                 self.open_artifact_mode(store, crate::artifact_history::Mode::Content)?;
-                return Ok(false);
             }
             Provenance => {
                 self.open_artifact_mode(store, crate::artifact_history::Mode::Provenance)?;
-                return Ok(false);
             }
             Compare => {
                 self.open_artifact_mode(store, crate::artifact_history::Mode::Diff)?;
-                return Ok(false);
             }
             Sessions => {
                 if self.shell.sessions {
                     self.close_navigator();
                 } else {
-                    self.open_navigator(false);
+                    self.open_navigator(true);
                 }
-                return Ok(false);
             }
             OpenCandidate => {
                 self.open_candidate(store)?;
-                return Ok(false);
             }
             CloseNavigator => {
                 self.close_navigator();
-                return Ok(false);
             }
             ClearSearch => {
                 self.session_query.clear();
                 self.session_editor.reset();
                 self.refresh(store)?;
-                return Ok(false);
             }
             NavSearch => {
                 self.searching = true;
                 self.session_editor.reset();
-                return Ok(false);
             }
             RetryDiscovery => {
                 self.refresh(store)?;
-                return Ok(false);
             }
             Compose => {
                 if self.shell.sessions {
                     self.close_navigator();
                 }
                 self.focus_composer();
-                return Ok(false);
             }
-            Details => KeyCode::Char('c'),
+            Details => {
+                self.open_run_details(details::Page::Run, store);
+            }
             Help => {
                 self.open_help();
-                return Ok(false);
             }
             More => {
                 self.shell.more = true;
                 self.shell.menu_index = 0;
-                return Ok(false);
             }
-            Close => KeyCode::Esc,
             Mouse => {
                 self.shell.mouse = !self.shell.mouse;
-                return Ok(false);
             }
-            Activity => KeyCode::Char('1'),
-            Artifacts => KeyCode::Char('2'),
-            Edits => KeyCode::Char('3'),
-            New => KeyCode::Char('n'),
-            Open => KeyCode::Enter,
-            Copy => KeyCode::Char('C'),
-            Editor => KeyCode::Char('E'),
-            Filter => KeyCode::Char('F'),
-            ConfirmRevert => KeyCode::Char('y'),
-            CancelRevert => KeyCode::Char('n'),
+            Activity | Artifacts | Edits => {
+                self.switch_view(match action {
+                    Activity => View::Conversation,
+                    Artifacts => View::Artifacts,
+                    _ => View::Edits,
+                });
+                if action == Edits {
+                    self.refresh_edits(store);
+                }
+            }
+            New => {
+                if self.shell.sessions {
+                    self.close_navigator();
+                }
+                if self.runner.is_some() {
+                    self.notice =
+                        "Wait for the active worker before creating another session.".into();
+                } else if let Err(error) = self.new_form(root) {
+                    self.raise_diagnostic(format!("Cannot list workflows: {error:#}"));
+                }
+            }
+            Open => {
+                self.open_selection(root, store)?;
+            }
+            Copy => {
+                self.start_copy();
+            }
+            Editor => {
+                self.request_editor();
+            }
+            Filter => {
+                if self.view == View::Conversation {
+                    self.activity_filtering = true;
+                    self.filter_editor.reset();
+                }
+            }
+            ConfirmRevert => {
+                if !self.too_small() {
+                    self.confirm_revert(root, store);
+                }
+            }
+            CancelRevert => {
+                self.edits.pending = None;
+                self.detail_scroll = 0;
+                self.notice = "Revert cancelled; no files changed.".into();
+            }
             OpenEdit => {
                 self.edits.overview = false;
                 self.edits.select(0);
                 self.focus = Focus::Detail;
                 self.detail_scroll = 0;
-                return Ok(false);
             }
             KeepFile => {
                 self.keep_edits(root, store, false);
-                return Ok(false);
             }
             KeepAll => {
                 self.keep_edits(root, store, true);
-                return Ok(false);
             }
             RevertFile => {
                 self.prepare_revert(root, store, false);
-                return Ok(false);
             }
             RevertAll => {
                 self.prepare_revert(root, store, true);
-                return Ok(false);
             }
             EditAll => {
                 self.edits.overview = true;
                 self.focus = Focus::Artifacts;
                 self.detail_scroll = 0;
-                return Ok(false);
             }
             ReviewOpen => {
                 self.checkpoint_open(store);
-                return Ok(false);
             }
             ReviewBack => {
                 self.checkpoint_back(store);
-                return Ok(false);
             }
             Usage => {
                 self.open_run_details(details::Page::Usage, store);
-                return Ok(false);
             }
             Technical => {
                 self.open_run_details(details::Page::Technical, store);
-                return Ok(false);
             }
             Requests => {
                 self.open_run_details(details::Page::Requests, store);
-                return Ok(false);
             }
             UsageAccounting => {
                 self.open_run_details(details::Page::Accounting, store);
-                return Ok(false);
             }
             DetailsBack => {
                 self.back_run_details(store);
-                return Ok(false);
             }
             OpenRequest => {
                 if self.details.selected_call().is_some() {
                     self.open_run_details(details::Page::Request, store);
                 }
-                return Ok(false);
             }
             UsageRequest(index) => {
                 if self.details.page == Some(details::Page::Requests) {
@@ -1098,17 +928,31 @@ impl App {
                         self.open_run_details(details::Page::Request, store);
                     }
                 }
-                return Ok(false);
             }
-            Follow => KeyCode::End,
-            Stop => KeyCode::Char('x'),
+            Follow => {
+                if self.focus == Focus::Detail {
+                    self.detail_scroll = u16::MAX;
+                } else {
+                    self.select_end(true);
+                }
+            }
+            Stop => {
+                if let Some(cancel) = self
+                    .runner
+                    .as_ref()
+                    .and_then(|runner| runner.cancel_retry.as_ref())
+                {
+                    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                    self.notice = "Stop requested: retry waits cancel promptly; an in-flight request may finish, and no further provider request will start.".into();
+                } else if self.manager_job.is_some() {
+                    self.cancel_manager();
+                }
+            }
             Preview => {
                 self.shell.preview = !self.shell.preview;
-                return Ok(false);
             }
             Expand => {
                 self.shell.expanded = !self.shell.expanded;
-                return Ok(false);
             }
             Caret(x, y) => {
                 if let Some(goal) = self.new_session.as_ref().and_then(|f| f.goal.as_ref()) {
@@ -1120,9 +964,12 @@ impl App {
                 } else if self.composer_active() {
                     self.composer_editor.click(&self.composer, x, y);
                 }
-                return Ok(false);
             }
-            Decision(c) => KeyCode::Char(c),
+            Decision(choice) => {
+                if !self.too_small() {
+                    self.deliver_checked_approval(choice, store)?;
+                }
+            }
             Event(id) => {
                 self.attention_return = false;
                 if let Some(i) = self.events.iter().position(|e| e.id == id) {
@@ -1132,7 +979,6 @@ impl App {
                     self.follow_activity = false;
                     self.detail_scroll = 0;
                 }
-                return Ok(false);
             }
             Artifact(id) => {
                 if let Some(i) = self.artifacts.iter().position(|a| a.event_id == id) {
@@ -1141,7 +987,6 @@ impl App {
                     self.inspector_open = true;
                     self.detail_scroll = 0;
                 }
-                return Ok(false);
             }
             Edit(i) => {
                 if i < self.edits.files.len() {
@@ -1152,7 +997,6 @@ impl App {
                     self.inspector_open = true;
                     self.detail_scroll = 0;
                 }
-                return Ok(false);
             }
             Session(i) => {
                 if self.shell.sessions && i < self.navigation.candidates.len() {
@@ -1161,10 +1005,9 @@ impl App {
                     self.searching = false;
                     self.focus = Focus::Sessions;
                 }
-                return Ok(false);
             }
-        };
-        self.on_key(KeyEvent::new(code, KeyModifiers::NONE), root, store)
+        }
+        Ok(false)
     }
     pub(super) fn on_event(&mut self, event: Event, root: &Path, store: &Store) -> Result<bool> {
         match event {
