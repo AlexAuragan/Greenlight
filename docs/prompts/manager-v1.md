@@ -62,7 +62,7 @@ retry/restart path; it does not mean it has restarted. Selecting a running step
 queues for its next coding-model call if the owner advertises that capability;
 an in-flight request/action may complete first. No invisible interruption is
 possible. The harness determines delivery from fresh state and enforces recovery,
-input approvals, capability limits, turn limits, confirmations and verification.
+input approvals, capability limits, confirmations and verification.
 Do not claim "delivered", "retried", "restored" or "approved" from your route.
 Do not propose an arbitrary checkpoint/branch/transition or answer an approval.
 

@@ -24,7 +24,9 @@ impl Sandbox {
         #[cfg(not(target_os = "linux"))]
         bail!("shell execution requires Linux and bubblewrap; no unsandboxed fallback");
 
-        let root = root.canonicalize().context("sandbox project root does not exist")?;
+        let root = root
+            .canonicalize()
+            .context("sandbox project root does not exist")?;
         // Reject roots that would expose unrelated host directories.
         if root == Path::new("/") {
             bail!("refusing to sandbox the entire host filesystem as a project");
@@ -69,16 +71,26 @@ impl Sandbox {
             "--unshare-uts",
             "--die-with-parent",
             "--new-session",
-            "--hostname", "greenlight",
-            "--proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            "--tmpfs", "/run",
-            "--tmpfs", "/home",
-            "--dir", "/home/agent",
-            "--dir", "/etc",
-            "--dir", WORKSPACE,
-            "--dir", CACHE,
+            "--hostname",
+            "greenlight",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--tmpfs",
+            "/run",
+            "--tmpfs",
+            "/home",
+            "--dir",
+            "/home/agent",
+            "--dir",
+            "/etc",
+            "--dir",
+            WORKSPACE,
+            "--dir",
+            CACHE,
         ]);
 
         // Only explicitly selected host system locations are visible. The
@@ -88,7 +100,13 @@ impl Sandbox {
                 command.args(["--ro-bind", path, path]);
             }
         }
-        for name in ["ld.so.cache", "nsswitch.conf", "passwd", "group", "localtime"] {
+        for name in [
+            "ld.so.cache",
+            "nsswitch.conf",
+            "passwd",
+            "group",
+            "localtime",
+        ] {
             let source = Path::new("/etc").join(name);
             if source.is_file() {
                 command.arg("--ro-bind").arg(&source).arg(&source);
@@ -129,7 +147,9 @@ impl Sandbox {
             let registry = home.join(".cargo/registry");
             if registry.is_dir() {
                 command.args(["--dir", "/cache/cargo-home"]);
-                command.arg("--ro-bind").arg(&registry)
+                command
+                    .arg("--ro-bind")
+                    .arg(&registry)
                     .arg("/cache/cargo-home/registry");
             }
         }
@@ -180,7 +200,10 @@ impl Sandbox {
 fn checked_directory(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => Ok(()),
-        Ok(_) => bail!("sandbox cache path is not a real directory: {}", path.display()),
+        Ok(_) => bail!(
+            "sandbox cache path is not a real directory: {}",
+            path.display()
+        ),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             fs::create_dir(path).with_context(|| format!("creating {}", path.display()))
         }
@@ -191,9 +214,19 @@ fn checked_directory(path: &Path) -> Result<()> {
 fn is_sensitive(name: &str) -> bool {
     matches!(
         name,
-        ".git" | ".ssh" | ".aws" | ".gnupg" | ".kube" | ".docker"
-            | ".config" | ".netrc" | ".npmrc" | ".pypirc"
-            | ".git-credentials" | "credentials.json" | "credentials.toml"
+        ".git"
+            | ".ssh"
+            | ".aws"
+            | ".gnupg"
+            | ".kube"
+            | ".docker"
+            | ".config"
+            | ".netrc"
+            | ".npmrc"
+            | ".pypirc"
+            | ".git-credentials"
+            | "credentials.json"
+            | "credentials.toml"
             | "secrets.json"
     ) || name == ".env"
         || name.starts_with(".env.")
@@ -208,14 +241,17 @@ fn masked_paths(root: &Path) -> Result<Vec<(PathBuf, bool)>> {
             continue;
         }
         let name = entry.file_name().to_string_lossy();
-        let parent_is_internal = entry
-            .path()
-            .parent()
-            .and_then(Path::file_name)
-            .is_some_and(|parent| {
-                parent == crate::paths::PROJECT_DIR || parent == crate::paths::LEGACY_PROJECT_DIR
-            });
-        let internal_state = name == "state" && parent_is_internal;
+        let parent_is_internal =
+            entry
+                .path()
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|parent| {
+                    parent == crate::paths::PROJECT_DIR
+                        || parent == crate::paths::LEGACY_PROJECT_DIR
+                });
+        let internal_state = (name == "state" && parent_is_internal)
+            || crate::paths::is_private_path(entry.path().strip_prefix(root)?);
         if is_sensitive(&name) || internal_state {
             if entry.file_type().is_symlink() {
                 bail!("cannot safely mask symlink at {}", entry.path().display());
@@ -256,8 +292,10 @@ mod tests {
         fs::write(root.join("src/.env.prod"), "SECRET=nested").unwrap();
         fs::write(root.join("src/lib.rs"), "fn main() {}").unwrap();
         let masks = masked_paths(root).unwrap();
-        let names: Vec<_> = masks.iter()
-            .map(|(path, _)| path.to_string_lossy().into_owned()).collect();
+        let names: Vec<_> = masks
+            .iter()
+            .map(|(path, _)| path.to_string_lossy().into_owned())
+            .collect();
         assert!(names.contains(&".git".to_string()));
         assert!(names.contains(&".env".to_string()));
         assert!(names.contains(&"src/.env.prod".to_string()));
@@ -274,17 +312,20 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let sandbox = Sandbox::open(temp.path()).unwrap();
         let command = sandbox.build("pwd").unwrap();
-        let args: Vec<_> = command.as_std().get_args()
-            .map(|value| value.to_string_lossy().into_owned()).collect();
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
         assert!(args.contains(&"--unshare-user".into()));
         assert!(args.contains(&"--unshare-net".into()));
         assert!(args.contains(&"--new-session".into()));
-        assert!(args.windows(3).any(|w| {
-            w[0] == "--ro-bind" && w[2] == WORKSPACE
-        }));
-        assert!(!args.windows(3).any(|w| {
-            w[0] == "--bind" && w[2] == WORKSPACE
-        }));
+        assert!(args
+            .windows(3)
+            .any(|w| { w[0] == "--ro-bind" && w[2] == WORKSPACE }));
+        assert!(!args
+            .windows(3)
+            .any(|w| { w[0] == "--bind" && w[2] == WORKSPACE }));
         assert!(args.contains(&"--clearenv".into()));
     }
 
@@ -308,12 +349,18 @@ mod tests {
         let root = temp.path();
         fs::write(root.join(".env"), "SECRET=hidden").unwrap();
         fs::write(root.join("main.py"), "print('ok')").unwrap();
+        crate::project::init(root).unwrap();
+        fs::write(root.join(".greenlight/.env"), "PRIVATE_KEY=hidden").unwrap();
         let sandbox = Sandbox::open(root).unwrap();
         let output = sandbox.run(
             "test ! -w /workspace && test -w /tmp && test -w /cache && \
-             test ! -s /workspace/.env && test ! -e /workspace/.greenlight/state/history.db && \
+             test ! -s /workspace/.env && test ! -s /workspace/.greenlight/config.yaml && test ! -s /workspace/.greenlight/.env && test ! -e /workspace/.greenlight/state/history.db && \
              test ! -e /home/agent/.ssh && test -z \"${DEEPINFRA_API_KEY:-}\" && printf 'ok\\n'"
         ).await.unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

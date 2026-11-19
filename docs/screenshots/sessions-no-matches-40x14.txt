@@ -1,0 +1,13 @@
+Greenlight / sam…  ● ready · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+╭ Sessions · browse, then Open ────────╮
+│does not match                        │
+│No sessions match this search.        │
+│Clear search to browse all sessions.  │
+│                                      │
+╰──────────────────────────────────────╯
+╭──────────────╮ ╭──────╮
+│ Clear search │ │ Back │
+╰──────────────╯ ╰──────╯

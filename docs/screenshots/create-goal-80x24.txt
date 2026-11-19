@@ -1,0 +1,23 @@
+Greenlight / bar-project                                              ● idle · -
+
+                                                                      [h] Help
+
+ New session · Describe the goal
+ Workflow: Baseline, optimize, benchmark and evaluate
+
+  Investigate the bar's startup delay.
+  I can supply host logs and rerun measurements.
+
+
+
+
+
+
+
+
+
+ Start creates a session and launches its first step.
+ Enter starts · Alt+Enter newline · Back changes workflow
+╭────────────────╮ ╭──────╮ ╭─────────────╮ ╭────────╮
+│ Start workflow │ │ Back │ │ Clear draft │ │ Cancel │
+╰────────────────╯ ╰──────╯ ╰─────────────╯ ╰────────╯

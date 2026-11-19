@@ -1,0 +1,19 @@
+Greenlight / s…  ● running · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+Human checkpoint
+Step: investigate · local workflow revie
+Review question · excerpt
+Review these exact inputs before allow…
+1 / 2 · plan.md
+Tab cycles · e opens full evidence
+Approve & continue reviews ALL pinned
+inputs. The engine rechecks their
+selection before recording approval.
+┌─────────────────┐ ┌─────────────────┐
+│   Approve [y]   │ │   Decline [n]   │
+└─────────────────┘ └─────────────────┘
+╭───────────────────╮ ╭──────────╮
+│ [e] Full evidence │ │ [h] Help │
+╰───────────────────╯ ╰──────────╯

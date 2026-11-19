@@ -1,0 +1,35 @@
+Greenlight / bar-project                                                                            ● blocked · baseline
+
+[1] Activity  [2] Artifacts [3] Edits                                                                         [h] Help
+
+Usage · this session
+All branches · 1 recorded dispatch(es), including failures/retries
+
+Input tokens: 145271 · provider-reported
+Cached input: 103168 · provider-reported
+Output tokens: 10536 · provider-reported
+Cached input is a subset of input, not added again.
+
+Estimated cost: unavailable
+Missing usage/rates or unsupported billing rules.
+Coverage: 0 of 1 requests have a usable cost estimate; 1 uncovered.
+
+Historical pricing snapshots, not live prices or an invoice.
+Unknown usage is not zero. Historical calls are not backfilled.
+Request details retain count sources and captured pricing.
+
+
+
+
+
+
+
+
+
+
+
+
+
+╭──────╮ ╭─────────────────╮ ╭─────────────────╮
+│ Back │ │ Request details │ │ Full accounting │
+╰──────╯ ╰─────────────────╯ ╰─────────────────╯

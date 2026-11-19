@@ -1,45 +1,37 @@
-# Validation status and smoke-test plan
+# Validation
 
-## Evidence recorded through 2026-11-13
+## Current reviewed branch — 2026-11-19
 
-- The original v0.1 workflow files and includes were checked syntactically. That is historical validation, **not** a standing claim that every future workflow change is tested.
-- After merging PRs #6–#8, the project owner ran `cargo test` on the integrated `master`: **57 passed, 0 failed, 1 ignored**. The ignored Bubblewrap integration test requires installed Bubblewrap and enabled Linux user namespaces. The same checkout passed `cargo clippy -- -D warnings`.
-- PR #9 (Greenlight rename) was reported locally as **“All good”** after testing, but full command output was not captured in this record; it is not a claim of an independently observed fresh-checkout or CI result.
-- Earlier manual smoke sessions exercised an agent-created artifact, native file edit journal, detected manual drift, guarded restore refusal and a successful history-based restoration on a disposable calculator project. This is evidence from manual testing, **not** a repeatable automated regression suite.
-- There were no GitHub-hosted CI check runs reported for those PRs. A complete Linux/Bubblewrap end-to-end run, formal terminal-resize test, injected crash/recovery test and network/provider regression test remain outstanding.
+The P0/P1 feature and UI work is on `feat/install-and-project-layout`; this review does not merge or publish it. The reviewed implementation passed 379 Rust tests with one existing environment-dependent Bubblewrap test ignored, six installer tests, an offline build, and all-target Clippy with warnings treated as errors. The suite also checks running-output column proportions, one-line step/event rows, mouse-to-output selection, narrow/expanded layouts and stream isolation across sessions. It checks credential-source precedence, masking and frozen worker credentials (including actual HTTP Authorization after an environment change), plus OpenAI-compatible HTTP request shape, safe detail-wrapped provider rejection reasons and legacy failure compatibility, plus concurrent project/global grant writers, statement/commit rollback during session/branch publication, keyboard/button parity and decision-layer ownership. It includes project-boundary and private-include regressions, corrupt-ancestry rejection, closed-input authorization handling and bounded native-write/restore snapshots. This is local evidence, not a GitHub CI or live-model quality claim.
 
-## Stabilization branch validation (2026-11-14)
+Local HTTP/CLI fixtures exercised malformed-action repair, native source discovery with shell denied, nested artifact fences, refusal to execute ambiguous replies and exact prepared-message trace exports. A provider wire audit exercised nine sequential model POSTs with one request in flight, plus exact physical request/usage counts for unknown, explicit retryable and capacity 429 responses. Native PTY fixtures exercised permission popup dismissal/reopen and HTTP 429 retry without repeating an earlier tool, changing attempt/branch or losing usage records. Earlier incremental test counts and the completed pre-merge handoff are consolidated here; their original records remain in Git.
 
-The cloud checkout passed 113 regular tests, with one Bubblewrap integration test ignored by default. That integration test also passed when run explicitly, as did sandbox health, build, check and Clippy. New coverage includes an engine-backed 80×24 Ratatui terminal-buffer scenario with scripted provider responses: deny a write, cancel a persistent grant, approve once, fail verification, inspect artifacts, resume with revised instructions, reject a human gate, expire a lost worker request, recover explicitly and complete after fresh approval. Separate cases cover malformed structured events, missing artifact bodies, confirmation/save failure and injected partial-restore failure. Existing subprocess tests exercise killed owners and interrupted writes. These checks do not establish live-provider quality, real-terminal resize behavior or GitHub CI results.
-
-## Repeatable validation on a Rust/Linux machine
+## Repeatable automated checks
 
 ```bash
-cargo fmt --check
-cargo check --locked
+cargo fmt --all -- --check
 cargo test --locked
-cargo clippy --locked -- -D warnings
-cargo run -- validate fix-bug
-cargo run -- validate add-feature
-cargo run -- validate optimize-performance
+cargo clippy --locked --all-targets -- -D warnings
+cargo build --locked
+python tests/test_install.py
+cargo run --locked -- validate fix-bug
+cargo run --locked -- validate add-feature
+cargo run --locked -- validate optimize-performance
 ```
 
-If `cargo fmt --check` reports differences, run `cargo fmt` to normalize source formatting. This does not alter the workflow YAML files.
+Use `--offline` as well when dependencies are already available. Rust tests use scripted/local providers; installer tests use local Git repositories and controlled builds. No real provider key is required for these automated checks. Rust sources use standard rustfmt; run `cargo fmt --all -- --check` alongside tests and Clippy.
 
-With `DEEPINFRA_API_KEY` configured:
+## Scope and failure coverage
 
-```bash
-cargo run -- models
-cargo run -- start fix-bug --goal 'Investigate why my test suite fails'
-```
+- Native read paths: valid project files/directories, absolute/parent traversal rejection, symlink escapes, private paths, scan bounds and oversized reads.
+- Action envelopes: one explicit mapping, bounded corrections, missing required fields, nested literal fences and multiple-action rejection before dispatch.
+- Permissions: explicit decisions, scope confirmation, inert Enter/repeats, Esc dismissal without an answer, stale clicks and worker-loss expiry.
+- Recovery: session ownership, interrupted native writes, manual drift, partial restores and branch cutoffs.
+- Evidence: pinned artifact approvals/versions, model claims versus verification, accounting provenance, unknown billing and exact request dumps.
+- TUI: TestBackend layouts, literal Unicode input, drafts/focus, bounded readers, contextual actions and supported/tiny terminal states.
 
-For a first or repeated live session, use a disposable project fixture and keep tool policies at `ask`. Record which approvals, artifacts, workspace changes, blocked states and restores actually occurred; model output varies across runs. See the [calculator smoke-test exercise](17-smoke-test.md). Do not claim full end-to-end validation from Rust unit tests alone.
+## Environment-dependent and manual checks
 
-## Security checks before wider use
+Install Bubblewrap with enabled unprivileged user namespaces, then run `greenlight --root PROJECT sandbox-check`. Identify the ignored integration test with `cargo test -- --list --ignored` and run it explicitly on a suitable host; default-suite success does not establish shell isolation on every machine. Shell execution must fail when isolation is unavailable, retain a read-only project/no network/private HOME, and expose no inherited API keys.
 
-- Install Bubblewrap and run `cargo run -- sandbox-check`; the sandbox must refuse to start when user namespaces are unavailable.
-- Verify sandboxed commands cannot write project source files and do not inherit `DEEPINFRA_API_KEY`, the host home directory or its SSH credentials.
-- Check that pre-approved shell commands still run with network isolation; use native write for project edits.
-- Project source files remain readable; masking known secret filenames is not comprehensive secret scanning. Avoid embedding secrets in source.
-- Test Ctrl-C during a sandboxed process and verify descendants terminate.
-- A successful restore does not certify files modified by processes outside the harness.
+Use [the smoke-test guide](17-smoke-test.md) with a disposable project to assess actual terminal behavior and model/provider compatibility. Paid/live-provider runs require the user's chosen credentials and are separate from fixture verification. A successful model-authored report, workflow completion or restore never proves that the full project was validated or rewound.

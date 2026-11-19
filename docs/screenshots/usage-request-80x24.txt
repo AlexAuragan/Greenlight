@@ -1,0 +1,23 @@
+Greenlight / bar-project                                    ● blocked · baseline
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+Request details · recorded dispatch
+
+Requested model: fixture-requested
+Returned model: fixture-returned
+Status: response-received
+Purpose: agent
+Step: baseline
+Started: 2026-11-17T21:11:36.066957163+00:00
+
+Input: 145271 · provider
+Cached input (subset): 103168 · provider
+Output: 10536 · provider
+Cache creation (subset): Unknown
+Reasoning tokens: Not recorded
+
+Estimated cost: unavailable; unknown is not zero.
+╭──────╮ ╭──────╮
+│ Back │ │ Copy │
+╰──────╯ ╰──────╯

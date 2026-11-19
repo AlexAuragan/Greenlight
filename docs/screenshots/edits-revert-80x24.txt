@@ -1,0 +1,24 @@
+Greenlight / bar-project                                     ● ready · implement
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+╭ Revert preview · proposed, not applied ──────────────────────────────────────╮
+│Revert bar.py                                                                 │
+│Proposed reverse diff · not applied yet                                       │
+│Restore first recorded pre-edit contents.                                     │
+│Workspace only; history/artifacts retained. No fork or automatic resume.      │
+│                                                                              │
+│[modify: bar.py]                                                              │
+│--- a/bar.py                                                                  │
+│+++ b/bar.py                                                                  │
+│@@ -1,1 +1,1 @@                                                               │
+│-start_service_async()                                                        │
+│+start_service()                                                              │
+│                                                                              │
+│Only recorded native writes and prior restores are covered. Shell/manual      │
+│changes cannot be reconstructed.                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭────────────╮ ╭────────────╮ ╭──────────╮
+│ Cancel [n] │ │ Revert [y] │ │ [h] Help │
+╰────────────╯ ╰────────────╯ ╰──────────╯
+Revert preview prepared; no files changed. y confirms · n/Esc cancels.

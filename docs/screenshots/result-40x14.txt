@@ -1,0 +1,13 @@
+Greenlight / bar…  ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+ Result
+ Workflow finished. Review the
+ conclusion and evidence.
+
+  Agent-reported conclusion
+  Performance evaluation recorded.
+╭───────────╮ ╔══════════════╗ ╭───────╮
+│ [o] Read  │ ║ [s] Overview ║ │  [.]  │
+╰───────────╯ ╚══════════════╝ ╰───────╯

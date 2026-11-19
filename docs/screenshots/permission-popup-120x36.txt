@@ -1,0 +1,35 @@
+Greenlight / bar-project                                                             ● waiting for permission · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits                                                                         [h] Help
+
+ Result
+ Workflow ╭ Permission required · Esc closes; agent waits ───────────────────────────────────────────────────╮
+          │╭─Tool permission required · The bars take about 30s to display; ful…────────────────────────────╮│
+  Agent-re││Command to execute                                                                              ││
+  Performa││find . -maxdepth 2 -type f                                                                      ││r pair
+  exists. ││                                                                                                ││s cannot
+  establis││Scope: this exact command                                                                       ││nchmark
+  Excerpt ││                                                                                                ││
+          ││                                                                                                ││
+ Recorded ││                                                                                                ││
+ No checks││                                                                                                ││
+ Policy ac││                                                                                                ││
+          ││                                                                                                ││
+ Recorded ││                                                                                                ││
+ 0 file(s)││                                                                                                ││
+ Shell/man││                                                                                                ││
+          ││                                                                                                ││
+ Final rep│╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
+          │╭ Press a key to decide — no Enter needed ───────────────────────────────────────────────────────╮│
+          ││  [y] Allow once                                                                                ││
+          ││  [a] Allow for this process                                                                    ││
+          ││  [p] Review project grant                                                                      ││
+          ││  [g] Review global grant                                                                       ││
+          ││  [n] Deny                                                                                      ││
+          ││  Esc closes without deciding; the agent keeps waiting.                                         ││
+          │╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
+          ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+

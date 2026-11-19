@@ -1,0 +1,19 @@
+Greenlight / s…  ● running · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+Review step result
+Step: investigate · local workflow revie
+Review question · excerpt
+Approve this step result? Review the a…
+No document bodies recorded.
+Tab cycles · e opens full evidence
+Approve records a human step-result
+verdict; it does not create a
+pinned-input approval or guarantee later
+┌─────────────────┐ ┌─────────────────┐
+│   Approve [y]   │ │   Decline [n]   │
+└─────────────────┘ └─────────────────┘
+╭───────────────────╮ ╭──────────╮
+│ [e] Full evidence │ │ [h] Help │
+╰───────────────────╯ ╰──────────╯

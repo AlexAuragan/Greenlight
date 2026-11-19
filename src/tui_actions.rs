@@ -13,7 +13,8 @@ use std::{
 };
 
 pub struct Runner {
-    pub cancel_retry:Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    pub live: Option<crate::provider::stream::Preview>,
+    pub cancel_retry: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub session_id: Option<String>,
     pub prompts: Receiver<ApprovalPrompt>,
     pub finished: Receiver<Result<(), String>>,
@@ -24,23 +25,36 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
     let (prompt_tx, prompts) = mpsc::channel();
     let (answers, answer_rx) = mpsc::channel();
     let (finished_tx, finished) = mpsc::channel();
-    let owner_session=session_id.clone();
-    let cancel_retry=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let worker_cancel=cancel_retry.clone();
+    let owner_session = session_id.clone();
+    let cancel_retry = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_cancel = cancel_retry.clone();
 
+    let live = crate::provider::stream::Preview::default();
+    let worker_live = live.clone();
     std::thread::spawn(move || {
         let result = (|| -> Result<()> {
             let mut engine = Engine::open(&root)?;
-            engine.provider.retry_cancel=worker_cancel;
+            engine.interactive_provider_retry = true;
+            engine.provider.retry_cancel = worker_cancel;
+            worker_live.lock().unwrap().connection = Some(engine.provider.connection_info());
+            engine.provider.live = Some(worker_live);
             engine.tools.use_tui(prompt_tx, answer_rx);
             let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all().build()?;
+                .enable_all()
+                .build()?;
             runtime.block_on(engine.run(&session_id, Some(&instruction), None))
         })();
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
 
-    Runner { prompts, finished, answers, session_id:Some(owner_session),cancel_retry:Some(cancel_retry) }
+    Runner {
+        live: Some(live),
+        prompts,
+        finished,
+        answers,
+        session_id: Some(owner_session),
+        cancel_retry: Some(cancel_retry),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,9 +72,10 @@ pub fn restart_candidates(
     let history = store.history(session)?;
     let mut candidates = Vec::new();
     for step in &workflow.definition.steps {
-        let Some(start) = history.iter().position(|(_, event_step, kind, _)| {
-            event_step == step && kind == "step.started"
-        }) else {
+        let Some(start) = history
+            .iter()
+            .position(|(_, event_step, kind, _)| event_step == step && kind == "step.started")
+        else {
             continue;
         };
         // session.started is the earliest safe checkpoint for the first step.
@@ -69,7 +84,10 @@ pub fn restart_candidates(
         } else {
             history[start - 1].0
         };
-        candidates.push(RestartCandidate { step: step.clone(), prior_event });
+        candidates.push(RestartCandidate {
+            step: step.clone(),
+            prior_event,
+        });
     }
     Ok(candidates)
 }
@@ -97,22 +115,41 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let session = store.create("example", "goal", "plan").unwrap();
         let init = store.history(&session).unwrap()[0].0;
-        store.event(&session, Some("plan"), "step.started", "").unwrap();
-        let plan_done = store.event(&session, Some("plan"), "step.completed", "").unwrap();
-        store.event(&session, Some("implement"), "step.started", "").unwrap();
-        store.event(&session, Some("implement"), "step.started", "retry").unwrap();
+        store
+            .event(&session, Some("plan"), "step.started", "")
+            .unwrap();
+        let plan_done = store
+            .event(&session, Some("plan"), "step.completed", "")
+            .unwrap();
+        store
+            .event(&session, Some("implement"), "step.started", "")
+            .unwrap();
+        store
+            .event(&session, Some("implement"), "step.started", "retry")
+            .unwrap();
         let workflow = LoadedWorkflow {
             definition: crate::config::Workflow {
-                id: "example".into(), title: "Example".into(), start: "plan".into(),
+                id: "example".into(),
+                title: "Example".into(),
+                start: "plan".into(),
                 steps: vec!["plan".into(), "implement".into()],
                 defaults: crate::config::StepDefaults::default(),
             },
             steps: std::collections::HashMap::new(),
             folder: root.path().to_path_buf(),
         };
-        assert_eq!(restart_candidates(&store, &session, &workflow).unwrap(), vec![
-            RestartCandidate { step: "plan".into(), prior_event: init },
-            RestartCandidate { step: "implement".into(), prior_event: plan_done },
-        ]);
+        assert_eq!(
+            restart_candidates(&store, &session, &workflow).unwrap(),
+            vec![
+                RestartCandidate {
+                    step: "plan".into(),
+                    prior_event: init
+                },
+                RestartCandidate {
+                    step: "implement".into(),
+                    prior_event: plan_done
+                },
+            ]
+        );
     }
 }

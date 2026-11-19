@@ -53,6 +53,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
     let (finished_tx, finished) = mpsc::channel();
     let session = session.to_string();
     let instruction = instruction.to_string();
+    let owner_session = session.clone();
     engine.tools.use_tui(prompts_tx, answer_rx);
     thread::spawn(move || {
         let result = tokio::runtime::Runtime::new().unwrap().block_on(engine.run(
@@ -62,8 +63,10 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
         ));
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
-    app.runner = Some(Runner { cancel_retry:None,
-            session_id: None,
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: Some(owner_session),
         prompts,
         answers,
         finished,
@@ -78,13 +81,15 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
     let (_pt, prompts) = mpsc::channel();
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
-    app.runner = Some(Runner { cancel_retry:None,
-            session_id: None,
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: None,
         prompts,
         answers,
         finished,
     });
-    app.approval=Some(ApprovalPrompt {content:"ALL native writes in ALL projects\nFuture matching requests may skip prompts.\n[y] save / [n] cancel".into(),mode:ApprovalMode::ConfirmPersistent});
+    app.approval=Some(ApprovalPrompt { review: None, command: None,content:"ALL native writes in ALL projects\nFuture matching requests may skip prompts.\n[y] save / [n] cancel".into(),mode:ApprovalMode::ConfirmPersistent});
     let rendered = screen(&app);
     assert!(rendered.contains("Confirm persistent grant"));
     assert!(rendered.contains("Save grant and allow"));
@@ -95,7 +100,12 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
     app.on_key(repeated, root.path(), &store).unwrap();
     assert!(received.try_recv().is_err());
     key(&mut app, &store, root.path(), KeyCode::Esc);
-    assert_eq!(received.recv().unwrap(), "n");
+    assert!(received.try_recv().is_err());
+    assert!(app.approval_hidden);
+    key(&mut app, &store, root.path(), KeyCode::Char('a'));
+    assert!(!app.approval_hidden);
+    key(&mut app, &store, root.path(), KeyCode::Char('n'));
+    assert_eq!(received.try_recv().unwrap(), "n");
 }
 
 #[test]
@@ -141,6 +151,36 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     );
     wait(&mut app, &store, |a| a.approval.is_some());
     assert!(screen(&app).contains("Tool permission required"));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    assert!(app.approval_hidden && app.runner.is_some());
+    for code in [
+        KeyCode::Char('y'),
+        KeyCode::Char('p'),
+        KeyCode::Char('g'),
+        KeyCode::Esc,
+    ] {
+        key(&mut app, &store, root.path(), code);
+    }
+    for _ in 0..10 {
+        app.tick();
+        thread::sleep(Duration::from_millis(1));
+    }
+    let pending_history = store.history(&store.session(&session.id).unwrap()).unwrap();
+    assert_eq!(
+        pending_history
+            .iter()
+            .filter(|e| e.2 == "model.output")
+            .count(),
+        1
+    );
+    assert!(!pending_history.iter().any(|e| matches!(
+        e.2.as_str(),
+        "tool.error" | "tool.result" | "permission.decision"
+    )));
+    assert!(!root.path().join("result.txt").exists());
+    assert!(screen(&app).contains("Review permission"));
+    key(&mut app, &store, root.path(), KeyCode::Char('a'));
+    assert!(app.permission_popup_visible());
     key(&mut app, &store, root.path(), KeyCode::Enter);
     assert!(!root.path().join("result.txt").exists());
     key(&mut app, &store, root.path(), KeyCode::Char('n'));
@@ -173,7 +213,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
         fs::read_to_string(root.path().join("result.txt")).unwrap(),
         "implemented"
     );
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert!(app
         .diagnostic
         .as_ref()
@@ -182,6 +222,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     key(&mut app, &store, root.path(), KeyCode::Esc);
     app.view = View::Artifacts;
     app.focus = Focus::Artifacts;
+    key(&mut app, &store, root.path(), KeyCode::Enter);
     assert!(screen(&app).contains("Initial report"));
     start(
         &mut app,
@@ -199,7 +240,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
             .as_ref()
             .is_some_and(|p| p.mode == ApprovalMode::Human)
     });
-    assert!(screen(&app).contains("Human approval required"));
+    assert!(screen(&app).contains("Human checkpoint"));
     assert!(app
         .approval
         .as_ref()
@@ -221,12 +262,16 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     let (answers, old_answers) = mpsc::channel();
     let (ft, finished) = mpsc::channel();
     pt.send(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Unanswered checkpoint".into(),
         mode: ApprovalMode::Human,
     })
     .unwrap();
-    app.runner = Some(Runner { cancel_retry:None,
-            session_id: None,
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: None,
         prompts,
         answers,
         finished,
@@ -238,7 +283,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     drop(ft);
     app.tick();
     assert!(app.approval.is_none() && app.runner.is_none());
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert!(old_answers.try_recv().is_err());
     key(&mut app, &store, root.path(), KeyCode::Esc);
     app.composer = "/recover".into();
@@ -261,7 +306,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     app.refresh(&store).unwrap();
     assert_eq!(store.session(&session.id).unwrap().status, "completed");
     assert!(app.diagnostic.is_none());
-    assert!(screen(&app).contains("COMPLETED"));
+    assert!(screen(&app).contains("Finished"));
     let history = store.history(&store.session(&session.id).unwrap()).unwrap();
     assert!(history.iter().any(
         |(_, _, k, d)| k == "user.instruction" && d == "Add the missing verification evidence"
@@ -281,13 +326,13 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     assert!(usage.totals.input.estimated > 0);
     app.composer = "/usage".into();
     app.submit(root.path(), &store);
-    assert!(screen(&app).contains("Usage — session spending"));
-    assert!(app.usage_detail.as_ref().unwrap().contains("unknown"));
+    assert!(screen(&app).contains("Usage · this session"));
+    assert!(app.details.text.contains("unknown") || app.details.text.contains("Unknown"));
     key(&mut app, &store, root.path(), KeyCode::Down);
     app.refresh(&store).unwrap();
     assert_eq!(app.detail_scroll, 1);
     key(&mut app, &store, root.path(), KeyCode::Esc);
-    assert!(app.usage_detail.is_none());
+    assert!(app.details.page.is_none());
 }
 
 #[test]
@@ -300,7 +345,7 @@ fn malformed_events_and_missing_artifacts_remain_inspectable() {
         .unwrap();
     let mut app = App::new(Some(&session.id));
     app.refresh(&store).unwrap();
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert!(app
         .events
         .iter()
@@ -369,7 +414,7 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
     app.confirm_restart(root.path(), &store);
     let message = app.diagnostic.as_ref().unwrap();
     assert!(message.contains("2 file(s) changed (1 journaled)"));
-    assert!(screen(&app).contains("ATTENTION"));
+    assert!(screen(&app).contains("Needs attention"));
     assert_eq!(
         store.session(&session.id).unwrap().active_branch,
         session.active_branch
@@ -391,51 +436,254 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
 
 #[test]
 fn workspace_cards_expose_context_and_exact_blocker_at_80x24() {
-    let root=tempfile::tempdir().unwrap();
-    let store=Store::open(root.path()).unwrap();
-    let mut session=store.create("missing","Repair the parser","repair").unwrap();
-    store.begin_attempt(&session,"repair","id: repair\nprompt: Repair parsing\n","fixture").unwrap();
-    let evidence=store.event(&session,Some("repair"),"step.blocked","Parser tests failed").unwrap();
-    session.status="blocked".into();store.save(&session).unwrap();
-    let mut app=App::new(Some(&session.id));
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut session = store
+        .create("missing", "Repair the parser", "repair")
+        .unwrap();
+    store
+        .begin_attempt(
+            &session,
+            "repair",
+            "id: repair\nprompt: Repair parsing\n",
+            "fixture",
+        )
+        .unwrap();
+    let evidence = store
+        .event(
+            &session,
+            Some("repair"),
+            "step.blocked",
+            "Parser tests failed",
+        )
+        .unwrap();
+    session.status = "blocked".into();
+    store.save(&session).unwrap();
+    let mut app = App::new(Some(&session.id));
     app.refresh(&store).unwrap();
-    key(&mut app,&store,root.path(),KeyCode::Esc);
-    let rendered=screen(&app);
-    assert!(rendered.contains("Repair the parser"));
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    let rendered = screen(&app);
+    assert!(!rendered.contains("Repair the parser"));
     assert!(rendered.contains("Parser tests failed"));
-    key(&mut app,&store,root.path(),KeyCode::Char('c'));
-    assert!(app.context_detail.as_ref().unwrap().contains("Repair parsing"));
-    app.detail_scroll=2;
+    key(&mut app, &store, root.path(), KeyCode::Char('c'));
+    assert!(app.details.text.contains("Repair the parser"));
+    app.detail_scroll = 2;
     app.refresh(&store).unwrap();
-    assert_eq!(app.detail_scroll,2);
-    key(&mut app,&store,root.path(),KeyCode::Esc);
-    key(&mut app,&store,root.path(),KeyCode::Char('e'));
-    assert_eq!(app.events[app.event_index].id,evidence);
-    assert_eq!(app.focus,Focus::Detail);
-    key(&mut app,&store,root.path(),KeyCode::Char('h'));
+    assert_eq!(app.detail_scroll, 2);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    key(&mut app, &store, root.path(), KeyCode::Char('e'));
+    assert_eq!(app.events[app.event_index].id, evidence);
+    assert_eq!(app.focus, Focus::Detail);
+    key(&mut app, &store, root.path(), KeyCode::Char('H'));
     assert!(!app.blocker_card);
-    assert_eq!(app.focus,Focus::Events);
+    assert_eq!(app.focus, Focus::Events);
 }
 
 #[test]
 fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
-    let root=tempfile::tempdir().unwrap();
-    let store=Store::open(root.path()).unwrap();
-    let owner=store.create("demo","Owner goal","work").unwrap();
-    let other=store.create("demo","Other goal","work").unwrap();
-    let mut app=App::new(Some(&other.id));
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let owner = store.create("demo", "Owner goal", "work").unwrap();
+    let other = store.create("demo", "Other goal", "work").unwrap();
+    let mut app = App::new(Some(&other.id));
     app.refresh(&store).unwrap();
-    let (sender,prompts)=mpsc::channel();
-    let (answers,_received)=mpsc::channel();
-    let (_finished,finished)=mpsc::channel();
-    app.runner=Some(Runner{cancel_retry:None,session_id:Some(owner.id.clone()),prompts,answers,finished});
-    sender.send(ApprovalPrompt{content:"Owner permission".into(),mode:ApprovalMode::Human}).unwrap();
+    let (sender, prompts) = mpsc::channel();
+    let (answers, _received) = mpsc::channel();
+    let (_finished, finished) = mpsc::channel();
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: Some(owner.id.clone()),
+        prompts,
+        answers,
+        finished,
+    });
+    sender
+        .send(ApprovalPrompt {
+            review: None,
+            command: None,
+            content: "Owner permission".into(),
+            mode: ApprovalMode::Human,
+        })
+        .unwrap();
     app.tick();
-    assert_eq!(app.session().unwrap().id,owner.id);
+    assert_eq!(app.session().unwrap().id, owner.id);
     assert!(app.workspace.is_none());
     app.refresh(&store).unwrap();
-    assert_eq!(app.workspace.as_ref().unwrap().goal,"Owner goal");
+    assert_eq!(app.workspace.as_ref().unwrap().goal, "Owner goal");
     assert!(screen(&app).contains("Owner permission"));
-    key(&mut app,&store,root.path(),KeyCode::Char('c'));
+    key(&mut app, &store, root.path(), KeyCode::Char('c'));
     assert!(app.context_detail.is_none());
+}
+
+#[test]
+fn human_result_verification_transports_recorded_outputs_without_pinned_approval_claims() {
+    let root = tempfile::tempdir().unwrap();
+    crate::project::init(root.path()).unwrap();
+    fs::write(
+        root.path().join(".greenlight/config.yaml"),
+        "provider:\n  model: fixture\n  pricing_discovery: false\n",
+    )
+    .unwrap();
+    let folder = root.path().join(".greenlight/workflows/review-result");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("workflow.yaml"),
+        "id: review-result\ntitle: Review result\nstart: work\nsteps: [work]\n",
+    )
+    .unwrap();
+    fs::write(folder.join("work.md"),"---\nid: work\noutputs:\n  required: [result.md]\nverification:\n  type: human\n---\nPrepare a result for human review\n").unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store
+        .create("review-result", "Review the generated result", "work")
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    start(
+        &mut app,
+        root.path(),
+        &session.id,
+        "Prepare the result",
+        &[
+            "action: artifact\nname: result.md\ncontent: Exact result evidence",
+            "action: finish\nsummary: Result prepared",
+        ],
+    );
+    wait(&mut app, &store, |a| a.approval.is_some());
+    let review = app.human_review().unwrap();
+    assert_eq!(review.kind, crate::tools::HumanReviewKind::StepResult);
+    assert!(review.manifest.is_none());
+    assert_eq!(review.documents.len(), 1);
+    assert_eq!(review.documents[0].content, "Exact result evidence");
+    assert!(screen(&app).contains("Review step result"));
+    key(&mut app, &store, root.path(), KeyCode::Char('y'));
+    wait(&mut app, &store, |a| a.runner.is_none());
+    let history = store.history(&store.session(&session.id).unwrap()).unwrap();
+    assert!(history
+        .iter()
+        .any(|e| e.2 == "verification.human" && e.3 == "approved"));
+    assert!(!history.iter().any(|e| e.2 == "human.approved"));
+    assert_eq!(store.session(&session.id).unwrap().status, "completed");
+}
+
+#[test]
+fn provider_retry_keeps_exact_messages_attempt_and_branch_without_replaying_a_tool() {
+    use crate::provider::Completion;
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("greenlight.yaml"),
+        "provider:\n  model: fixture\n",
+    )
+    .unwrap();
+    let folder = root.path().join("workflows/demo");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("workflow.yaml"),
+        "id: demo\ntitle: Demo\nstart: work\nsteps: [work]\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("work.md"),
+        "---\nid: work\ntools: [read]\nverification:\n  type: none\n---\nRead notes then finish.\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("notes.txt"), "ALREADY_READ_ONCE").unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "retry fixture", "work").unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    let response = |text: &str| {
+        Completion::parse(
+            200,
+            &serde_json::json!({"choices":[{"message":{"content":text}}]}).to_string(),
+        )
+        .unwrap()
+    };
+    // An ambiguous 429 is not automatically repeated. A one-second header also
+    // checks that an immediate manual choice respects the remaining cooldown.
+    let mut failure = Completion::parse(429, "{}").unwrap();
+    failure.failure.as_mut().unwrap().retry_after_seconds = Some(1);
+    let script = Arc::new(Mutex::new(Script {
+        completions: vec![
+            response("action: tool\ntool: read\npath: notes.txt"),
+            failure,
+            response("action: finish\nsummary: done"),
+        ]
+        .into(),
+        ..Default::default()
+    }));
+    let mut engine = Engine::open(root.path()).unwrap();
+    engine.provider.script = Some(script.clone());
+    engine.interactive_provider_retry = true;
+    let (pt, prompts) = mpsc::channel();
+    let (answers, rx) = mpsc::channel();
+    let (ft, finished) = mpsc::channel();
+    engine.tools.use_tui(pt, rx);
+    let id = session.id.clone();
+    thread::spawn(move || {
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(engine.run(&id, None, None));
+        let _ = ft.send(result.map_err(|e| format!("{e:#}")));
+    });
+    app.runner = Some(Runner {
+        live: None,
+        cancel_retry: None,
+        session_id: Some(session.id.clone()),
+        prompts,
+        answers,
+        finished,
+    });
+    wait(&mut app, &store, |a| {
+        a.approval
+            .as_ref()
+            .is_some_and(|p| p.mode == ApprovalMode::ProviderRetry)
+    });
+    let paused = Instant::now();
+    let output = screen(&app);
+    assert!(output.contains("Retry request"));
+    assert!(output.contains("Stop for now"));
+    assert!(!output.contains("Allow once"));
+    assert_eq!(script.lock().unwrap().requests.len(), 2);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    for c in ['y', 'p', 'g'] {
+        key(&mut app, &store, root.path(), KeyCode::Char(c));
+    }
+    app.tick();
+    assert_eq!(script.lock().unwrap().requests.len(), 2);
+    assert!(screen(&app).contains("Review retry"));
+    key(&mut app, &store, root.path(), KeyCode::Char('a'));
+    assert!(app.provider_retry_pending());
+    key(&mut app, &store, root.path(), KeyCode::Char('y'));
+    wait(&mut app, &store, |a| a.runner.is_none());
+    app.refresh(&store).unwrap();
+    assert!(paused.elapsed() >= Duration::from_millis(850));
+    let requests = &script.lock().unwrap().requests;
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[1], requests[2]);
+    assert!(requests[2].last().unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .contains("ALREADY_READ_ONCE"));
+    let current = store.session(&session.id).unwrap();
+    assert_eq!(current.status, "completed");
+    assert_eq!(current.active_branch, session.active_branch);
+    let history = store.history(&current).unwrap();
+    assert_eq!(history.iter().filter(|e| e.2 == "tool.request").count(), 1);
+    assert_eq!(store.attempts(&current).unwrap().len(), 1);
+    assert_eq!(
+        history
+            .iter()
+            .filter(|e| e.2 == "provider.retry-decision")
+            .count(),
+        1
+    );
+    assert_eq!(
+        store
+            .usage_report(&current, crate::usage::Scope::Session)
+            .unwrap()
+            .calls
+            .len(),
+        3
+    );
 }

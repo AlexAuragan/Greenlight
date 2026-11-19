@@ -1,0 +1,13 @@
+Greenlight / bar-p…  ● ready · implement
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+Edits · bar.py · Not kept
+--- a/bar.py
++++ b/bar.py
+@@ -1,1 +1,1 @@
+-start_service()
++start_service_async()
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│ Keep file │ │  Revert   │ │ [.] More │
+╰───────────╯ ╰───────────╯ ╰──────────╯

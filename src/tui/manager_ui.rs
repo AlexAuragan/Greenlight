@@ -68,7 +68,7 @@ impl App {
         self.composer.clear();
         self.focus = self.main_focus();
         self.follow_activity = true;
-        self.notice="Asking manager with bounded project/pipeline context. Read-only: proposed routes cannot execute. /cancel-manager stops future retries.".into();
+        self.notice = "Question saved. Manager is answering (read-only).".into();
     }
     pub(super) fn poll_manager(&mut self) {
         let Some(job) = self.manager_job.as_ref() else {
@@ -81,8 +81,12 @@ impl App {
             ),
             Ok(result) => result,
         };
+        let selected = self
+            .session()
+            .is_some_and(|s| s.id == job.session && s.active_branch == job.branch);
         self.notice=match result {
-            Ok(())=>format!("Manager replied to session {}, branch {}. Select that branch and use /manager to inspect the saved result.",job.session,job.branch),
+            Ok(()) if !selected=>"Manager answer saved for its original session/branch. Review that history; no instructions delivered.".into(),
+            Ok(())=>"Manager answer saved. More → Manager replies opens the recorded exchange.".into(),
             Err(error)=>format!("Manager request for {}, branch {} failed: {error}. No route executed.",job.session,job.branch),
         };
         self.manager_job = None;

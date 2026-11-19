@@ -1,0 +1,14 @@
+Greenlight / b…  ● blocked · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+ Needs attention
+
+  Step needs attention
+  The required host-service
+  measurement was unavailable. Supply
+  logs or revise the approach before
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│ Evidence  │ │  Compose  │ │ [.] More │
+╰───────────╯ ╰───────────╯ ╰──────────╯
+Workflow needs attention. Review the evi

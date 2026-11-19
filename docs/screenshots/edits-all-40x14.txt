@@ -1,0 +1,13 @@
+Greenlight / bar-p…  ● ready · implement
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+Edits · All files · 2 changed
+› bar.py  modified · Not kept
+  startup.py  added · Not kept
+  unchanged…  no net change / reverted ·
+
+
+╭──────────╮ ╭───────────╮ ╭──────────╮
+│ Keep all │ │  Revert   │ │ [.] More │
+╰──────────╯ ╰───────────╯ ╰──────────╯

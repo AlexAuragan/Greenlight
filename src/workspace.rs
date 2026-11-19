@@ -56,20 +56,42 @@ fn included(entry: &DirEntry) -> bool {
 
 pub(crate) fn path_in_scope(path: &Path) -> bool {
     path.components().all(|part| {
-        let std::path::Component::Normal(name) = part else {return false;};
+        let std::path::Component::Normal(name) = part else {
+            return false;
+        };
         !excluded_name(&name.to_string_lossy())
-    }) && !path.components().collect::<Vec<_>>().windows(2).any(|pair| {
-        (pair[0].as_os_str()==crate::paths::PROJECT_DIR || pair[0].as_os_str()==crate::paths::LEGACY_PROJECT_DIR) && pair[1].as_os_str()=="state"
-    })
+    }) && !path
+        .components()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|pair| {
+            (pair[0].as_os_str() == crate::paths::PROJECT_DIR
+                || pair[0].as_os_str() == crate::paths::LEGACY_PROJECT_DIR)
+                && pair[1].as_os_str() == "state"
+        })
 }
 
 fn excluded_name(name: &str) -> bool {
     matches!(
         name,
-        ".git" | "target" | "node_modules" | ".venv" | "venv" | "__pycache__"
-            | ".pytest_cache" | ".mypy_cache" | ".ruff_cache" | ".next"
-            | ".turbo" | "dist" | "build" | ".ssh" | ".aws" | ".git-credentials"
-            | "id_rsa" | "id_ed25519"
+        ".git"
+            | "target"
+            | "node_modules"
+            | ".venv"
+            | "venv"
+            | "__pycache__"
+            | ".pytest_cache"
+            | ".mypy_cache"
+            | ".ruff_cache"
+            | ".next"
+            | ".turbo"
+            | "dist"
+            | "build"
+            | ".ssh"
+            | ".aws"
+            | ".git-credentials"
+            | "id_rsa"
+            | "id_ed25519"
     ) || name.starts_with(".env")
         || name.ends_with(".pem")
         || name.ends_with(".key")
@@ -86,13 +108,18 @@ pub fn scan(root: &Path) -> Result<Manifest> {
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|entry| entry.depth()==0 || (included(entry) && entry.path().strip_prefix(root).is_ok_and(path_in_scope)))
+        .filter_entry(|entry| {
+            entry.depth() == 0
+                || (included(entry) && entry.path().strip_prefix(root).is_ok_and(path_in_scope))
+        })
     {
         let entry = entry.context("walking project for workspace recording")?;
         if !entry.file_type().is_file() {
             continue;
         }
-        let relative = entry.path().strip_prefix(root)
+        let relative = entry
+            .path()
+            .strip_prefix(root)
             .context("workspace scan path outside project root")?;
         let Some(path) = relative.to_str() else {
             skipped.push(relative.to_string_lossy().into_owned());
@@ -108,13 +135,14 @@ pub fn scan(root: &Path) -> Result<Manifest> {
             skipped.push(format!("{path} (larger than {MAX_FILE_BYTES} bytes)"));
             continue;
         }
-        let mut file = File::open(entry.path())
-            .with_context(|| format!("opening workspace file {path}"))?;
+        let mut file =
+            File::open(entry.path()).with_context(|| format!("opening workspace file {path}"))?;
         let mut digest = Sha256::new();
         let mut buffer = [0u8; 16 * 1024];
         let mut read_bytes = 0u64;
         loop {
-            let n = file.read(&mut buffer)
+            let n = file
+                .read(&mut buffer)
                 .with_context(|| format!("hashing workspace file {path}"))?;
             if n == 0 {
                 break;
@@ -133,36 +161,62 @@ pub fn scan(root: &Path) -> Result<Manifest> {
         {
             bail!("workspace file {path} changed during recording; retry when it is stable");
         }
-        files.insert(path.to_owned(), FileDigest {
-            size: read_bytes,
-            sha256: format!("{:x}", digest.finalize()),
-        });
+        files.insert(
+            path.to_owned(),
+            FileDigest {
+                size: read_bytes,
+                sha256: format!("{:x}", digest.finalize()),
+            },
+        );
     }
-    let stats = ScanStats {files:files.len() as u64, bytes_hashed:files.values().map(|v|v.size).sum(),elapsed_us:started.elapsed().as_micros().min(u64::MAX as u128) as u64};
-    Ok(Manifest { files, skipped, scan_stats:Some(stats) })
+    let stats = ScanStats {
+        files: files.len() as u64,
+        bytes_hashed: files.values().map(|v| v.size).sum(),
+        elapsed_us: started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+    };
+    Ok(Manifest {
+        files,
+        skipped,
+        scan_stats: Some(stats),
+    })
 }
 
 pub fn differences(before: &Manifest, after: &Manifest) -> Vec<FileDifference> {
     let paths: BTreeSet<_> = before.files.keys().chain(after.files.keys()).collect();
-    paths.into_iter().filter_map(|path| {
-        let change = match (before.files.get(path), after.files.get(path)) {
-            _ if !covered(before,path) || !covered(after,path) => "coverage_changed",
-            (None, Some(_)) => "created",
-            (Some(_), None) => "removed",
-            (Some(a), Some(b)) if a != b => "modified",
-            _ => return None,
-        };
-        Some(FileDifference { path: path.clone(), change: change.into() })
-    }).collect()
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let change = match (before.files.get(path), after.files.get(path)) {
+                _ if !covered(before, path) || !covered(after, path) => "coverage_changed",
+                (None, Some(_)) => "created",
+                (Some(_), None) => "removed",
+                (Some(a), Some(b)) if a != b => "modified",
+                _ => return None,
+            };
+            Some(FileDifference {
+                path: path.clone(),
+                change: change.into(),
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn covered(manifest: &Manifest, path: &str) -> bool {
-    path_in_scope(Path::new(path)) && !manifest.skipped.iter().any(|s|s==path || s.strip_prefix(path).is_some_and(|suffix|suffix.starts_with(" (larger than ")))
+    path_in_scope(Path::new(path))
+        && !manifest.skipped.iter().any(|s| {
+            s == path
+                || s.strip_prefix(path)
+                    .is_some_and(|suffix| suffix.starts_with(" (larger than "))
+        })
 }
 
 /// Record one immutable manifest in the branch-aware event journal.
 pub fn record(
-    root: &Path, store: &Store, session: &Session, step: &str, phase: &str,
+    root: &Path,
+    store: &Store,
+    session: &Session,
+    step: &str,
+    phase: &str,
 ) -> Result<(i64, Manifest)> {
     if !matches!(phase, "before" | "after") {
         bail!("unsupported workspace recording phase: {phase}");
@@ -170,14 +224,19 @@ pub fn record(
     let manifest = scan(root)?;
     let payload = serde_json::to_string(&manifest)?;
     let event = store.event(
-        session, Some(step), &format!("workspace.manifest.{phase}"), &payload,
+        session,
+        Some(step),
+        &format!("workspace.manifest.{phase}"),
+        &payload,
     )?;
     Ok((event, manifest))
 }
 
 /// Select the most recent manifest visible on the current branch (including
 /// an interrupted step's 'before' manifest).
-pub fn latest(history: &[(i64,String,String,String)]) -> Result<Option<(i64, String, Manifest)>> {
+pub fn latest(
+    history: &[(i64, String, String, String)],
+) -> Result<Option<(i64, String, Manifest)>> {
     for (id, step, kind, payload) in history.iter().rev() {
         if kind == "workspace.manifest.before" || kind == "workspace.manifest.after" {
             let manifest: Manifest = serde_json::from_str(payload)
@@ -205,17 +264,35 @@ mod tests {
         fs::write(root.path().join("created.txt"), "new").unwrap();
         fs::remove_file(root.path().join("deleted.txt")).unwrap();
         let after = scan(root.path()).unwrap();
-        assert_eq!(differences(&before, &after), vec![
-            FileDifference { path: "created.txt".into(), change: "created".into() },
-            FileDifference { path: "deleted.txt".into(), change: "removed".into() },
-            FileDifference { path: "src/main.rs".into(), change: "modified".into() },
-        ]);
+        assert_eq!(
+            differences(&before, &after),
+            vec![
+                FileDifference {
+                    path: "created.txt".into(),
+                    change: "created".into()
+                },
+                FileDifference {
+                    path: "deleted.txt".into(),
+                    change: "removed".into()
+                },
+                FileDifference {
+                    path: "src/main.rs".into(),
+                    change: "modified".into()
+                },
+            ]
+        );
     }
 
     #[test]
     fn scan_excludes_caches_and_sensitive_paths() {
         let root = tempdir().unwrap();
-        for dir in [".git", "target", ".greenlight/state", ".stepwright/state", "node_modules"] {
+        for dir in [
+            ".git",
+            "target",
+            ".greenlight/state",
+            ".stepwright/state",
+            "node_modules",
+        ] {
             fs::create_dir_all(root.path().join(dir)).unwrap();
             fs::write(root.path().join(dir).join("private.txt"), "secret").unwrap();
         }
@@ -224,7 +301,11 @@ mod tests {
         fs::write(root.path().join("main.rs"), "visible").unwrap();
         let manifest = scan(root.path()).unwrap();
         assert_eq!(
-            manifest.files.keys().map(String::as_str).collect::<Vec<_>>(),
+            manifest
+                .files
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             vec!["main.rs"],
         );
     }
@@ -240,7 +321,13 @@ mod tests {
         assert_eq!(found, id);
         assert_eq!(parsed.files, first.files);
         store.fork(&mut session, id, "implement").unwrap();
-        assert_eq!(latest(&store.history(&session).unwrap()).unwrap().unwrap().0, id);
+        assert_eq!(
+            latest(&store.history(&session).unwrap())
+                .unwrap()
+                .unwrap()
+                .0,
+            id
+        );
     }
 
     #[test]
@@ -252,13 +339,17 @@ mod tests {
         record(root.path(), &store, &session, "implement", "before").unwrap();
         fs::write(root.path().join("main.rs"), "updated").unwrap();
         record(root.path(), &store, &session, "implement", "after").unwrap();
-        let audit = crate::workspace_audit::latest_complete(&store, &session).unwrap().unwrap();
+        let audit = crate::workspace_audit::latest_complete(&store, &session)
+            .unwrap()
+            .unwrap();
         assert_eq!(audit.step, "implement");
-        assert_eq!(audit.paths.len(),1);
-        assert_eq!(audit.paths[0].path,"main.rs");
-        assert_eq!(audit.paths[0].observed_change,"modified");
+        assert_eq!(audit.paths.len(), 1);
+        assert_eq!(audit.paths[0].path, "main.rs");
+        assert_eq!(audit.paths[0].observed_change, "modified");
         record(root.path(), &store, &session, "verify", "before").unwrap();
-        let audit = crate::workspace_audit::latest_complete(&store, &session).unwrap().unwrap();
+        let audit = crate::workspace_audit::latest_complete(&store, &session)
+            .unwrap()
+            .unwrap();
         assert_eq!(audit.paths.len(), 1);
     }
 

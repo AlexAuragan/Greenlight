@@ -1,0 +1,24 @@
+Greenlight / bar-project                                     ● ready · implement
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+ Needs attention
+
+  Inspect the recorded diagnostic
+  Keep unavailable; no review saved: bar.py differs from its latest recorded
+  snapshot; preserve manual/shell changes before reviewing again.
+
+ What this means
+ The operation did not finish successfully.
+
+ Next
+ Open the full diagnostic before deciding what to do next.
+
+
+
+
+
+╭─────────────────╮ ╭────────────╮
+│ Full diagnostic │ │ [Esc] Back │
+╰─────────────────╯ ╰────────────╯
+Attention required: Keep unavailable; no review saved: bar.py differs from its l

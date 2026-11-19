@@ -1,0 +1,14 @@
+Greenlight…  ● interrupted · investigate
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+ Needs attention
+
+  Previous execution needs owner reco…
+  The execution record has no live
+  owner lock. Recovery checks the lock
+  again and refuses a live owner.
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│  Recover  │ │ Evidence  │ │ [.] More │
+╰───────────╯ ╰───────────╯ ╰──────────╯
+Workflow needs attention. Review the evi

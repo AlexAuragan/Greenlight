@@ -56,7 +56,7 @@ impl PrimaryAction {
             Self::Resume => "i: give instructions and resume · r: restart",
             Self::RecoverOwner => "/recover: recover interrupted owner before resuming",
             Self::RecoverWrites => "CLI recover-writes: reconcile interrupted writes first",
-            Self::Review => "2: review artifacts · h: inspect recorded activity",
+            Self::Review => "s: result · 2: artifacts · 3: edits/revert · h: activity",
             Self::Inspect => "e: inspect evidence before deciding how to continue",
         }
     }
@@ -255,7 +255,26 @@ impl SessionWorkspace {
                 .find_map(|(id, step, kind, _)| {
                     if *id > start && step == &s.current_step {
                         match kind.as_str() {
-                            "verification.passed" => Some("passed"),
+                            "verification.passed" => Some(
+                                if history.iter().any(|e| {
+                                    e.0 > start
+                                        && e.1 == s.current_step
+                                        && e.2 == "verification.none"
+                                }) && !history.iter().any(|e| {
+                                    e.0 > start
+                                        && e.1 == s.current_step
+                                        && matches!(
+                                            e.2.as_str(),
+                                            "verification.command"
+                                                | "verification.agent"
+                                                | "verification.human"
+                                        )
+                                }) {
+                                    "no checks required (policy accepted)"
+                                } else {
+                                    "passed"
+                                },
+                            ),
                             "verification.failed" => Some("failed"),
                             _ => None,
                         }

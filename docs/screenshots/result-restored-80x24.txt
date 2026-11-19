@@ -1,0 +1,23 @@
+Greenlight / bar-project                                   ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+ Historical result · workspace restored
+ Reports/checks describe the earlier workspace, not restored files.
+
+  Agent-reported conclusion
+  Performance evaluation recorded. Status: measurement_failure (benchmark
+  unavailable). No numeric before/after pair exists. The optimization remains
+  unverified and unimplemented pending source listings and logs. Further loops
+  Excerpt · More → Full result
+
+ Recorded verification
+ No checks required by the final-step policy.
+ Policy acceptance is not measured validation.
+
+ Recorded native edits
+ 0 file(s) · Review edits for diffs and guarded revert
+ Shell/manual changes are outside this journal.
+╭───────────────────────╮ ╭──────────────────╮ ╔══════════════╗ ╭──────────╮
+│ [o] Read final report │ │ [3] Review edits │ ║ [s] Overview ║ │ [.] More │
+╰───────────────────────╯ ╰──────────────────╯ ╚══════════════╝ ╰──────────╯

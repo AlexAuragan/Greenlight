@@ -24,6 +24,7 @@ flowchart TD
 
 ## Current modules
 
+- `credentials.rs` — immutable provider credentials, masked UI summaries and in-memory dotenv-source provenance; raw keys are never part of the UI metadata.
 - `config.rs` — strict serde YAML structs, workflow/step parse and validation, restricted prompt includes.
 - `engine.rs` — sequential execution, per-step fresh context, YAML action dispatch, verification and deviation routing.
 - `store.rs` — SQLite session/event/branch history, registered immutable artifacts and native-edit journals.
@@ -36,7 +37,9 @@ flowchart TD
 - `approvals.rs` — saved project/global grants, separate from temporary process-level decisions.
 - `usage.rs` — request usage ledger, token-count provenance, tiktoken fallback, immutable pricing snapshots and scoped cost summaries.
 - `provider.rs` — HTTP chat-completions and model discovery through the DeepInfra OpenAI-compatible API.
-- `tools.rs` — permissioned native file access and sandboxed shell/web dispatch.
+- `tools.rs`, `file_discovery.rs` — project-root-confined native file reads, bounded directory discovery, journaled writes and sandboxed shell/web dispatch.
+- `action_envelope.rs`, `agent_protocol.rs` — unambiguous action envelopes, field validation help and the embedded coding prompt.
+- `conversation_dump.rs` — durable exact-message traces and read-only branch-scoped Markdown/JSON exports.
 - `tui.rs` — foreground application state, store refresh, worker lifecycle and the terminal loop.
 - `tui/focus.rs`, `tui/reading.rs`, `tui/routing.rs` — focus/draft state, session/branch reading positions, cached-row activity filtering and modal keyboard precedence.
 - `tui/exports.rs` — explicit clipboard exports and private editor-review snapshots, with terminal handoff/restoration. Helpers receive selected text, never a mutable Store/Engine handle.
@@ -69,7 +72,7 @@ This separates document CPU work, not every blocking operation: store refresh/bl
 - Project and global permission grants are saved explicitly. Their scope is not changed by a model response; a configured `deny` overrides saved grants. Pending TUI approval requests are in-process and expire when their worker disconnects. Per-session OS locks prevent competing CLI/TUI execution, with persisted owner records requiring explicit recovery after worker loss. Different sessions do not share an execution lease for the whole workspace.
 - API keys come from environment variables; they are not included in serialized config or logs by the harness.
 - Search uses the Brave Web Search API if `BRAVE_SEARCH_API_KEY` is set. Web responses are untrusted content and can be prompt-injection sources.
-- The provider sends workflow prompts, step artifacts and tool observations to the configured DeepInfra endpoint. Do not run on confidential projects unless you accept that transfer.
+- The provider sends workflow prompts, step artifacts and tool observations to the configured OpenAI-compatible endpoint (DeepInfra by default). Do not run on confidential projects unless you accept that transfer.
 - Discord webhook notifications are outbound-only; failures are printed to stderr. The webhook URL is read from an environment variable.
 
 ## Architecture decision records
@@ -84,7 +87,7 @@ Choose a single Rust binary with modules instead of a distributed service. Reaso
 
 ### ADR-003: YAML agent protocol, JSON HTTP transport
 
-Choose YAML for model-to-runtime actions and workflow authoring; use JSON only for the required wire format of DeepInfra's OpenAI-compatible REST endpoint. Use strict schema checks and keep raw model responses in logs.
+Choose YAML for model-to-runtime actions and workflow authoring; use JSON only for the required wire format of DeepInfra's OpenAI-compatible REST endpoint. Use required-field/schema checks, reject ambiguous envelopes and keep raw model responses in logs. One unambiguous fenced mapping may have surrounding commentary; only its mapping is dispatched.
 
 ### ADR-004: Branchable append-only session log
 
@@ -96,6 +99,20 @@ Keep the native-write journal as the recovery basis. Record bounded SHA-256 mani
 
 ### ADR-006: Model suggestions are not authority
 
-Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
+Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [settled decisions](16-decision-log.md) and [current TUI behavior](11-tui.md).
 
 The [coordinator contract](20-conversational-coordinator.md) now has a [read-only Q&A implementation](21-manager-qa.md) using its bounded evidence/JSON interface and [compiled system prompt](prompts/manager-v1.md). Original-message records are separate from executing instructions. Manager calls can observe a live owner but cannot act on a route, acquire execution ownership, grant approval or modify coding context. Targeted delivery and the durable live inbox remain future work.
+
+Project setup and root discovery live in `src/project.rs`; embedded resources are listed in `src/project_templates.rs`. `src/paths.rs` selects canonical/legacy config and workflow paths and protects private settings/state. The standalone `install.sh` maintains its source/build cache outside projects; see [installation and projects](22-installation-and-projects.md).
+
+`src/agent_protocol.rs` compiles the [coding-agent system prompt](prompts/coding-agent-v1.md), provides scoped tool examples and constructs protocol-format repair messages. The parser still rejects tool-named actions; syntax guidance never dispatches or authorizes an operation.
+
+## Patterns used to keep the implementation local
+
+- **Typed commands and shared metadata:** `tui/actions.rs` owns action identities and the shortcut/label registry used by workspace keyboard routing, buttons and the Help reference. `tui/shell.rs` dispatches those actions directly; it does not convert commands into artificial keypresses. Context-specific navigation and literal text editing remain explicit in `tui/routing.rs`.
+- **Decision input ownership:** the derived `DecisionLayer` identifies Help, tool/provider permissions, human choices, human evidence, revert confirmation or ordinary workspace input. Both keyboard routing and direct actions respect the top layer. Esc hides tool/provider popups without deciding; human evidence cannot approve; Help cannot forward a decision underneath itself. This projects existing state rather than adding another persisted state machine.
+- **Units of work:** session creation and branch publication wrap their related rows and audit event in a single transaction. Branch operations prepare a local next session and expose it to the caller only after commit.
+- **Serialized read–modify–write:** approval grants hold an OS lock on a stable sibling file while reloading, merging and atomically publishing one scope. Locks are advisory and do not govern external editors.
+- **Shared policy boundaries:** project paths and exact file snapshots retain shared guards, while read/write/restore differences remain explicit.
+
+Keep orchestration flat. Extract shared rules or substantial operations, not single-expression forwarding functions. Durable continuations and a broader execution state machine remain separate designs; these changes do not replay failed tools or change workflow transitions.

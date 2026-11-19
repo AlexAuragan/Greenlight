@@ -363,3 +363,347 @@ async fn engine_generated_failures_still_evaluate_their_detector_once() {
         assert_eq!(h.count("step.deviation"), 1);
     }
 }
+
+#[tokio::test]
+async fn agent_continues_past_legacy_step_workflow_and_session_turn_limits() {
+    let mut responses = vec![
+        Ok("not a YAML action"),
+        Ok("action: tool\ntool: read\npath: unavailable.txt"),
+    ];
+    responses.extend(std::iter::repeat_n(
+        Ok("action: artifact\nname: notes.md\ncontent: next observation"),
+        20,
+    ));
+    responses.push(Ok(FINISH));
+    let mut h = Harness::new("  - id: blocker\n    action: pause", responses);
+    h.engine.cfg.session.max_turns_per_attempt = 1;
+    let folder = h.root.path().join("workflows/demo");
+    let workflow = folder.join("workflow.yaml");
+    fs::write(
+        &workflow,
+        fs::read_to_string(&workflow).unwrap() + "defaults:\n  max_turns: 2\n",
+    )
+    .unwrap();
+    let step = folder.join("step.md");
+    fs::write(
+        &step,
+        fs::read_to_string(&step)
+            .unwrap()
+            .replacen("id: step\n", "id: step\nmax_turns: 3\n", 1),
+    )
+    .unwrap();
+    h.run().await;
+    assert_eq!(h.status(), "completed");
+    h.assert_calls(23);
+    assert_eq!(h.count("protocol.error"), 1);
+    assert_eq!(h.count("tool.error"), 1);
+    assert_eq!(h.count("artifact.created"), 20);
+    assert_eq!(h.count("step.deviation"), 0);
+}
+
+#[tokio::test]
+async fn unlimited_agent_still_stops_before_dispatch_when_cancelled() {
+    let mut h = Harness::new("  - id: blocker\n    action: pause", vec![Ok(FINISH)]);
+    h.engine
+        .provider
+        .retry_cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    h.run().await;
+    assert_eq!(h.status(), "blocked");
+    assert!(h.script.lock().unwrap().requests.is_empty());
+    assert_eq!(h.script.lock().unwrap().responses.len(), 1);
+    assert_eq!(h.count("step.completed"), 0);
+    assert_eq!(h.count("step.error"), 1);
+}
+
+#[tokio::test]
+async fn format_correction_reaches_the_model_and_a_corrected_read_really_executes() {
+    fn respond(messages: &[serde_json::Value]) -> Result<String, String> {
+        let last = messages.last().unwrap()["content"].as_str().unwrap();
+        match messages.len() {
+            2 => {
+                assert!(messages[0]["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("read, write, shell and web are TOOL NAMES"));
+                assert!(last.contains("Workflow-enabled tool names: read"));
+                Ok("action: read\npath: notes.md".into())
+            }
+            4 => {
+                assert!(last.contains("protocol format error"));
+                assert!(last.contains("no tool was attempted"));
+                assert!(last.contains("action: tool\ntool: read"));
+                assert!(last.contains("NOT evidence that tools are unavailable"));
+                Ok("action: tool\ntool: read\npath: notes.md".into())
+            }
+            6 => {
+                assert!(last.contains("Tool result:\nACTUAL_FILE_BODY"));
+                Ok(FINISH.into())
+            }
+            _ => Err("unexpected request".into()),
+        }
+    }
+    let mut h = Harness::new("  - id: blocker\n    action: pause", vec![]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [read]"),
+    )
+    .unwrap();
+    fs::write(h.root.path().join("notes.md"), "ACTUAL_FILE_BODY").unwrap();
+    h.script.lock().unwrap().responder = Some(respond);
+    h.run().await;
+    h.assert_calls(3);
+    assert_eq!(h.status(), "completed");
+    assert_eq!(h.count("protocol.error"), 1);
+    assert_eq!(h.count("tool.request"), 1);
+    assert_eq!(h.count("tool.result"), 1);
+    assert_eq!(h.count("tool.error"), 0);
+}
+
+#[tokio::test]
+async fn correcting_request_syntax_never_bypasses_host_denial_or_workflow_tool_selection() {
+    for denied_by_host in [true, false] {
+        let mut h = Harness::new(
+            "  - id: blocker\n    action: pause",
+            vec![
+                Ok("action: read\npath: notes.md"),
+                Ok("action: tool\ntool: read\npath: notes.md"),
+                Ok(FINISH),
+            ],
+        );
+        fs::write(h.root.path().join("notes.md"), "MUST_NOT_REACH_MODEL").unwrap();
+        if denied_by_host {
+            let file = h.root.path().join("workflows/demo/step.md");
+            fs::write(
+                &file,
+                fs::read_to_string(&file)
+                    .unwrap()
+                    .replace("tools: []", "tools: [read]"),
+            )
+            .unwrap();
+            h.engine.tools.policies.read = "deny".into();
+        }
+        h.run().await;
+        h.assert_calls(3);
+        assert_eq!(h.count("protocol.error"), 1);
+        assert_eq!(h.count("tool.request"), 1);
+        assert_eq!(h.count("tool.result"), 0);
+        assert_eq!(h.count("tool.error"), 1);
+        let script = h.script.lock().unwrap();
+        let last = script.requests[2].last().unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(!last.contains("MUST_NOT_REACH_MODEL"));
+        assert!(last.contains("action format was accepted"));
+        assert!(last.contains("Do not bypass a permission denial"));
+        assert!(last.contains(if denied_by_host {
+            "read forbidden by policy"
+        } else {
+            "not enabled for this step"
+        }));
+        let dump =
+            crate::conversation_dump::Dump::load(&h.engine.store, &h.session, None, false).unwrap();
+        let recorded = dump
+            .events
+            .iter()
+            .filter(|e| e.kind == "model.request")
+            .map(|e| {
+                let value: serde_json::Value = serde_json::from_str(&e.data).unwrap();
+                value["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|id| dump.messages[id.as_str().unwrap()].clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(recorded, script.requests);
+        assert!(dump.markdown().contains(if denied_by_host {
+            "read forbidden by policy"
+        } else {
+            "not enabled for this step"
+        }));
+        assert!(dump
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("protocol parser")));
+        assert!(dump
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("Tool action failed")));
+    }
+}
+
+#[tokio::test]
+async fn directory_discovery_and_wrapped_actions_find_real_source_with_shell_denied() {
+    fn respond(messages: &[serde_json::Value]) -> Result<String, String> {
+        let last = messages.last().unwrap()["content"].as_str().unwrap();
+        match messages.len() {
+            2 => {
+                assert!(last.contains("Native file discovery"));
+                Ok(
+                    "I will inspect the project.\n```yaml\naction: tool\ntool: read\npath: .\n```"
+                        .into(),
+                )
+            }
+            4 => {
+                let listing: serde_json::Value =
+                    serde_json::from_str(last.strip_prefix("Tool result:\n").unwrap()).unwrap();
+                assert!(listing["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|e| e["path"] == "widgets/bar.py"));
+                assert!(!last.contains(".env"));
+                Ok("Inspecting the source.</think>\n```yaml\naction: tool\ntool: read\npath: widgets/bar.py\n```".into())
+            }
+            6 => {
+                assert!(last.contains("BAR_CLOCK_SOURCE"));
+                Ok("Done.\n```yaml\naction: finish\nsummary: source inspected\n```".into())
+            }
+            _ => Err("unexpected request".into()),
+        }
+    }
+    let mut h = Harness::new("  - id: blocker\n    action: pause", vec![]);
+    let step = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &step,
+        fs::read_to_string(&step)
+            .unwrap()
+            .replace("tools: []", "tools: [read]"),
+    )
+    .unwrap();
+    fs::create_dir(h.root.path().join("widgets")).unwrap();
+    fs::write(h.root.path().join("widgets/bar.py"), "BAR_CLOCK_SOURCE").unwrap();
+    fs::write(h.root.path().join(".env"), "PRIVATE").unwrap();
+    h.engine.tools.policies.shell = "deny".into();
+    h.script.lock().unwrap().responder = Some(respond);
+    h.run().await;
+    h.assert_calls(3);
+    assert_eq!(h.status(), "completed");
+    assert_eq!(h.count("protocol.error"), 0);
+    assert_eq!(h.count("tool.result"), 2);
+    assert_eq!(h.count("tool.error"), 0);
+    let s = h.engine.store.session(&h.session).unwrap();
+    let history = h.engine.store.history(&s).unwrap();
+    assert!(!history
+        .iter()
+        .any(|e| e.2 == "permission.decision" && e.3.starts_with("shell:")));
+    assert!(
+        history
+            .iter()
+            .any(|e| e.2 == "model.output" && e.3.starts_with("I will inspect")),
+        "original response must remain recorded"
+    );
+}
+
+#[tokio::test]
+async fn missing_action_fields_are_repaired_and_ambiguous_fences_never_execute() {
+    for ambiguous in [false, true] {
+        let raw = if ambiguous {
+            "```yaml\naction: tool\ntool: write\npath: must-not-exist.txt\ncontent: unsafe\n```\n```yaml\naction: finish\n```"
+        } else {
+            "action: tool\ntool: read"
+        };
+        let mut h = Harness::new(
+            "  - id: blocker\n    action: pause",
+            vec![Ok(raw), Ok(FINISH)],
+        );
+        let step = h.root.path().join("workflows/demo/step.md");
+        fs::write(
+            &step,
+            fs::read_to_string(&step)
+                .unwrap()
+                .replace("tools: []", "tools: [read, write]"),
+        )
+        .unwrap();
+        h.engine.tools.policies.write = "allow".into();
+        h.run().await;
+        h.assert_calls(2);
+        assert_eq!(h.status(), "completed");
+        assert_eq!(h.count("protocol.error"), 1);
+        assert_eq!(h.count("tool.request"), 0);
+        assert_eq!(h.count("step.error"), 0);
+        assert!(!h.root.path().join("must-not-exist.txt").exists());
+        let script = h.script.lock().unwrap();
+        let correction = script.requests[1].last().unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(correction.contains(if ambiguous {
+            "multiple fenced blocks"
+        } else {
+            "requires nonempty path"
+        }));
+    }
+}
+
+#[tokio::test]
+async fn repeated_protocol_failure_pauses_without_dispatching_tools() {
+    let mut h = Harness::new(PAUSE, vec![Ok("invalid"), Ok("invalid"), Ok("invalid")]);
+    h.run().await;
+    h.assert_calls(3);
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("protocol.repair-stopped"), 1);
+    assert_eq!(h.count("tool.request"), 0);
+}
+
+#[tokio::test]
+async fn conversation_budget_stops_before_a_provider_dispatch() {
+    let mut h = Harness::new(PAUSE, vec![]);
+    h.engine.cfg.session.max_conversation_bytes = 1;
+    h.run().await;
+    h.assert_calls(0);
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("context.limit-reached"), 1);
+    assert_eq!(h.count("model.request"), 0);
+}
+
+#[tokio::test]
+async fn previous_draft_is_reference_only_and_does_not_satisfy_new_outputs() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: []\noutputs:\n  required: [plan.md]"),
+    )
+    .unwrap();
+    let session = h.engine.store.session(&h.session).unwrap();
+    h.engine
+        .store
+        .add_artifact(&session, "step", "plan.md", "OLD_DRAFT_EVIDENCE")
+        .unwrap();
+    h.run().await;
+    assert_eq!(h.status(), "blocked");
+    let script = h.script.lock().unwrap();
+    let context = serde_json::to_string(&script.requests).unwrap();
+    assert!(context.contains("OLD_DRAFT_EVIDENCE"));
+    assert!(context.contains("does not satisfy this attempt"));
+    assert!(context.contains("Required artifact outputs"));
+    assert!(context.contains("Allowed deviation IDs"));
+}
+
+#[tokio::test]
+async fn growing_conversation_stops_after_preserving_registered_artifact() {
+    let large = format!(
+        "action: artifact\nname: notes.md\ncontent: {}",
+        "x".repeat(40_000)
+    );
+    let mut h = Harness::new(PAUSE, vec![Ok(&large)]);
+    h.engine.cfg.session.max_conversation_bytes = 30_000;
+    h.run().await;
+    h.assert_calls(1);
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("context.limit-reached"), 1);
+    let session = h.engine.store.session(&h.session).unwrap();
+    assert_eq!(
+        h.engine.store.artifacts(&session, "step").unwrap()[0]
+            .content
+            .len(),
+        40_000
+    );
+}

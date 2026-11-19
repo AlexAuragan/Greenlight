@@ -1,0 +1,23 @@
+Greenlight / bar-project                                   ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+Conversation snapshot · previews limited to 800 characters per body
+[R] Refresh · [w] Save full dump · [C] Copy full dump
+
+# Conversation dump
+
+Session: 5aa0318a-7fa3-46b2-a543-c52309346a4b
+Workflow: optimize-performance
+Goal: The bars take about 30s to display; full goal belongs in Details, not the
+header
+Scope: branch bc821699-e5f6-4ceb-b47e-5a970146b05f and ancestry
+Captured: 2026-11-18T10:24:54.920418514+00:00
+
+## Diagnostics and limitations
+
+- Only recorded evidence is available. Private reasoning is not returned or
+reconstructed. Live/in-flight text is not durable until a response is recorded.
+╭────────────╮ ╭─────────────╮ ╭────────────────────╮ ╭────────────────────╮
+│ [Esc] Back │ │ [R] Refresh │ │ [w] Save full dump │ │ [C] Copy full dump │
+╰────────────╯ ╰─────────────╯ ╰────────────────────╯ ╰────────────────────╯

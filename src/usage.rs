@@ -57,15 +57,32 @@ pub struct PricingTier {
 
 impl Pricing {
     pub fn freshness(&self, at: chrono::DateTime<chrono::Utc>) -> String {
-        let date = self.retrieved_at.as_deref()
-            .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok()).map(|v| v.with_timezone(&chrono::Utc))
-            .or_else(|| self.effective_date.as_deref().and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok()).and_then(|v| v.and_hms_opt(0,0,0)).map(|v| v.and_utc()));
+        let date = self
+            .retrieved_at
+            .as_deref()
+            .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
+            .map(|v| v.with_timezone(&chrono::Utc))
+            .or_else(|| {
+                self.effective_date
+                    .as_deref()
+                    .and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
+                    .and_then(|v| v.and_hms_opt(0, 0, 0))
+                    .map(|v| v.and_utc())
+            });
         match date {
             None => "unknown pricing age".into(),
-            Some(date) if date > at + chrono::Duration::minutes(5) => "future-dated pricing; cost unavailable".into(),
-            Some(date) if at.signed_duration_since(date) > chrono::Duration::days(30) => "stale pricing (>30 days); estimate needs review".into(),
-            Some(_) if self.retrieved_at.is_some() => "recent provider catalog snapshot; not an invoice".into(),
-            Some(_) => "configured rates; freshness based on effective date, not live verification".into(),
+            Some(date) if date > at + chrono::Duration::minutes(5) => {
+                "future-dated pricing; cost unavailable".into()
+            }
+            Some(date) if at.signed_duration_since(date) > chrono::Duration::days(30) => {
+                "stale pricing (>30 days); estimate needs review".into()
+            }
+            Some(_) if self.retrieved_at.is_some() => {
+                "recent provider catalog snapshot; not an invoice".into()
+            }
+            Some(_) => {
+                "configured rates; freshness based on effective date, not live verification".into()
+            }
         }
     }
 }
@@ -80,7 +97,11 @@ impl ModelMetadata {
             bail!("tokenizer must be cl100k_base or o200k_base; counts remain estimates");
         }
         if let Some(p) = &self.pricing {
-            let mut rates = vec![p.input_per_million, p.cached_input_per_million, p.output_per_million];
+            let mut rates = vec![
+                p.input_per_million,
+                p.cached_input_per_million,
+                p.output_per_million,
+            ];
             let mut creation = vec![p.cache_creation.as_ref()];
             let mut previous = None;
             for tier in &p.tiers {
@@ -88,11 +109,19 @@ impl ModelMetadata {
                     bail!("pricing tiers must have strictly increasing above_input_tokens");
                 }
                 previous = Some(tier.above_input_tokens);
-                rates.extend([tier.input_per_million, tier.cached_input_per_million, tier.output_per_million]);
+                rates.extend([
+                    tier.input_per_million,
+                    tier.cached_input_per_million,
+                    tier.output_per_million,
+                ]);
                 creation.push(tier.cache_creation.as_ref());
             }
             for c in creation.into_iter().flatten() {
-                rates.extend([c.default_per_million, c.five_minute_per_million, c.one_hour_per_million]);
+                rates.extend([
+                    c.default_per_million,
+                    c.five_minute_per_million,
+                    c.one_hour_per_million,
+                ]);
             }
             for rate in rates.into_iter().flatten() {
                 if !rate.is_finite() || rate < 0.0 {
@@ -190,7 +219,10 @@ impl Counts {
         }
         self.raw = response.raw_usage.clone();
         let Some(raw) = &self.raw else { return };
-        if let Some(created) = raw.get("cache_creation_input_tokens").and_then(Value::as_u64) {
+        if let Some(created) = raw
+            .get("cache_creation_input_tokens")
+            .and_then(Value::as_u64)
+        {
             self.cache_creation = TokenCount::reported(created);
         }
         let input = raw
@@ -270,10 +302,10 @@ pub struct Call {
     pub attempt: Option<String>,
     pub step: String,
     pub purpose: String,
-    #[serde(default,skip_serializing_if="Option::is_none")]
-    pub manager_message_id:Option<String>,
-    #[serde(default,skip_serializing_if="Option::is_none")]
-    pub manager_snapshot_id:Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manager_message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manager_snapshot_id: Option<String>,
     pub provider: String,
     pub model: String,
     pub response_id: Option<String>,
@@ -295,8 +327,12 @@ impl Call {
         messages: &[Value],
     ) -> Self {
         let mut counts = Counts::estimated(model, &metadata, messages);
-        if let Some(p) = &metadata.pricing { counts.notes.push(p.freshness(chrono::Utc::now())); }
-        if let Some(note) = &metadata.pricing_note { counts.notes.push(note.clone()); }
+        if let Some(p) = &metadata.pricing {
+            counts.notes.push(p.freshness(chrono::Utc::now()));
+        }
+        if let Some(note) = &metadata.pricing_note {
+            counts.notes.push(note.clone());
+        }
         Self {
             id: Uuid::new_v4().to_string(),
             started_at_utc: chrono::Utc::now().to_rfc3339(),
@@ -306,8 +342,8 @@ impl Call {
             attempt: None,
             step: step.into(),
             purpose: purpose.into(),
-            manager_message_id:None,
-            manager_snapshot_id:None,
+            manager_message_id: None,
+            manager_snapshot_id: None,
             provider: provider.into(),
             model: model.into(),
             response_id: None,
@@ -351,25 +387,37 @@ impl Call {
         }
         let input = self.counts.input.value?;
         let output = self.counts.output.value?;
-        let at = chrono::DateTime::parse_from_rfc3339(&self.started_at_utc).ok()?.with_timezone(&chrono::Utc);
-        if p.freshness(at).starts_with("future") { return None; }
+        let at = chrono::DateTime::parse_from_rfc3339(&self.started_at_utc)
+            .ok()?
+            .with_timezone(&chrono::Utc);
+        if p.freshness(at).starts_with("future") {
+            return None;
+        }
         // Context tiers apply to the whole request, never marginal token bands.
         // An estimated input count cannot safely select a paid context tier.
-        if !p.tiers.is_empty() && self.counts.input.source != "provider" { return None; }
+        if !p.tiers.is_empty() && self.counts.input.source != "provider" {
+            return None;
+        }
         let tier = p.tiers.iter().rev().find(|t| input > t.above_input_tokens);
         let (input_rate, cached_rate, output_rate, creation_rates) = match tier {
-            Some(t) => (t.input_per_million?, t.cached_input_per_million, t.output_per_million?, t.cache_creation.as_ref()),
-            None => (p.input_per_million?, p.cached_input_per_million, p.output_per_million?, p.cache_creation.as_ref()),
+            Some(t) => (
+                t.input_per_million?,
+                t.cached_input_per_million,
+                t.output_per_million?,
+                t.cache_creation.as_ref(),
+            ),
+            None => (
+                p.input_per_million?,
+                p.cached_input_per_million,
+                p.output_per_million?,
+                p.cache_creation.as_ref(),
+            ),
         };
-        let (created, creation_cost) = cache_creation_cost(self.counts.raw.as_ref(), creation_rates)?;
+        let (created, creation_cost) =
+            cache_creation_cost(self.counts.raw.as_ref(), creation_rates)?;
         let cost = if let Some(cached) = self.counts.cached_input.value {
             (input.checked_sub(cached)?.checked_sub(created)? as f64) * input_rate
-                + (cached as f64)
-                    * if cached == 0 {
-                        0.0
-                    } else {
-                        cached_rate?
-                    }
+                + (cached as f64) * if cached == 0 { 0.0 } else { cached_rate? }
         } else if cached_rate == Some(input_rate) {
             (input.checked_sub(created)? as f64) * input_rate
         } else {
@@ -380,20 +428,43 @@ impl Call {
     }
 }
 
-fn cache_creation_cost(raw: Option<&Value>, rates: Option<&CacheCreationPricing>) -> Option<(u64, f64)> {
-    let Some(raw) = raw else { return Some((0, 0.0)); };
+fn cache_creation_cost(
+    raw: Option<&Value>,
+    rates: Option<&CacheCreationPricing>,
+) -> Option<(u64, f64)> {
+    let Some(raw) = raw else {
+        return Some((0, 0.0));
+    };
     let field = |v: &Value, key: &str| v.get(key).map_or(Some(0), Value::as_u64);
     let created = field(raw, "cache_creation_input_tokens")?;
     let detail = raw.get("cache_creation");
     if let Some(detail) = detail.filter(|v| !v.is_null()) {
-        if !detail.is_object() {return None;}
+        if !detail.is_object() {
+            return None;
+        }
         let short = field(detail, "ephemeral_5m_input_tokens")?;
         let long = field(detail, "ephemeral_1h_input_tokens")?;
-        if short.checked_add(long)? != created { return None; }
-        let cost = |n, rate: Option<f64>| if n == 0 { Some(0.0) } else { Some(n as f64 * rate?) };
-        return Some((created, cost(short, rates.and_then(|r|r.five_minute_per_million))? + cost(long, rates.and_then(|r|r.one_hour_per_million))?));
+        if short.checked_add(long)? != created {
+            return None;
+        }
+        let cost = |n, rate: Option<f64>| {
+            if n == 0 {
+                Some(0.0)
+            } else {
+                Some(n as f64 * rate?)
+            }
+        };
+        return Some((
+            created,
+            cost(short, rates.and_then(|r| r.five_minute_per_million))?
+                + cost(long, rates.and_then(|r| r.one_hour_per_million))?,
+        ));
     }
-    if created == 0 { Some((0, 0.0)) } else { Some((created, created as f64 * rates?.default_per_million?)) }
+    if created == 0 {
+        Some((0, 0.0))
+    } else {
+        Some((created, created as f64 * rates?.default_per_million?))
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -443,7 +514,14 @@ impl Totals {
         self.cached_input.add(&call.counts.cached_input);
         self.output.add(&call.counts.output);
         self.cache_creation.add(&call.counts.cache_creation);
-        if call.counts.notes.iter().any(|n| n.starts_with("stale pricing")) {self.stale_pricing_requests+=1;}
+        if call
+            .counts
+            .notes
+            .iter()
+            .any(|n| n.starts_with("stale pricing"))
+        {
+            self.stale_pricing_requests += 1;
+        }
         if let (Some(cost), Some(price)) = (call.estimated_cost, &call.metadata.pricing) {
             *self
                 .estimated_cost_by_currency
@@ -508,7 +586,11 @@ impl Report {
             )
         };
         let mut text=format!("Usage scope: {}\nSession: {}\nBranch: {}\nRequests: {}\nInput: {}\nCached input (subset of input): {}\nOutput: {}\n",self.scope,self.session,self.branch,self.totals.requests,self.totals.input.label(),self.totals.cached_input.label(),self.totals.output.label());
-        text.push_str(&format!("Cache creation (subset of input): {}\nRequests with stale pricing snapshots: {}\n", self.totals.cache_creation.label(), self.totals.stale_pricing_requests));
+        text.push_str(&format!(
+            "Cache creation (subset of input): {}\nRequests with stale pricing snapshots: {}\n",
+            self.totals.cache_creation.label(),
+            self.totals.stale_pricing_requests
+        ));
         for (currency, cost) in &self.totals.estimated_cost_by_currency {
             text.push_str(&format!("Estimated cost subtotal: {currency} {cost:.8}\n"));
         }
@@ -533,11 +615,35 @@ impl Report {
         }
         let mut snapshots = BTreeSet::new();
         for call in &self.calls {
-            if let Some(p)=&call.metadata.pricing {
-                snapshots.insert(format!("{}: source {}; effective {}; retrieved {}; {}",call.model,p.source,p.effective_date.as_deref().unwrap_or("unknown"),p.retrieved_at.as_deref().unwrap_or("not retrieved"),call.counts.notes.iter().filter(|n|n.contains("pricing") || n.contains("catalog") || n.contains("configured")).cloned().collect::<Vec<_>>().join("; ")));
-            } else if let Some(note)=&call.metadata.pricing_note {snapshots.insert(format!("{}: {note}",call.model));}
+            if let Some(p) = &call.metadata.pricing {
+                snapshots.insert(format!(
+                    "{}: source {}; effective {}; retrieved {}; {}",
+                    call.model,
+                    p.source,
+                    p.effective_date.as_deref().unwrap_or("unknown"),
+                    p.retrieved_at.as_deref().unwrap_or("not retrieved"),
+                    call.counts
+                        .notes
+                        .iter()
+                        .filter(|n| n.contains("pricing")
+                            || n.contains("catalog")
+                            || n.contains("configured"))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                ));
+            } else if let Some(note) = &call.metadata.pricing_note {
+                snapshots.insert(format!("{}: {note}", call.model));
+            }
         }
-        if !snapshots.is_empty() {text.push_str("Pricing snapshots at dispatch (historical estimates are not repriced):\n");for line in snapshots {text.push_str(&format!("  {line}\n"));}}
+        if !snapshots.is_empty() {
+            text.push_str(
+                "Pricing snapshots at dispatch (historical estimates are not repriced):\n",
+            );
+            for line in snapshots {
+                text.push_str(&format!("  {line}\n"));
+            }
+        }
         text
     }
 }
@@ -545,7 +651,11 @@ impl Report {
 impl Store {
     pub fn begin_model_call(&self, s: &Session, call: &mut Call) -> Result<()> {
         // Manager questions observe an attempt but do not execute inside it.
-        call.attempt=if call.purpose=="manager" {None} else {self.db.query_row("SELECT id FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 ORDER BY start_event DESC LIMIT 1",params![s.id,s.active_branch,call.step],|r|r.get(0)).optional()?};
+        call.attempt = if call.purpose == "manager" {
+            None
+        } else {
+            self.db.query_row("SELECT id FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 ORDER BY start_event DESC LIMIT 1",params![s.id,s.active_branch,call.step],|r|r.get(0)).optional()?
+        };
         let tx = self.db.unchecked_transaction()?;
         let event = self.event(s, Some(&call.step), "model.call-started", &call.id)?;
         call.created_event = Some(event);
@@ -669,7 +779,7 @@ mod tests {
     }
     fn response(raw: Value) -> Completion {
         Completion {
-            failure:None,
+            failure: None,
             content: Ok("hello world".into()),
             raw_usage: Some(raw),
             response_id: Some("response-fixture".into()),
@@ -702,7 +812,7 @@ mod tests {
         let s = store.create("demo", "goal", "work").unwrap();
         let mut record = call(&s);
         record.finish(&Completion {
-            failure:None,
+            failure: None,
             content: Ok("Bonjour 世界".into()),
             raw_usage: None,
             response_id: None,
@@ -858,48 +968,84 @@ mod tests {
 
     #[test]
     fn context_tiers_replace_whole_request_rates_and_cache_creation_is_not_double_billed() {
-        let root=tempfile::tempdir().unwrap();let store=Store::open(root.path()).unwrap();
-        let s=store.create("demo","goal","work").unwrap();
-        let mut r=call(&s);
-        r.metadata.pricing.as_mut().unwrap().tiers.push(PricingTier {
-            above_input_tokens:100,input_per_million:Some(4.0),cached_input_per_million:Some(1.0),output_per_million:Some(20.0),cache_creation:None,
-        });
-        r.finish(&response(json!({"prompt_tokens":100,"cached_tokens":0,"completion_tokens":10})));
-        assert!((r.estimated_cost.unwrap()-0.0003).abs()<1e-12);
-        r.finish(&response(json!({"prompt_tokens":101,"cached_tokens":0,"completion_tokens":10})));
-        assert!((r.estimated_cost.unwrap()-0.000604).abs()<1e-12);
-        let mut fallback=call(&s);fallback.metadata=r.metadata.clone();
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let s = store.create("demo", "goal", "work").unwrap();
+        let mut r = call(&s);
+        r.metadata
+            .pricing
+            .as_mut()
+            .unwrap()
+            .tiers
+            .push(PricingTier {
+                above_input_tokens: 100,
+                input_per_million: Some(4.0),
+                cached_input_per_million: Some(1.0),
+                output_per_million: Some(20.0),
+                cache_creation: None,
+            });
+        r.finish(&response(
+            json!({"prompt_tokens":100,"cached_tokens":0,"completion_tokens":10}),
+        ));
+        assert!((r.estimated_cost.unwrap() - 0.0003).abs() < 1e-12);
+        r.finish(&response(
+            json!({"prompt_tokens":101,"cached_tokens":0,"completion_tokens":10}),
+        ));
+        assert!((r.estimated_cost.unwrap() - 0.000604).abs() < 1e-12);
+        let mut fallback = call(&s);
+        fallback.metadata = r.metadata.clone();
         fallback.finish(&response(json!({"cached_tokens":0,"completion_tokens":10})));
         assert!(fallback.estimated_cost.is_none());
-        let mut r=call(&s);
-        r.metadata.pricing.as_mut().unwrap().cache_creation=Some(CacheCreationPricing {
-            default_per_million:Some(3.0),five_minute_per_million:Some(3.0),one_hour_per_million:Some(4.0),
+        let mut r = call(&s);
+        r.metadata.pricing.as_mut().unwrap().cache_creation = Some(CacheCreationPricing {
+            default_per_million: Some(3.0),
+            five_minute_per_million: Some(3.0),
+            one_hour_per_million: Some(4.0),
         });
         r.finish(&response(json!({"input_tokens":60,"cache_read_input_tokens":40,"cache_creation_input_tokens":10,"output_tokens":20})));
-        assert_eq!(r.counts.input.value,Some(110));
-        assert_eq!(r.counts.cache_creation.value,Some(10));
-        assert!((r.estimated_cost.unwrap()-0.00037).abs()<1e-12);
+        assert_eq!(r.counts.input.value, Some(110));
+        assert_eq!(r.counts.cache_creation.value, Some(10));
+        assert!((r.estimated_cost.unwrap() - 0.00037).abs() < 1e-12);
         r.finish(&response(json!({"input_tokens":60,"cache_read_input_tokens":40,"cache_creation_input_tokens":10,"cache_creation":{"ephemeral_5m_input_tokens":6,"ephemeral_1h_input_tokens":4},"output_tokens":20})));
-        assert!((r.estimated_cost.unwrap()-0.000374).abs()<1e-12);
+        assert!((r.estimated_cost.unwrap() - 0.000374).abs() < 1e-12);
         r.finish(&response(json!({"input_tokens":60,"cache_read_input_tokens":40,"cache_creation_input_tokens":10,"cache_creation":{"ephemeral_5m_input_tokens":6,"ephemeral_1h_input_tokens":5},"output_tokens":20})));
         assert!(r.estimated_cost.is_none());
-        let mut p=r.metadata.clone();p.pricing.as_mut().unwrap().tiers=vec![
-            PricingTier {above_input_tokens:100,input_per_million:None,cached_input_per_million:None,output_per_million:None,cache_creation:None},
-            PricingTier {above_input_tokens:100,input_per_million:None,cached_input_per_million:None,output_per_million:None,cache_creation:None},
+        let mut p = r.metadata.clone();
+        p.pricing.as_mut().unwrap().tiers = vec![
+            PricingTier {
+                above_input_tokens: 100,
+                input_per_million: None,
+                cached_input_per_million: None,
+                output_per_million: None,
+                cache_creation: None,
+            },
+            PricingTier {
+                above_input_tokens: 100,
+                input_per_million: None,
+                cached_input_per_million: None,
+                output_per_million: None,
+                cache_creation: None,
+            },
         ];
         assert!(p.validate().is_err());
     }
 
     #[test]
     fn freshness_is_automatic_and_old_ledgers_remain_readable() {
-        let now=chrono::DateTime::parse_from_rfc3339("2026-11-14T12:00:00Z").unwrap().with_timezone(&chrono::Utc);
-        let mut p=metadata().pricing.unwrap();
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut p = metadata().pricing.unwrap();
         assert!(p.freshness(now).contains("configured"));
-        p.effective_date=Some("2026-09-01".into());assert!(p.freshness(now).starts_with("stale"));
-        p.retrieved_at=Some("2026-11-14T10:00:00Z".into());assert!(p.freshness(now).contains("recent"));
-        p.retrieved_at=Some("2026-12-01T00:00:00Z".into());assert!(p.freshness(now).starts_with("future"));
-        let old=r#"{"tokenizer":null,"pricing":{"input_per_million":2.0,"cached_input_per_million":0.5,"output_per_million":10.0,"currency":"USD","source":"fixture","effective_date":"2026-11-14"}}"#;
-        let m:ModelMetadata=serde_json::from_str(old).unwrap();m.validate().unwrap();
+        p.effective_date = Some("2026-09-01".into());
+        assert!(p.freshness(now).starts_with("stale"));
+        p.retrieved_at = Some("2026-11-14T10:00:00Z".into());
+        assert!(p.freshness(now).contains("recent"));
+        p.retrieved_at = Some("2026-12-01T00:00:00Z".into());
+        assert!(p.freshness(now).starts_with("future"));
+        let old = r#"{"tokenizer":null,"pricing":{"input_per_million":2.0,"cached_input_per_million":0.5,"output_per_million":10.0,"currency":"USD","source":"fixture","effective_date":"2026-11-14"}}"#;
+        let m: ModelMetadata = serde_json::from_str(old).unwrap();
+        m.validate().unwrap();
         assert!(m.pricing.unwrap().tiers.is_empty());
     }
 

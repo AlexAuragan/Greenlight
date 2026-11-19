@@ -1,6 +1,6 @@
 //! Durable intent before mutation; explicit reconciliation never rewrites files.
 use crate::{
-    restore::checked_path,
+    restore::{checked_path, snapshot},
     store::{Session, Store},
 };
 use anyhow::{bail, Context, Result};
@@ -18,15 +18,6 @@ struct Intent {
     after: String,
 }
 
-fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
-    let path = checked_path(root, relative)?;
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
-}
-
 impl Store {
     pub(crate) fn native_write_lock(&self) -> Result<crate::locks::LockGuard> {
         let file = fs::OpenOptions::new()
@@ -41,18 +32,20 @@ impl Store {
     }
 
     pub fn ensure_no_pending_writes(&self) -> Result<()> {
-        let count=self.pending_write_count()?;
+        let count = self.pending_write_count()?;
         if count != 0 {
             bail!("{count} unresolved native write(s); inspect history and run greenlight recover-writes before continuing");
         }
         Ok(())
     }
-    pub fn pending_write_count(&self)->Result<u64> {
-        self.db.query_row(
-            "SELECT count(*) FROM write_intents WHERE status='pending'",
-            [],
-            |row| row.get(0),
-        ).map_err(Into::into)
+    pub fn pending_write_count(&self) -> Result<u64> {
+        self.db
+            .query_row(
+                "SELECT count(*) FROM write_intents WHERE status='pending'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
     }
 
     fn prepare_write(

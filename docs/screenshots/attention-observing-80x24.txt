@@ -1,0 +1,24 @@
+Greenlight / bar-project                               ● observing · investigate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+ Needs attention
+
+  Observing another process
+  Another worker owns this session's execution. Activity and saved artifacts
+  can be inspected here.
+
+ What this means
+ This viewer cannot approve its tools, resume it or take over its lock.
+
+ Next
+ Use the owning process for decisions and execution control.
+
+
+
+
+
+╭───────────────────╮ ╭──────────╮
+│ Recorded activity │ │ [.] More │
+╰───────────────────╯ ╰──────────╯
+Workflow needs attention. Review the evidence before continuing.

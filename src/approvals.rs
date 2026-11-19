@@ -35,7 +35,10 @@ pub struct ApprovalStore {
 impl ApprovalStore {
     #[cfg(test)]
     pub(crate) fn isolated(root: &Path) -> Result<Self> {
-        Self::from_paths(root.join("project-grants.yaml"),Some(root.join("global-grants.yaml")))
+        Self::from_paths(
+            root.join("project-grants.yaml"),
+            Some(root.join("global-grants.yaml")),
+        )
     }
     pub fn open(root: &Path) -> Result<Self> {
         let project_path = crate::paths::state_directory(root)?.join("approvals.yaml");
@@ -61,7 +64,12 @@ impl ApprovalStore {
             Some(path) => Self::read(path)?,
             None => Grants::default(),
         };
-        Ok(Self { project_path, global_path, project, global })
+        Ok(Self {
+            project_path,
+            global_path,
+            project,
+            global,
+        })
     }
 
     fn read(path: &Path) -> Result<Grants> {
@@ -97,12 +105,24 @@ impl ApprovalStore {
     pub fn grant(&mut self, scope: Scope, kind: &str, detail: &str) -> Result<()> {
         let path = match scope {
             Scope::Project => &self.project_path,
-            Scope::Global => self.global_path.as_ref().context(
-                "global approvals unavailable: set HOME or an absolute XDG_CONFIG_HOME",
-            )?,
+            Scope::Global => self
+                .global_path
+                .as_ref()
+                .context("global approvals unavailable: set HOME or an absolute XDG_CONFIG_HOME")?,
         };
-        // Reload before editing so independent processes do not normally drop
-        // each other's grants. Concurrent writes still need locking eventually.
+        // Lock a stable sibling, not the replaced YAML inode. Only the selected
+        // scope is locked, so different projects/scopes cannot deadlock each other.
+        let parent = path.parent().context("invalid approvals path")?;
+        fs::create_dir_all(parent)?;
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let _lock = crate::locks::LockGuard::wait(options.open(path.with_extension("lock"))?)
+            .context("locking approval store")?;
         let mut updated = Self::read(path)?;
         match kind {
             "shell" => {
@@ -140,6 +160,7 @@ impl ApprovalStore {
             file.write_all(text.as_bytes())?;
             file.sync_all()?;
             fs::rename(&temporary, path)?;
+            fs::File::open(parent)?.sync_all()?;
             Ok(())
         })();
         if result.is_err() {
@@ -151,10 +172,19 @@ impl ApprovalStore {
     pub fn describe(&self) -> Result<String> {
         let project = serde_yaml::to_string(&self.project)?;
         let global = match &self.global_path {
-            Some(path) => format!("Global ({}):\n{}", path.display(), serde_yaml::to_string(&self.global)?),
+            Some(path) => format!(
+                "Global ({}):\n{}",
+                path.display(),
+                serde_yaml::to_string(&self.global)?
+            ),
             None => "Global: unavailable (set HOME or XDG_CONFIG_HOME)\n".into(),
         };
-        Ok(format!("Project ({}):\n{}\n{}", self.project_path.display(), project, global))
+        Ok(format!(
+            "Project ({}):\n{}\n{}",
+            self.project_path.display(),
+            project,
+            global
+        ))
     }
 }
 
@@ -175,10 +205,21 @@ mod tests {
         grants.grant(Scope::Project, "write", "unused").unwrap();
 
         let again = ApprovalStore::from_paths(local, Some(global)).unwrap();
-        assert!(matches!(again.matched_scope("shell", "ls -la"), Some(Scope::Project)));
-        assert!(matches!(again.matched_scope("shell", "pwd"), Some(Scope::Global)));
-        assert!(matches!(again.matched_scope("write", "another/file.rs"), Some(Scope::Project)));
-        assert!(again.matched_scope("shell", "ls -la; rm important").is_none());
+        assert!(matches!(
+            again.matched_scope("shell", "ls -la"),
+            Some(Scope::Project)
+        ));
+        assert!(matches!(
+            again.matched_scope("shell", "pwd"),
+            Some(Scope::Global)
+        ));
+        assert!(matches!(
+            again.matched_scope("write", "another/file.rs"),
+            Some(Scope::Project)
+        ));
+        assert!(again
+            .matched_scope("shell", "ls -la; rm important")
+            .is_none());
         assert!(again.matched_scope("shell", "ls -l").is_none());
     }
 
@@ -209,5 +250,81 @@ mod tests {
         let latest = ApprovalStore::from_paths(local, None).unwrap();
         assert!(latest.matched_scope("shell", "ls").is_some());
         assert!(latest.matched_scope("shell", "pwd").is_some());
+    }
+    #[test]
+    fn concurrent_process_grants_merge_under_the_selected_scope_lock() {
+        const ROOT: &str = "GREENLIGHT_TEST_GRANT_ROOT";
+        const INDEX: &str = "GREENLIGHT_TEST_GRANT_INDEX";
+        const GLOBAL: &str = "GREENLIGHT_TEST_GRANT_GLOBAL";
+        if let Some(root) = env::var_os(ROOT) {
+            let root = PathBuf::from(root);
+            let index = env::var(INDEX).unwrap();
+            let scope = if env::var_os(GLOBAL).is_some() {
+                Scope::Global
+            } else {
+                Scope::Project
+            };
+            let mut store = ApprovalStore::from_paths(
+                root.join("project/approvals.yaml"),
+                Some(root.join("global/approvals.yaml")),
+            )
+            .unwrap();
+            fs::write(root.join(format!("ready-{index}")), "ready").unwrap();
+            store
+                .grant(scope, "shell", &format!("fixture-command-{index}"))
+                .unwrap();
+            return;
+        }
+        for scope in [Scope::Project, Scope::Global] {
+            let root = tempfile::tempdir().unwrap();
+            let local = root.path().join("project/approvals.yaml");
+            let global = root.path().join("global/approvals.yaml");
+            let path = match scope {
+                Scope::Project => &local,
+                Scope::Global => &global,
+            };
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let lock = crate::locks::LockGuard::wait(
+                fs::File::create(path.with_extension("lock")).unwrap(),
+            )
+            .unwrap();
+            let mut children = Vec::new();
+            for index in 0..6 {
+                let mut command = std::process::Command::new(env::current_exe().unwrap());
+                command.args(["--exact", "approvals::tests::concurrent_process_grants_merge_under_the_selected_scope_lock"])
+                    .env(ROOT, root.path()).env(INDEX, index.to_string())
+                    .env_remove(GLOBAL).stdout(std::process::Stdio::null());
+                if matches!(scope, Scope::Global) {
+                    command.env(GLOBAL, "1");
+                }
+                children.push(command.spawn().unwrap());
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !(0..6).all(|index| root.path().join(format!("ready-{index}")).exists()) {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "grant children did not start"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(!path.exists());
+            assert!(children
+                .iter_mut()
+                .all(|child| child.try_wait().unwrap().is_none()));
+            drop(lock);
+            for mut child in children {
+                assert!(child.wait().unwrap().success());
+            }
+            let store = ApprovalStore::from_paths(local, Some(global)).unwrap();
+            for index in 0..6 {
+                assert!(matches!(
+                    (
+                        scope,
+                        store.matched_scope("shell", &format!("fixture-command-{index}"))
+                    ),
+                    (Scope::Project, Some(Scope::Project)) | (Scope::Global, Some(Scope::Global))
+                ));
+            }
+        }
     }
 }

@@ -1,0 +1,35 @@
+Greenlight / project                                                                               ● running · implement
+
+[1] Activity  [2] Artifacts [3] Edits                                            [f] Sessions    [c] Details  [h] Help
+
+╭ Activity · following ────────────────╮╭─ Live model output · unvalidated preview ────────────────────────────────────╮
+│  implement · Session started         ││MODEL_OUTPUT_00 · work in progress                                            │
+│  implement · runner.started          ││MODEL_OUTPUT_01 · work in progress                                            │
+│  implement · Step started            ││MODEL_OUTPUT_02 · work in progress                                            │
+│▶ implement · Tool · read · returned  ││MODEL_OUTPUT_03 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_04 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_05 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_06 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_07 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_08 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_09 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_10 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_11 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_12 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_13 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_14 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_15 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_16 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_17 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_18 · work in progress                                            │
+│                                      ││MODEL_OUTPUT_19 · work in progress                                            │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+╰ 4 records · F filter ────────────────╯╰fixture-model · Receiving model output…───────────────────────────────────────╯
+╭───────────────────────╮ ╭─────────────╮ ╭──────────╮
+│ [Enter] Open selected │ │ [i] Compose │ │ [.] More │
+╰───────────────────────╯ ╰─────────────╯ ╰──────────╯

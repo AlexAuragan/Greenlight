@@ -1,0 +1,23 @@
+Greenlight / bar-project                                   ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+ performance-evaluation.md · Content
+
+ ▍ Performance evaluation
+
+ DO NOT DUMP THIS REPORT INTO THE OVERVIEW.
+
+ Measurement was unavailable; no measured improvement established.
+
+
+
+
+
+
+
+
+
+╭──────────────╮ ╭─────────────────────╮ ╭──────────────╮ ╭────────────╮
+│ [v] Versions │ │ [p] Version details │ │ [s] Overview │ │ [Esc] Back │
+╰──────────────╯ ╰─────────────────────╯ ╰──────────────╯ ╰────────────╯

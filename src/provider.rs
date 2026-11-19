@@ -1,3 +1,5 @@
+#[path = "provider_stream.rs"]
+pub mod stream;
 use crate::config::ProviderConfig;
 use crate::provider_failure::{Failure, Kind};
 use anyhow::Result;
@@ -8,20 +10,56 @@ use std::sync::{atomic::AtomicBool, Arc};
 #[derive(Clone)]
 pub struct Provider {
     client: Client,
+    credential: crate::credentials::Credential,
     pub cfg: ProviderConfig,
     pub retry_cancel: Arc<AtomicBool>,
+    pub live: Option<stream::Preview>,
     #[cfg(test)]
     pub script: Option<std::sync::Arc<std::sync::Mutex<Script>>>,
 }
 #[cfg(test)]
+type ScriptResponder = fn(&[Value]) -> std::result::Result<String, String>;
+
+#[cfg(test)]
 #[derive(Default)]
 pub struct Script {
-    pub responder: Option<fn(&[Value])->std::result::Result<String,String>>,
+    pub responder: Option<ScriptResponder>,
     pub responses: std::collections::VecDeque<Result<String, String>>,
     pub requests: Vec<Vec<Value>>,
     pub usages: std::collections::VecDeque<Option<Value>>,
     pub completions: std::collections::VecDeque<Completion>,
 }
+/// Safe, ephemeral UI metadata; never includes the full key or URL credentials.
+#[derive(Clone, Debug)]
+pub(crate) struct ConnectionInfo {
+    pub endpoint: String,
+    pub model: String,
+    pub credential: crate::credentials::Summary,
+}
+impl ConnectionInfo {
+    pub fn current(cfg: &ProviderConfig) -> Self {
+        Self::new(
+            cfg,
+            crate::credentials::Credential::capture(&cfg.api_key_env).summary,
+        )
+    }
+    fn new(cfg: &ProviderConfig, credential: crate::credentials::Summary) -> Self {
+        Self {
+            endpoint: reqwest::Url::parse(&cfg.base_url)
+                .ok()
+                .filter(|url| matches!(url.scheme(), "https" | "http") && url.host_str().is_some())
+                .map(|url| url.origin().ascii_serialization())
+                .unwrap_or_else(|| "[invalid endpoint]".into()),
+            model: cfg.model.clone(),
+            credential,
+        }
+    }
+    pub fn text(&self) -> String {
+        format!("Endpoint origin: {}\nConfigured default model: {}\nAPI-key variable: {}\nAPI key: {}\nCredential source: {}\n\nPrecedence: inherited environment > .greenlight/.env > project .env.\nAn existing empty variable also overrides files.\nCredentials are loaded at process startup; editing .env does not reload them.\nRestart Greenlight after changing keys. A paused retry retains its captured key.\nOnly the first/last five characters are shown; short keys stay fully hidden.",
+            self.endpoint, self.model, self.credential.name, self.credential.masked, self.credential.source)
+    }
+}
+
 pub struct Completion {
     pub failure: Option<Failure>,
     pub content: std::result::Result<String, String>,
@@ -52,7 +90,7 @@ impl Completion {
             None
         };
         if let Some(failure) = &mut failure {
-            if failure.retryable && v.get("usage").is_some_and(|usage| !usage.is_null()) {
+            if v.get("usage").is_some_and(|usage| !usage.is_null()) {
                 failure.retryable = false;
                 failure.billing_uncertain = true;
             }
@@ -104,21 +142,42 @@ impl Provider {
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .redirect(reqwest::redirect::Policy::none())
+                // The engine owns retries and records each dispatch in the usage ledger.
+                .retry(reqwest::retry::never())
                 .build()
                 .expect("HTTP client configuration is valid"),
+            credential: crate::credentials::Credential::capture(&cfg.api_key_env),
             cfg,
             retry_cancel: Arc::new(AtomicBool::new(false)),
+            live: None,
             #[cfg(test)]
             script: None,
         }
     }
-    fn key(&self) -> Result<String> {
-        std::env::var(&self.cfg.api_key_env)
-            .ok()
-            .filter(|key| !key.is_empty() && key.bytes().all(|b| b.is_ascii_graphic()))
+    fn key(&self) -> Result<&str> {
+        self.credential
+            .value()
             .ok_or_else(|| Failure::local(Kind::Credentials).into())
     }
+    pub(crate) fn connection_info(&self) -> ConnectionInfo {
+        ConnectionInfo::new(&self.cfg, self.credential.summary.clone())
+    }
     pub async fn complete(&self, model: &str, messages: &[Value]) -> Result<Completion> {
+        if let Some(live) = &self.live {
+            live.lock().unwrap().start(model);
+        }
+        let result = self.complete_inner(model, messages).await;
+        if let Some(live) = &self.live {
+            live.lock().unwrap().state = if result.as_ref().is_ok_and(|c| c.failure.is_none()) {
+                "Response complete · validating action"
+            } else {
+                "Request failed · inspect diagnostic/history"
+            }
+            .into();
+        }
+        result
+    }
+    async fn complete_inner(&self, model: &str, messages: &[Value]) -> Result<Completion> {
         #[cfg(test)]
         if let Some(script) = &self.script {
             let mut script = script.lock().unwrap();
@@ -128,9 +187,13 @@ impl Provider {
             }
             let usage = script.usages.pop_front().flatten();
             let content = match script.responder {
-                Some(responder)=>responder(messages),
-                None=>script.responses.pop_front().unwrap_or_else(||Err("unexpected provider call".into())),
-            }.map_err(anyhow::Error::msg)?;
+                Some(responder) => responder(messages),
+                None => script
+                    .responses
+                    .pop_front()
+                    .unwrap_or_else(|| Err("unexpected provider call".into())),
+            }
+            .map_err(anyhow::Error::msg)?;
             return Ok(Completion {
                 failure: None,
                 content: Ok(content),
@@ -139,7 +202,10 @@ impl Provider {
                 response_model: None,
             });
         }
-        let data = json!({"model":model,"messages":messages,"max_tokens":self.cfg.max_tokens,"stream":false});
+        let mut data = json!({"model":model,"messages":messages,"max_tokens":self.cfg.max_tokens,"stream":self.live.is_some()});
+        if self.live.is_some() {
+            data["stream_options"] = json!({"include_usage":true});
+        }
         let r = self
             .client
             .post(format!(
@@ -157,6 +223,20 @@ impl Provider {
                 .get(reqwest::header::RETRY_AFTER)
                 .and_then(|v| v.to_str().ok()),
         );
+        if status.is_success()
+            && r.headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| {
+                    v.split(';')
+                        .next()
+                        .is_some_and(|t| t.trim().eq_ignore_ascii_case("text/event-stream"))
+                })
+        {
+            if let Some(live) = &self.live {
+                return Ok(stream::read(r, live).await);
+            }
+        }
         let body = read_body(r, true).await?;
         let mut completion = Completion::parse(status.as_u16(), &body)?;
         if let Some(failure) = &mut completion.failure {
@@ -253,7 +333,7 @@ mod http_tests {
         status: u16,
         body: &str,
         header: &str,
-    ) -> (Provider, String, std::thread::JoinHandle<()>) {
+    ) -> (Provider, String, std::thread::JoinHandle<Vec<u8>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let body = body.to_string();
@@ -287,6 +367,7 @@ mod http_tests {
             }
             let response=format!("HTTP/1.1 {status} Mock\r\nContent-Length: {}\r\nConnection: close\r\n{header}\r\n{body}",body.len());
             socket.write_all(response.as_bytes()).unwrap();
+            request
         });
         let name = format!("GREENLIGHT_TEST_KEY_{}", uuid::Uuid::new_v4().simple());
         std::env::set_var(&name, "fixture-key");
@@ -328,5 +409,83 @@ mod http_tests {
         assert!(!error.to_string().contains("fixture-key"));
         server.join().unwrap();
         std::env::remove_var(key);
+    }
+    #[tokio::test]
+    async fn http_stream_updates_preview_before_completion_and_keeps_usage() {
+        let body = concat!(
+            "data: {\"id\":\"stream-1\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"action: done\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":5}}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let (mut provider, key, server) = mock(200, body, "Content-Type: text/event-stream\r\n");
+        let preview = stream::Preview::default();
+        provider.live = Some(preview.clone());
+        let completion = provider.complete("fixture", &[]).await.unwrap();
+        assert_eq!(preview.lock().unwrap().text, "action: done");
+        assert_eq!(completion.content.unwrap(), "action: done");
+        assert_eq!(completion.raw_usage.unwrap()["completion_tokens"], 3);
+        server.join().unwrap();
+        std::env::remove_var(key);
+    }
+    #[tokio::test]
+    async fn truncated_http_stream_is_billing_uncertain_and_preserves_reported_usage() {
+        let (mut provider, key, server) = mock(
+            200,
+            "data: {\"choices\":[],\"usage\":{\"completion_tokens\":3}}\n\n",
+            "Content-Type: text/event-stream\r\n",
+        );
+        provider.live = Some(stream::Preview::default());
+        let completion = provider.complete("fixture", &[]).await.unwrap();
+        let failure = completion.failure.unwrap();
+        assert!(!failure.retryable);
+        assert!(failure.billing_uncertain);
+        assert!(completion.content.is_err());
+        assert_eq!(completion.raw_usage.unwrap()["completion_tokens"], 3);
+        server.join().unwrap();
+        std::env::remove_var(key);
+    }
+    #[tokio::test]
+    async fn chat_transport_sends_one_openai_compatible_request_in_both_modes() {
+        for streaming in [false, true] {
+            let (mut provider, key, server) = mock(
+                200,
+                r#"{"choices":[{"message":{"content":"fixture"}}]}"#,
+                "Content-Type: application/json\r\n",
+            );
+            if streaming {
+                provider.live = Some(stream::Preview::default());
+            }
+            let messages = vec![
+                json!({"role":"system", "content":"fixture protocol"}),
+                json!({"role":"user", "content":"café fixture"}),
+            ];
+            std::env::set_var(&key, "replacement-after-provider-start");
+            provider.complete("fixture/model", &messages).await.unwrap();
+            let request = server.join().unwrap();
+            let end = request
+                .windows(4)
+                .position(|part| part == b"\r\n\r\n")
+                .unwrap();
+            let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+            assert!(headers.starts_with("post /v1/chat/completions http/1.1"));
+            assert!(headers.contains("authorization: bearer fixture-key"));
+            assert!(headers.contains("content-type: application/json"));
+            let body: Value = serde_json::from_slice(&request[end + 4..]).unwrap();
+            assert_eq!(body["model"], "fixture/model");
+            assert_eq!(body["messages"], json!(messages));
+            assert_eq!(body["max_tokens"], 4096);
+            assert_eq!(body["stream"], streaming);
+            if streaming {
+                assert_eq!(body["stream_options"], json!({"include_usage":true}));
+            } else {
+                assert!(body.get("stream_options").is_none());
+            }
+            assert!(
+                body.get("n").is_none(),
+                "do not request multiple completions per turn"
+            );
+            std::env::remove_var(key);
+        }
     }
 }

@@ -1,0 +1,13 @@
+Greenlight / bar-project      ● idle · -
+
+                              [h] Help
+
+ New session · Describe the goal
+ Workflow: Baseline, optimize, benchma…
+  I can supply host logs and rerun mea
+  surements.
+ Start creates a session and launches
+ its first step.
+╭────────╮ ╭──────╮ ╭────────╮ ╭───────╮
+│  Start │ │ Back │ │  Clear │ │ Canc… │
+╰────────╯ ╰──────╯ ╰────────╯ ╰───────╯

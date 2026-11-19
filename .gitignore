@@ -2,4 +2,8 @@
 .greenlight/state/
 .stepwright/state/
 .env
+.greenlight/.env
+.greenlight/.env.*
+!.greenlight/.env.example
 *.db
+__pycache__/

@@ -90,6 +90,7 @@ fn manager_job_runs_beside_owner_preserves_text_and_cannot_answer_approvals() {
     let (answers, answers_rx) = mpsc::channel();
     let (_finished_tx, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        live: None,
         prompts,
         finished,
         answers,
@@ -105,6 +106,8 @@ fn manager_job_runs_beside_owner_preserves_text_and_cannot_answer_approvals() {
     let input = request.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(input["text"], original);
     app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Synthetic coding approval".into(),
         mode: ApprovalMode::Tool,
     });

@@ -83,20 +83,12 @@ fn replacement<'a>(old: &[&'a str], new: &[&'a str]) -> Vec<Edit<'a>> {
             .copied()
             .map(Edit::Insert),
     );
-    result.extend(
-        old[old.len() - suffix..]
-            .iter()
-            .copied()
-            .map(Edit::Equal),
-    );
+    result.extend(old[old.len() - suffix..].iter().copied().map(Edit::Equal));
     result
 }
 
 fn edit_script<'a>(old: &[&'a str], new: &[&'a str]) -> Vec<Edit<'a>> {
-    let max_depth = old
-        .len()
-        .saturating_add(new.len())
-        .min(MAX_EDIT_DISTANCE);
+    let max_depth = old.len().saturating_add(new.len()).min(MAX_EDIT_DISTANCE);
     let mut trace: Vec<Frontier> = Vec::new();
     for depth in 0..=max_depth {
         let mut xs = Vec::with_capacity(depth + 1);
@@ -116,11 +108,7 @@ fn edit_script<'a>(old: &[&'a str], new: &[&'a str]) -> Vec<Edit<'a>> {
                 }
             };
             let mut y = x as isize - diagonal;
-            while x < old.len()
-                && y >= 0
-                && y < new.len() as isize
-                && old[x] == new[y as usize]
-            {
+            while x < old.len() && y >= 0 && y < new.len() as isize && old[x] == new[y as usize] {
                 x += 1;
                 y += 1;
             }
@@ -262,7 +250,10 @@ mod tests {
     #[test]
     fn missing_final_newline_is_preserved() {
         let diff = unified("file.txt", Some("last\n"), "last");
-        assert!(diff.contains("-last\n+last\n\\ No newline at end of file\n"), "{diff}");
+        assert!(
+            diff.contains("-last\n+last\n\\ No newline at end of file\n"),
+            "{diff}"
+        );
     }
 
     #[test]

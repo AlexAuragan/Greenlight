@@ -1,0 +1,23 @@
+Greenlight / sample-project                                ● ready · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+╭ Sessions · browse, then Open ────────────────────────────────────────────────╮
+│┌ Find session ──────────────────────────────────────────────────────────────┐│
+││does not match                                                              ││
+│└────────────────────────────────────────────────────────────────────────────┘│
+│No sessions match this search.                                                │
+│Clear search to browse all sessions.                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│0 of 2 sessions                                                               │
+│Browse only · Open switches workspace.                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────╮ ╭──────╮
+│ Clear search │ │ Back │
+╰──────────────╯ ╰──────╯

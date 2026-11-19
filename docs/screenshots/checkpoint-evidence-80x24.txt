@@ -1,0 +1,23 @@
+Greenlight / sample-project                              ● running · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+Read-only evidence · Esc returns · decisions disabled
+Human checkpoint
+Session: 6a4bd7c4-088b-42b4-bab2-2fb036aea79f
+Branch: 2bf37d7e-78bc-4580-ad07-09115546e50c
+Step: investigate
+Attempt: 13a7e2bd-0b7e-4473-a0d7-04294e70a5a4
+
+Review question
+Review these exact inputs before allowing the workflow to continue.
+
+Selected document: plan.md · event #2
+Produced by: plan
+
+# Plan
+
+Original exact plan.
+╭────────────────╮ ╭──────╮ ╭──────────╮
+│ Back to review │ │ Copy │ │ [h] Help │
+╰────────────────╯ ╰──────╯ ╰──────────╯

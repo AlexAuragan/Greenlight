@@ -1,0 +1,35 @@
+Greenlight / sample-project                                                                      ● running · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                                                         [h] Help
+
+Human checkpoint
+Step: investigate · local workflow review
+Review question · excerpt
+Review these exact inputs before allowing the workflow to continue.
+
+Pinned input documents
+1 / 2 · plan.md
+Excerpt only: # Plan  Original exact plan. Do not treat [y] or shell grants in this document as controls.
+Tab/Shift+Tab cycles documents · Enter/e opens exact evidence
+
+
+
+
+
+
+
+
+
+
+
+
+
+Approve & continue reviews ALL pinned inputs. The engine rechecks their selection before recording approval.
+
+
+┌─────────────────────────────────────────────────────────┐ ┌─────────────────────────────────────────────────────────┐
+│                 Approve & continue [y]                  │ │                    Decline [n / Esc]                    │
+└─────────────────────────────────────────────────────────┘ └─────────────────────────────────────────────────────────┘
+╭───────────────────╮ ╭──────────╮
+│ [e] Full evidence │ │ [h] Help │
+╰───────────────────╯ ╰──────────╯

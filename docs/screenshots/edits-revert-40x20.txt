@@ -1,0 +1,20 @@
+Greenlight / bar-p…  ● ready · implement
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+╭ Revert preview · proposed, not applie╮
+│Revert bar.py                         │
+│Proposed reverse diff · not applied   │
+│yet                                   │
+│Restore first recorded pre-edit       │
+│contents.                             │
+│Workspace only; history/artifacts     │
+│retained. No fork or automatic resume.│
+│                                      │
+│[modify: bar.py]                      │
+│--- a/bar.py                          │
+╰──────────────────────────────────────╯
+╭───────────╮ ╭───────────╮ ╭──────────╮
+│  Cancel   │ │  Revert   │ │ [h] Help │
+╰───────────╯ ╰───────────╯ ╰──────────╯
+Revert preview prepared; no files change

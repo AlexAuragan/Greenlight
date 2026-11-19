@@ -21,18 +21,18 @@ The manager reuses the existing provider. Optionally select a separate model ID 
 
 ```yaml
 manager:
-  enabled: true         # ordinary TUI messages now go to the read-only manager
+  enabled: true         # suggest the manager recipient for a fresh TUI draft
   model: example-model # optional; defaults to provider.model
 ```
 
-Default `enabled: false` preserves existing ordinary-message resume behavior until explicitly enabled. It does not prohibit explicit `ask` or `/ask`. Rates/tokenizers for the manager model use the same per-model metadata/discovery rules as coding calls. No second account is required. Configuration remains strict; a supplied manager model cannot be empty. Do not add this example model name unless it exists on your provider.
+Default `enabled: false` suggests the step recipient when it can resume; explicit TUI recipient selection takes precedence. It does not prohibit explicit `ask` or `/ask`. Rates/tokenizers for the manager model use the same per-model metadata/discovery rules as coding calls. No second account is required. Configuration remains strict; a supplied manager model cannot be empty. Do not add this example model name unless it exists on your provider.
 
 ## TUI
 
-- `/ask QUESTION` explicitly asks the manager. The command prefix is removed; remaining text is preserved. With `manager.enabled: true`, ordinary messages go to the manager without trimming original text. `/resume`, `/restart`, `/recover`, `/usage`, existing navigation and approvals keep their deterministic behavior.
+- Ask manager explicitly sends a literal read-only question. Send & resume explicitly delivers literal step instructions, bypassing the manager route. In the separate Commands editor, `/ask QUESTION` also asks the manager; the prefix is removed and remaining text preserved. `/resume`, `/restart`, `/recover`, `/usage`, existing navigation and approvals keep their deterministic behavior.
 - `/manager-context` opens a scrollable source/model preview and makes no inference request or history entry. This initial TUI does not implicitly send a selected artifact body; explicit artifact selection is available in the CLI.
-- `/manager` filters the activity list to manager exchanges. Enter expands the answer and cited captured source text; Escape/Left returns as in normal readers. `F` then Escape clears the filter. Raw mode retains snapshot and model-output records.
-- `/cancel-manager` stops future manager requests/retries; an in-flight request may finish. Navigation `x` cancels the manager when no coding cancel handle takes precedence; when both are running, use `/cancel-manager` for the manager. Quitting waits for an active manager job to finish so completion/uncertain usage can be inspected.
+- More → Manager replies (or `/manager` in Commands mode) filters the activity list to manager exchanges. Enter expands the answer and cited captured source text; Escape/Left returns as in normal readers. `F` then Escape clears the filter. Raw mode retains snapshot and model-output records.
+- Stop manager retries in the active manager composer (or `/cancel-manager` in Commands mode) stops future manager requests/retries; an in-flight request may finish. Navigation `x` cancels the manager when no coding cancel handle takes precedence; when both are running, use `/cancel-manager` for the manager. Quitting waits for an active manager job to finish so completion/uncertain usage can be inspected.
 
 Manager inference runs in a separate worker from coding execution, so a question can be answered while a coding owner is active. Only one manager request per TUI instance runs at once; a second draft stays intact. Approval menus retain priority, and their decision keys never become manager messages. Replies stay with the session/branch that received the question; inspecting another session does not retarget them. A bootstrap/configuration failure retains the foreground-saved original message. A failure during inference/validation records an unresolved result without running a fallback action.
 

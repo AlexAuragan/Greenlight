@@ -1,0 +1,13 @@
+Greenlight / bar…  ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits
+ [f] Sessions    [c] Details  [h] Help
+╭ Cards · following · Enter expands ───╮
+│  Step completed                      │
+│    evaluate · Performance evaluation │
+│▶ Session completed                   │
+│     ·                                │
+╰ F filter:  · 18 records ─────────────╯
+╭───────────╮ ╭──────────────╮ ╭───────╮
+│  [Enter]  │ │ [s] Overview │ │  [.]  │
+╰───────────╯ ╰──────────────╯ ╰───────╯

@@ -228,6 +228,31 @@ async fn update_catalog(
     Ok(c)
 }
 
+pub async fn resolve(root: &Path, cfg: &ProviderConfig, model: &str, force: bool) -> ModelMetadata {
+    let mut metadata = cfg.model_metadata.get(model).cloned().unwrap_or_default();
+    if let Some(p) = &metadata.pricing {
+        metadata.pricing_note = Some(format!(
+            "Explicit configured pricing overrides discovery, including unknown/null rates. {}",
+            p.freshness(Utc::now())
+        ));
+        return metadata;
+    }
+    if !cfg.pricing_discovery && !force {
+        metadata.pricing_note =
+            Some("Automatic pricing discovery is disabled; rates remain unknown.".into());
+        return metadata;
+    }
+    match catalog(root,cfg,force).await {
+        Ok(c) => {
+            metadata.pricing=c.models.get(model).cloned();
+            metadata.pricing_note=c.note.or_else(|| metadata.pricing.is_none().then(|| "No supported public rate for this exact model ID; configure explicit rates. Nonstandard billing is not flattened.".into()));
+            if let Some(p)=&metadata.pricing {metadata.pricing_note=Some(format!("{} {}",metadata.pricing_note.as_deref().unwrap_or("Default on-demand public catalog rates."),p.freshness(Utc::now())));}
+        }
+        Err(_) => metadata.pricing_note=Some("Pricing discovery unavailable for this provider; configure explicit rates. No guessed prices were applied.".into()),
+    }
+    metadata
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,29 +371,4 @@ mod tests {
         std::fs::write(&path, "corrupt").unwrap();
         assert!(read_cache(&path).is_err());
     }
-}
-
-pub async fn resolve(root: &Path, cfg: &ProviderConfig, model: &str, force: bool) -> ModelMetadata {
-    let mut metadata = cfg.model_metadata.get(model).cloned().unwrap_or_default();
-    if let Some(p) = &metadata.pricing {
-        metadata.pricing_note = Some(format!(
-            "Explicit configured pricing overrides discovery, including unknown/null rates. {}",
-            p.freshness(Utc::now())
-        ));
-        return metadata;
-    }
-    if !cfg.pricing_discovery && !force {
-        metadata.pricing_note =
-            Some("Automatic pricing discovery is disabled; rates remain unknown.".into());
-        return metadata;
-    }
-    match catalog(root,cfg,force).await {
-        Ok(c) => {
-            metadata.pricing=c.models.get(model).cloned();
-            metadata.pricing_note=c.note.or_else(|| metadata.pricing.is_none().then(|| "No supported public rate for this exact model ID; configure explicit rates. Nonstandard billing is not flattened.".into()));
-            if let Some(p)=&metadata.pricing {metadata.pricing_note=Some(format!("{} {}",metadata.pricing_note.as_deref().unwrap_or("Default on-demand public catalog rates."),p.freshness(Utc::now())));}
-        }
-        Err(_) => metadata.pricing_note=Some("Pricing discovery unavailable for this provider; configure explicit rates. No guessed prices were applied.".into()),
-    }
-    metadata
 }

@@ -23,3 +23,7 @@ Restoration is **not a Git checkout**. It affects only files with native writes 
 Restore failures report how many files changed and how many were journaled, plus the failing path and underlying error. When state remains writable, `workspace.restore-failed` preserves those counts; completed restores record `workspace.restore-completed`. Each per-file success event and journal row commit together, so a journal failure cannot leave a dangling success event. The TUI displays the full failure and does not fork after failure. Do not retry blindly: source files may already have changed, and unjournaled changes need explicit reconciliation. The filesystem/journal crash window and lack of whole-restore atomicity still apply.
 
 For sensitive repositories, create a Git checkpoint or independent backup before restoring.
+
+The TUI's **3 Edits** tab uses this same engine for selected-file (`u`) and all-recorded-file (`U`) reversions to the first pre-edit snapshot. Selected-file preflight ignores unrelated paths. Apply rechecks the preview's branch/history cutoff under idle-session ownership and checks current file contents under the native-write lock. This does not introduce a whole-repository rollback or an atomic multi-file transaction.
+
+Existing-file snapshots used by native writes, recovery and restore are limited to 20 MiB per file. Oversized or non-UTF-8 files fail before mutation and require manual handling. New native-write contents retain their separate 100 KB limit.

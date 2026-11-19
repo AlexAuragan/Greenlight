@@ -1,0 +1,23 @@
+Greenlight / project                                                  ● idle · -
+
+                                                                      [h] Help
+
+Project setup needs attention
+
+Project configuration unavailable. Run greenlight init or inspect the project
+configuration before starting.
+
+No sessions in this project.
+
+
+
+
+
+
+
+
+
+
+╭─────────────╮ ╭──────────╮
+│ New session │ │ [.] More │
+╰─────────────╯ ╰──────────╯

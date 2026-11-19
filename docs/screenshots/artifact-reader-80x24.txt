@@ -1,0 +1,23 @@
+Greenlight / bar-project                                   ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+
+ baseline.md
+ Produced by: baseline  ·  39 bytes
+
+ ▍ Saved evidence
+
+ Model-authored notes.
+
+
+
+
+
+
+
+
+
+╭────────────╮ ╭──────────────╮ ╭──────────╮
+│ [Esc] Back │ │ [v] Versions │ │ [.] More │
+╰────────────╯ ╰──────────────╯ ╰──────────╯

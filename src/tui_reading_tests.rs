@@ -34,7 +34,7 @@ fn each_tab_keeps_its_selection_focus_scroll_and_draft_across_polling() {
     app.composer = "Unsent instructions".into();
     key(&mut app, root.path(), &store, KeyCode::Char('2'));
     assert_eq!(app.detail_scroll, 0);
-    key(&mut app, root.path(), &store, KeyCode::Right);
+    key(&mut app, root.path(), &store, KeyCode::Enter);
     for _ in 0..4 {
         key(&mut app, root.path(), &store, KeyCode::Down);
     }
@@ -185,6 +185,7 @@ fn export_snapshot_is_full_source_and_editor_refuses_an_active_worker() {
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        live: None,
         cancel_retry: None,
         session_id: Some(s.id),
         prompts,
@@ -195,6 +196,8 @@ fn export_snapshot_is_full_source_and_editor_refuses_an_active_worker() {
     assert!(app.pending_editor.is_none());
     assert!(app.notice.contains("approvals stay available"));
     app.approval = Some(ApprovalPrompt {
+        review: None,
+        command: None,
         content: "Explicit decision".into(),
         mode: ApprovalMode::Human,
     });

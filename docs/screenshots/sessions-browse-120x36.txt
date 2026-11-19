@@ -1,0 +1,35 @@
+Greenlight / sample-project                                                                        ● ready · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                                                         [h] Help
+
+╭ Sessions · browse, then Open ────────╮╭ Cards · following · Enter expands ───────────────────────────────────────────╮
+│┌ Search · f edits ──────────────────┐││  Session started                                                             │
+││Search goals, workflow or status…   │││    investigate · Investigate Alpha startup delay                             │
+│└────────────────────────────────────┘││▶ user.message                                                                │
+│› Review Beta authentication fix      ││     · Alpha workspace evidence remains open                                  │
+│  blocked · diagnose                  ││                                                                              │
+│  Last: 2026-11-18 08:48:23 UTC       ││                                                                              │
+│  Investigate Alpha startup delay     ││                                                                              │
+│  ready · investigate · open          ││                                                                              │
+│  Last: 2026-11-18 08:48:23 UTC       ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│                                      ││                                                                              │
+│2 of 2 sessions                       ││                                                                              │
+│Browse only · Open switches workspace.││                                                                              │
+╰──────────────────────────────────────╯╰ F filter:  · 2 records ──────────────────────────────────────────────────────╯
+╭───────────────╮ ╭──────╮
+│ Open selected │ │ Back │
+╰───────────────╯ ╰──────╯

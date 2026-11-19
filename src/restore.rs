@@ -8,13 +8,14 @@ use anyhow::{bail, Context, Result};
 use std::{
     collections::BTreeMap,
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
 };
 use uuid::Uuid;
 
 pub struct RestorePlan {
     event: i64,
+    history_cutoff: Option<i64>,
     items: Vec<RestoreItem>,
 }
 
@@ -26,20 +27,18 @@ struct RestoreItem {
 
 /// Reject traversal and all symlinks, including inside the project.
 /// These checks are deliberately stricter than ordinary file reads/writes.
+// TODO(GL-003): descriptor-anchored IO must also protect concurrent parent swaps.
 pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let p = Path::new(relative);
     if p.as_os_str().is_empty()
         || p.is_absolute()
-        || p.components().any(|part| !matches!(part, Component::Normal(_)))
+        || p.components()
+            .any(|part| !matches!(part, Component::Normal(_)))
     {
         bail!("unsafe restore path: {relative}");
     }
     let parts: Vec<_> = p.components().collect();
-    if parts.iter().any(|part| {
-        let name = part.as_os_str().to_string_lossy();
-        matches!(name.as_ref(), ".git" | ".env" | ".ssh")
-    }) || crate::paths::is_internal_state(p)
-    {
+    if crate::paths::is_private_path(p) {
         bail!("internal or sensitive path cannot be restored: {relative}");
     }
 
@@ -70,21 +69,47 @@ pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
+/// Exact preimages are bounded; oversized files require manual handling.
+pub(crate) fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
+    const LIMIT: u64 = 20 * 1024 * 1024;
     let path = checked_path(root, relative)?;
-    match fs::read(path) {
-        Ok(data) => Ok(Some(String::from_utf8(data).with_context(|| {
-            format!("non-UTF-8 file cannot be safely restored: {relative}")
-        })?)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err).with_context(|| format!("reading restore target {relative}")),
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("reading restore target {relative}"))
+        }
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        bail!("snapshot requires a regular file of at most 20 MiB: {relative}");
     }
+    let mut data = Vec::new();
+    file.take(LIMIT + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > LIMIT {
+        bail!("snapshot exceeds 20 MiB: {relative}");
+    }
+    Ok(Some(String::from_utf8(data).with_context(|| {
+        format!("non-UTF-8 file cannot be safely restored: {relative}")
+    })?))
 }
 
 impl RestorePlan {
     pub fn prepare(root: &Path, store: &Store, session: &Session, event: i64) -> Result<Self> {
+        Self::prepare_paths(root, store, session, event, None)
+    }
+
+    /// A file revert must not be blocked by drift in unrelated files.
+    pub fn prepare_paths(
+        root: &Path,
+        store: &Store,
+        session: &Session,
+        event: i64,
+        paths: Option<&[String]>,
+    ) -> Result<Self> {
         store.ensure_no_pending_writes()?;
-        if !store.history(session)?.iter().any(|(id, _, _, _)| *id == event) {
+        let history = store.history(session)?;
+        if !history.iter().any(|(id, _, _, _)| *id == event) {
             bail!("event #{event} is not in the active branch ancestry");
         }
 
@@ -93,6 +118,9 @@ impl RestorePlan {
         // A gap between writes indicates an out-of-band change.
         let mut states: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
         for edit in store.workspace_edits(session)? {
+            if paths.is_some_and(|paths| !paths.contains(&edit.path)) {
+                continue;
+            }
             let entry = states
                 .entry(edit.path.clone())
                 .or_insert_with(|| (edit.before.clone(), edit.before.clone()));
@@ -105,6 +133,12 @@ impl RestorePlan {
             entry.1 = edit.after.clone();
             if edit.event_id <= event {
                 entry.0 = edit.after;
+            }
+        }
+
+        if let Some(paths) = paths {
+            if paths.is_empty() || paths.iter().any(|path| !states.contains_key(path)) {
+                bail!("revert selection must contain recorded file paths");
             }
         }
 
@@ -123,10 +157,18 @@ impl RestorePlan {
                 );
             }
             if current != desired {
-                items.push(RestoreItem { relative, current, desired });
+                items.push(RestoreItem {
+                    relative,
+                    current,
+                    desired,
+                });
             }
         }
-        Ok(Self { event, items })
+        Ok(Self {
+            event,
+            items,
+            history_cutoff: history.last().map(|e| e.0),
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -146,12 +188,12 @@ impl RestorePlan {
             };
             output.push_str(&format!("\n[{operation}: {}]\n", item.relative));
             let mut diff = changes::unified(
-                &item.relative, item.current.as_deref(), item.desired.as_deref().unwrap_or(""),
+                &item.relative,
+                item.current.as_deref(),
+                item.desired.as_deref().unwrap_or(""),
             );
             if item.desired.is_none() {
-                diff = diff.replacen(
-                    &format!("+++ b/{}\n", item.relative), "+++ /dev/null\n", 1,
-                );
+                diff = diff.replacen(&format!("+++ b/{}\n", item.relative), "+++ /dev/null\n", 1);
             }
             output.push_str(&diff);
         }
@@ -174,10 +216,19 @@ impl RestorePlan {
         self.apply_inner(root, store, session, false)
     }
 
-    fn apply_inner(self, root: &Path, store: &Store, session: &Session, verbose: bool) -> Result<()> {
+    fn apply_inner(
+        self,
+        root: &Path,
+        store: &Store,
+        session: &Session,
+        verbose: bool,
+    ) -> Result<()> {
         let _session_lock = store.lock_idle_session(&session.id)?;
         if store.session(&session.id)?.active_branch != session.active_branch {
             bail!("session branch changed since restore preview");
+        }
+        if store.history(session)?.last().map(|e| e.0) != self.history_cutoff {
+            bail!("restore cancelled: history changed since preview; review a fresh preview");
         }
         let _lock = store.native_write_lock()?;
         store.ensure_no_pending_writes()?;
@@ -193,32 +244,44 @@ impl RestorePlan {
             let mut changed = false;
             let result: Result<()> = (|| {
                 if snapshot(root, &item.relative)? != item.current {
-                    bail!("{} changed during restore",item.relative);
+                    bail!("{} changed during restore", item.relative);
                 }
                 let path = checked_path(root, &item.relative)?;
                 match &item.desired {
                     Some(content) => atomic_write(&path, content)?,
-                    None => fs::remove_file(&path).with_context(|| format!("deleting {}",item.relative))?,
+                    None => fs::remove_file(&path)
+                        .with_context(|| format!("deleting {}", item.relative))?,
                 }
                 changed = true;
-                store.add_restoration(session,&item.relative,item.current.as_deref(),item.desired.as_deref())?;
+                store.add_restoration(
+                    session,
+                    &item.relative,
+                    item.current.as_deref(),
+                    item.desired.as_deref(),
+                )?;
                 Ok(())
             })();
             if let Err(error) = result {
                 let changed_count = applied + usize::from(changed);
                 let message = format!("Restore failed after {changed_count} file(s) changed ({applied} journaled), at {}: {error:#}. Filesystem may be partially restored. Inspect workspace and history; do not retry blindly.",item.relative);
                 let payload = serde_json::json!({"changed_files":changed_count,"journaled_files":applied,"path":item.relative,"error":message}).to_string();
-                if let Err(log_error) = store.event(session,None,"workspace.restore-failed",&payload) {
+                if let Err(log_error) =
+                    store.event(session, None, "workspace.restore-failed", &payload)
+                {
                     bail!("{message} Could not persist restore failure: {log_error:#}");
                 }
                 bail!("{message}");
             }
             applied += 1;
-            if verbose { println!("[restored] {}", item.relative); }
+            if verbose {
+                println!("[restored] {}", item.relative);
+            }
         }
         store.event(session,None,"workspace.restore-completed",&format!("{applied} tracked file(s) updated"))
             .with_context(||format!("{applied} files restored and journaled, but completion could not be recorded; inspect history"))?;
-        if verbose { println!("Restore complete: {applied} tracked file(s) updated."); }
+        if verbose {
+            println!("Restore complete: {applied} tracked file(s) updated.");
+        }
         Ok(())
     }
 }
@@ -267,15 +330,21 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let session = store.create("test", "goal", "step").unwrap();
         let file = root.path().join("file.txt");
-        store.add_change(&session, "step", "file.txt", Some("a\n"), "b\n").unwrap();
+        store
+            .add_change(&session, "step", "file.txt", Some("a\n"), "b\n")
+            .unwrap();
         let first = store.history(&session).unwrap().last().unwrap().0;
-        store.add_change(&session, "step", "file.txt", Some("b\n"), "c\n").unwrap();
+        store
+            .add_change(&session, "step", "file.txt", Some("b\n"), "c\n")
+            .unwrap();
         fs::write(&file, "c\n").unwrap();
         let plan = RestorePlan::prepare(root.path(), &store, &session, first).unwrap();
         assert_eq!(plan.items.len(), 1);
         plan.apply(root.path(), &store, &session).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "b\n");
-        assert!(RestorePlan::prepare(root.path(), &store, &session, first).unwrap().is_empty());
+        assert!(RestorePlan::prepare(root.path(), &store, &session, first)
+            .unwrap()
+            .is_empty());
         assert_eq!(store.workspace_edits(&session).unwrap().len(), 3);
     }
 
@@ -285,12 +354,20 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let session = store.create("test", "goal", "step").unwrap();
         let start = store.history(&session).unwrap()[0].0;
-        store.add_change(&session, "step", "new.txt", None, "created\n").unwrap();
+        store
+            .add_change(&session, "step", "new.txt", None, "created\n")
+            .unwrap();
         fs::write(root.path().join("new.txt"), "created\n").unwrap();
         let plan = RestorePlan::prepare(root.path(), &store, &session, start).unwrap();
         plan.apply(root.path(), &store, &session).unwrap();
         assert!(!root.path().join("new.txt").exists());
-        assert!(store.workspace_edits(&session).unwrap().last().unwrap().after.is_none());
+        assert!(store
+            .workspace_edits(&session)
+            .unwrap()
+            .last()
+            .unwrap()
+            .after
+            .is_none());
     }
 
     #[test]
@@ -299,10 +376,15 @@ mod tests {
         let store = Store::open(root.path()).unwrap();
         let session = store.create("test", "goal", "step").unwrap();
         let start = store.history(&session).unwrap()[0].0;
-        store.add_change(&session, "step", "file.txt", Some("a\n"), "b\n").unwrap();
+        store
+            .add_change(&session, "step", "file.txt", Some("a\n"), "b\n")
+            .unwrap();
         fs::write(root.path().join("file.txt"), "manual\n").unwrap();
         assert!(RestorePlan::prepare(root.path(), &store, &session, start).is_err());
-        assert_eq!(fs::read_to_string(root.path().join("file.txt")).unwrap(), "manual\n");
+        assert_eq!(
+            fs::read_to_string(root.path().join("file.txt")).unwrap(),
+            "manual\n"
+        );
     }
 
     #[test]
@@ -324,13 +406,35 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let store = Store::open(root.path()).unwrap();
         let mut session = store.create("test", "goal", "step").unwrap();
-        let first = store.add_change(&session, "step", "a.txt", Some("old"), "one").unwrap();
-        store.add_change(&session, "step", "a.txt", Some("one"), "two").unwrap();
+        let first = store
+            .add_change(&session, "step", "a.txt", Some("old"), "one")
+            .unwrap();
+        store
+            .add_change(&session, "step", "a.txt", Some("one"), "two")
+            .unwrap();
         fs::write(root.path().join("a.txt"), "two").unwrap();
         RestorePlan::prepare(root.path(), &store, &session, first)
-            .unwrap().apply(root.path(), &store, &session).unwrap();
+            .unwrap()
+            .apply(root.path(), &store, &session)
+            .unwrap();
         store.fork(&mut session, first, "step").unwrap();
-        assert!(RestorePlan::prepare(root.path(), &store, &session, first).unwrap().is_empty());
-        assert_eq!(fs::read_to_string(root.path().join("a.txt")).unwrap(), "one");
+        assert!(RestorePlan::prepare(root.path(), &store, &session, first)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            fs::read_to_string(root.path().join("a.txt")).unwrap(),
+            "one"
+        );
+    }
+    #[test]
+    fn snapshots_reject_large_files_without_changing_them() {
+        let root = tempfile::tempdir().unwrap();
+        let file = fs::File::create(root.path().join("large.txt")).unwrap();
+        file.set_len(1024 * 1024 * 1024).unwrap();
+        assert!(snapshot(root.path(), "large.txt")
+            .unwrap_err()
+            .to_string()
+            .contains("20 MiB"));
+        assert_eq!(file.metadata().unwrap().len(), 1024 * 1024 * 1024);
     }
 }

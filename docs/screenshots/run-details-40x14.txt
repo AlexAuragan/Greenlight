@@ -1,0 +1,13 @@
+Greenlight / bar-…  ● blocked · baseline
+
+[1] Activity  [2] Artifacts [3] Edits
+                              [h] Help
+Run details · this session / active
+branch
+
+Goal
+Investigate the startup delay and
+establish a measured improvement.
+╭──────╮ ╭───────╮ ╭───────────────────╮
+│ Back │ │ Usage │ │ Technical details │
+╰──────╯ ╰───────╯ ╰───────────────────╯

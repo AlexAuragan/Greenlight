@@ -27,6 +27,7 @@ struct FrameKey {
     scroll: u16,
 }
 struct Job {
+    diff: bool,
     key: FrameKey,
     source: Arc<str>,
     markdown: bool,
@@ -51,11 +52,7 @@ fn prepare(job: Job, cached: &mut Option<CachedDocument>) -> Prepared {
         .as_ref()
         .is_none_or(|c| c.revision != job.key.revision)
     {
-        let mut text = if job.markdown {
-            crate::markdown::render(&job.source)
-        } else {
-            crate::markdown::raw(&job.source)
-        };
+        let mut text = document_text(&job.source, job.markdown, job.diff);
         text.lines.splice(0..0, job.headers);
         *cached = Some(CachedDocument {
             revision: job.key.revision,
@@ -109,6 +106,7 @@ struct State {
     failed: bool,
     revision: u64,
     tag: String,
+    diff: bool,
     source: Option<Arc<str>>,
     markdown: bool,
     headers: Vec<Line<'static>>,
@@ -137,14 +135,62 @@ pub(super) fn draw_document(
     block: Block<'static>,
     area: Rect,
 ) {
+    draw_formatted(frame, app, document, block, area, false);
+}
+pub(super) fn draw_diff_document(
+    frame: &mut Frame,
+    app: &App,
+    document: Document<'_>,
+    block: Block<'static>,
+    area: Rect,
+) {
+    draw_formatted(frame, app, document, block, area, true);
+}
+fn document_text(source: &str, markdown: bool, diff: bool) -> Text<'static> {
+    let mut text = if markdown {
+        crate::markdown::render(source)
+    } else {
+        crate::markdown::raw(source)
+    };
+    if diff {
+        let mut in_diff = false;
+        for line in &mut text.lines {
+            let content = line.to_string();
+            if content.starts_with("--- ") {
+                in_diff = true;
+            }
+            if !in_diff {
+                continue;
+            }
+            line.style = Style::default().fg(
+                if content.starts_with("--- ") || content.starts_with("+++ ") {
+                    theme::MUTED
+                } else if content.starts_with('+') {
+                    theme::GOOD
+                } else if content.starts_with('-') {
+                    theme::ERROR
+                } else if content.starts_with("@@") {
+                    theme::FOCUS
+                } else {
+                    theme::TEXT
+                },
+            );
+        }
+    }
+    text
+}
+fn draw_formatted(
+    frame: &mut Frame,
+    app: &App,
+    document: Document<'_>,
+    block: Block<'static>,
+    area: Rect,
+    diff: bool,
+) {
     if document.source.len() <= INLINE_BYTES
         && document.source.split('\n').take(INLINE_LINES + 1).count() <= INLINE_LINES
     {
-        let mut text = if document.markdown {
-            crate::markdown::render(document.source)
-        } else {
-            crate::markdown::raw(document.source)
-        };
+        let mut text = document_text(document.source, document.markdown, diff);
         text.lines.splice(0..0, document.headers);
         draw_scrolled(
             frame,
@@ -162,6 +208,7 @@ pub(super) fn draw_document(
     let source = prefix(document.source);
     let mut state = app.reader.state.borrow_mut();
     if state.tag != document.tag
+        || state.diff != diff
         || state.markdown != document.markdown
         || state.source.as_deref() != Some(source)
         || state.headers != document.headers
@@ -169,6 +216,7 @@ pub(super) fn draw_document(
         state.revision = state.revision.wrapping_add(1);
         state.tag = document.tag;
         state.markdown = document.markdown;
+        state.diff = diff;
         state.source = Some(Arc::from(source));
         state.headers = document.headers;
         state.sent = None;
@@ -221,6 +269,7 @@ pub(super) fn draw_document(
     app.rendered_scroll.set(None);
     if state.sent != Some(key) && !state.failed {
         let job = Job {
+            diff: state.diff,
             key,
             source: state.source.as_ref().unwrap().clone(),
             markdown: state.markdown,
@@ -336,12 +385,13 @@ mod tests {
     #[test]
     fn worker_matches_synchronous_wrapping_styles_and_scroll_bounds() {
         let source = format!(
-            "# 漢字 **Heading**\n{}\nTAIL",
+            "# 漢字 **Heading**\n{}\n--- a/file\n+++ b/file\n@@ hunk @@\n-old\n+new\nTAIL",
             "e\u{301} 👩‍💻 `code` **bold**\n".repeat(500)
         );
-        for markdown in [true, false] {
+        for (markdown, diff) in [(true, false), (false, false), (false, true)] {
             for width in [20, 60, 100] {
                 let job = Job {
+                    diff,
                     key: FrameKey {
                         revision: 1,
                         width,
@@ -353,11 +403,7 @@ mod tests {
                     headers: vec![Line::raw("Header")],
                 };
                 let result = prepare(job, &mut None);
-                let mut text = if markdown {
-                    crate::markdown::render(&source)
-                } else {
-                    crate::markdown::raw(&source)
-                };
+                let mut text = document_text(&source, markdown, diff);
                 text.lines.insert(0, Line::raw("Header"));
                 let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
                 let maximum = paragraph
@@ -380,6 +426,7 @@ mod tests {
         assert!(bounded.len() > crate::markdown::MAX_BYTES);
         let result = prepare(
             Job {
+                diff: false,
                 key: FrameKey {
                     revision: 1,
                     width: 80,
@@ -500,6 +547,7 @@ mod approval_priority_tests {
         let (answers, received) = mpsc::channel();
         let (_ft, finished) = mpsc::channel();
         app.runner = Some(Runner {
+            live: None,
             cancel_retry: None,
             session_id: None,
             prompts,
@@ -507,6 +555,8 @@ mod approval_priority_tests {
             finished,
         });
         app.approval = Some(ApprovalPrompt {
+            review: None,
+            command: None,
             mode: ApprovalMode::Human,
             content: "Review this approval".into(),
         });

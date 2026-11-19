@@ -1,0 +1,24 @@
+Greenlight / bar-project                                     ● ready · implement
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+Edits · bar.py
+Native journal only · shell/manual changes are outside coverage
+modified · Kept revision · file 1 / 3
+Tab/Shift+Tab cycles views · Enter focuses actions
+Net recorded diff: first tracked state → latest recorded state.
+
+--- a/bar.py
++++ b/bar.py
+@@ -1,1 +1,1 @@
+-start_service()
++start_service_async()
+
+
+
+Keep saves review intent, not verification or tool approval.
+Kept revision is not a live disk check; files are already applied.
+╭───────────╮ ╭─────────────────────╮ ╭───────────╮ ╭──────────╮
+│ Keep file │ │ Preview file revert │ │ All files │ │ [.] More │
+╰───────────╯ ╰─────────────────────╯ ╰───────────╯ ╰──────────╯
+Kept 1 recorded file revision(s). Review saved; no files, permissions or Git sta

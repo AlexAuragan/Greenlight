@@ -1,0 +1,35 @@
+Greenlight / sample-project                                                                      ● running · investigate
+
+[1] Activity  [2] Artifacts [3] Edits                                                                         [h] Help
+
+Review step result
+Step: investigate · local workflow review
+Review question · excerpt
+Approve this step result? Review the available result evidence.
+
+Available result evidence (not pinned approval inputs)
+No document bodies recorded.
+Tab/Shift+Tab cycles documents · Enter/e opens exact evidence
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Approve records a human step-result verdict; it does not create a pinned-input approval or guarantee later success.
+
+
+┌─────────────────────────────────────────────────────────┐ ┌─────────────────────────────────────────────────────────┐
+│                 Approve & continue [y]                  │ │                    Decline [n / Esc]                    │
+└─────────────────────────────────────────────────────────┘ └─────────────────────────────────────────────────────────┘
+╭───────────────────╮ ╭──────────╮
+│ [e] Full evidence │ │ [h] Help │
+╰───────────────────╯ ╰──────────╯

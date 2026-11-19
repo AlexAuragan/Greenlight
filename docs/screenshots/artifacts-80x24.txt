@@ -1,0 +1,23 @@
+Greenlight / bar-project                                   ● Finished · evaluate
+
+[1] Activity  [2] Artifacts [3] Edits    [f] Sessions    [c] Details  [h] Help
+
+Artifacts · 12 saved
+
+▸ baseline.md                                        baseline              39 B
+  baseline_draft_notes.md                            baseline              39 B
+  benchmark.md                                       baseline              39 B
+  benchmark_measurement_notes.md                     baseline              39 B
+  checks_availability_note.md                        baseline              39 B
+  checks_to_run.md                                   baseline              39 B
+  investigations_status.md                           baseline              39 B
+  logs_request.md                                    baseline              39 B
+  optimization.md                                    baseline              39 B
+  optimization_proposal.md                           baseline              39 B
+  performance-evaluation.md                          evaluate             135 B
+  read_availability_note.md                          baseline              39 B
+
+
+╭───────────────────────╮ ╭──────────────╮ ╭──────────╮
+│ [Enter] Open selected │ │ [v] Versions │ │ [.] More │
+╰───────────────────────╯ ╰──────────────╯ ╰──────────╯

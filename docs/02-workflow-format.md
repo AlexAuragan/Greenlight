@@ -3,22 +3,24 @@
 ## File layout
 
 ```text
-greenlight.yaml                    global/provider/security settings
+.greenlight/config.yaml           provider/security settings
 .greenlight/instructions.md        optional project instructions
-shared/*.md                        reusable prompt fragments
-workflows/fix-bug/workflow.yaml     workflow graph + step defaults
-workflows/fix-bug/investigate.md    step YAML frontmatter + prompt
+.greenlight/shared/*.md            reusable prompt fragments
+.greenlight/workflows/fix-bug/workflow.yaml     workflow graph + step defaults
+.greenlight/workflows/fix-bug/investigate.md    step YAML frontmatter + prompt
 .greenlight/state/history.db       private runtime event database
 .greenlight/state/blobs/           immutable registered artifact bodies
 ```
 
-`workflow.yaml` declares `id`, `title`, `start`, `steps: [id...]` and `defaults` containing optional `model`, `max_turns`, `tools`, `verification`.
+Legacy root configuration/workflows remain supported; local configuration and workflows take precedence independently. See [installation and projects](22-installation-and-projects.md).
+
+`workflow.yaml` declares `id`, `title`, `start`, `steps: [id...]` and `defaults` containing optional `model`, `tools`, `verification`.
 
 Each `.md` file begins with `---` YAML frontmatter; the required `id` matches the filename. Fields:
 
 - `kind`: `agent` (default), `human`, or `command` (`command` field mandatory for command steps).
 - `model`: provider model ID, optional override of default.
-- `max_turns`: limit of provider calls for one agent run.
+- `max_turns`: legacy field accepted for compatibility but ignored. Agent steps no longer have a fixed model-response count cutoff; existing per-step/workflow values and `session.max_turns_per_attempt` do not stop execution.
 - `tools`: subset of `read`, `shell`, `write`, `web`; a step can override defaults.
 - `inputs.required`: required named artifacts.
 - `inputs.from`: list of `{source: previous | session | step_id, select: all | required}`.
@@ -45,7 +47,7 @@ Replace `approve` with the workflow's actual human step ID. This does not undo e
 
 ## Precedence and trust
 
-1. Root `greenlight.yaml` provides provider defaults and absolute permission policies (legacy `stepwright.yaml` is accepted if the new file is absent).
+1. `.greenlight/config.yaml` provides provider defaults and host permission policies; root `greenlight.yaml`, then legacy `stepwright.yaml`, are fallbacks. A preferred file containing an error does not silently fall back.
 2. Workflow defaults fill unset step frontmatter.
 3. Step frontmatter overrides workflow defaults.
 4. `.greenlight/instructions.md` augments the step prompt; the legacy `.stepwright/instructions.md` is a fallback. Neither can override permissions.

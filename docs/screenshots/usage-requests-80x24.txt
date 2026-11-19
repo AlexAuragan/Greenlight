@@ -1,0 +1,23 @@
+Greenlight / bar-project                                    ● blocked · baseline
+
+[1] Activity  [2] Artifacts [3] Edits                                 [h] Help
+
+Recorded requests · all branches
+Select a dispatch · Enter opens its details
+
+› 1 · baseline · agent · fixture-requested
+
+
+
+
+
+
+
+
+
+
+
+
+╭──────╮ ╭──────────────╮
+│ Back │ │ Open request │
+╰──────╯ ╰──────────────╯

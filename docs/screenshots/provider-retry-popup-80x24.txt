@@ -1,0 +1,23 @@
+Greenlight / bar-project                    ● provider request paused · evaluate
+  ╭ Provider request paused · Esc closes; request waits ─────────────────────╮
+[1│╭─Provider status · The bars take about 30s to display; ful…─────────────╮│
+  ││Provider rate limit reached. Wait before retrying or reduce request     ││
+╭ ││frequency; check account quota too if the provider gave no specific     ││─╮
+│ ││error code. (HTTP 429)                                                  ││ │
+│ ││                                                                        ││ │
+│ ││Retry sends the same request to fixture. Earlier tools will not run     ││ │
+│ ││again.                                                                  ││ │
+│ ││Wait or fix the provider issue, then retry. Any remaining Retry-After   ││ │
+│ ││cooldown is respected.                                                  ││ │
+│ ││Local credential/config changes may require restarting Greenlight; this ││ │
+│ ││request retains its original settings.                                  ││ │
+│ ││                                                                        ││ │
+│ ││                                                                        ││ │
+│ ││                                                                        ││ │
+│ │╰────────────────────────────────────────────────────────────────────────╯│b│
+│▶│╭ Press a key to decide — no Enter needed ───────────────────────────────╮│ │
+│ ││  [y] Retry request                                                     ││ │
+╰ ││  [n] Stop for now                                                      ││─╯
+  ││  Esc closes without deciding; the agent keeps waiting.                 ││
+  │╰────────────────────────────────────────────────────────────────────────╯│
+  ╰──────────────────────────────────────────────────────────────────────────╯

@@ -14,11 +14,41 @@ pub(super) struct Snapshot {
 impl App {
     pub(super) fn export_snapshot(&self) -> Result<Snapshot> {
         let (label, text) = if self.help {
-            ("keyboard help".into(), HELP.into())
+            ("keyboard help".into(), help_text().into())
+        } else if self.shell.sessions {
+            (
+                "session browser snapshot · candidates only".into(),
+                format!(
+                    "Session candidates · query {}\n{}",
+                    self.session_query,
+                    self.navigation
+                        .candidates
+                        .iter()
+                        .map(|s| format!("{} · {} · {}", s.goal, s.status, s.current_step))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            )
+        } else if self.human_review().is_some() {
+            (
+                "human review · selected recorded evidence".into(),
+                self.review_document_text().unwrap_or_default(),
+            )
         } else if let Some(text) = &self.diagnostic {
             ("diagnostic".into(), text.clone())
-        } else if let Some(text) = &self.usage_detail {
-            ("usage report".into(), text.clone())
+        } else if let Some(page) = self.details.page {
+            (
+                format!("{page:?} · selected session/branch snapshot"),
+                if page == details::Page::Conversation {
+                    self.details
+                        .dump
+                        .as_ref()
+                        .map(|d| d.markdown())
+                        .unwrap_or_else(|| self.details.text.clone())
+                } else {
+                    self.details.text.clone()
+                },
+            )
         } else if let Some(text) = &self.context_detail {
             ("attempt context".into(), text.clone())
         } else if let Some(browser) = &self.artifact_browser {
@@ -28,6 +58,21 @@ impl App {
                     browser.name, browser.versions[browser.index].event_id, browser.mode
                 ),
                 browser.error.as_ref().unwrap_or(&browser.text).clone(),
+            )
+        } else if let Some(pending) = &self.edits.pending {
+            ("revert preview".into(), pending.preview.clone())
+        } else if self.result_open && self.view == View::Conversation {
+            ("workflow result".into(), self.result_text.clone())
+        } else if self.view == View::Edits && self.edits.overview && self.edits.error.is_none() {
+            ("recorded native edits overview".into(),format!("Edits · selected session / active branch\nNative journal only; shell/manual changes are outside coverage.\n{}\n\nKeep records historical review intent, not live disk validation, tool permission or Git staging.",self.edits.files.iter().map(|f|format!("{} · {} · revision #{} · {}",f.path,f.label(),f.revision,if f.kept{"Kept revision"}else{"Not kept"})).collect::<Vec<_>>().join("\n")))
+        } else if self.view == View::Edits {
+            (
+                "recorded code diff".into(),
+                self.edits
+                    .error
+                    .as_ref()
+                    .unwrap_or(&self.edits.text)
+                    .clone(),
             )
         } else if self.restart_plan.is_some() {
             ("restore preview".into(), self.restart_preview.clone())
@@ -245,7 +290,8 @@ impl TerminalResume {
         let screen = crossterm::execute!(
             io::stdout(),
             crossterm::terminal::EnterAlternateScreen,
-            crossterm::cursor::Hide
+            crossterm::cursor::Hide,
+            crossterm::cursor::SetCursorStyle::BlinkingBar
         );
         let raw = crossterm::terminal::enable_raw_mode();
         self.active = false;
