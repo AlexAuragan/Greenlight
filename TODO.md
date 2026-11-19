@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Next: recovery and correctness
 
-- [ ] **GL-001** — Add user-requested reruns of historical tool calls. Normal failures return to the model; do not pause every failure. Reuse exact arguments and append a linked execution/result marked user-requested, preserving the original result. The explicit rerun action authorizes the call without another approval prompt; retain tool/project boundaries. Include the result when execution next continues. Record partial/unknown effects and never auto-replay. Stop execution first with `k`; keep `q` for quitting. Define conversation placement and interruption recovery before implementation.
 - [ ] **GL-002** — Persist suspended provider-request continuations across TUI/process restarts, including manager side questions, with exact-message checkpoints, credential/config reload semantics and validation of intervening workspace changes. In-process workflow Retry request preserves messages; ordinary Resume/Continue step starts a fresh step attempt.
 - [ ] **GL-003** — Close concurrent path-swap races with descriptor-anchored file access across tools, include loading, journal snapshots, restore and private blob storage. Current canonicalization/lstat checks reject static escapes but do not make later opens race-free.
 - [ ] **GL-005** — Bound expanded includes, artifact/trace reads and history/export memory. Profile refresh/diff work, load lightweight event metadata and selected immutable bodies on demand, and avoid full-history scans on interactive paths. Define configurable limits and legacy-file behavior before changing schemas.
@@ -43,9 +42,11 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Dependencies and design gates
 
-GL-001 needs explicit side-effect and idempotency rules. GL-002 needs durable message checkpoints and workspace validation. GL-007 precedes parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
+GL-002 needs durable message checkpoints and workspace validation. GL-007 precedes parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
-## Completed in the design-pattern pass
+## Completed recovery and code improvements
+
+- [x] **GL-001** — Implemented on `feat/stop-execution-key` (awaiting merge): user-requested historical tool reruns: exact arguments, explicit one-call authorization, linked new history/results, existing project/tool boundaries and write journal, execution ownership/recovery, and bounded evidence in the next attempt. No automatic replay. See [tool reruns](docs/37-tool-reruns.md).
 
 - [x] **GL-004** — Serialize approval reload–merge–save with a stable per-scope OS lock; sync atomic replacements. Concurrent project/global process tests cover preservation of all grants.
 - [x] **GL-006** — Share typed action definitions, shortcut labels and the Help reference; dispatch buttons directly without synthetic keys. Keep contextual navigation/text editing explicit and guard decision-layer ownership. Keyboard/button parity, literal input and stale-mouse regressions pass.

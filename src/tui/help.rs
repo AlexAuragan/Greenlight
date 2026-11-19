@@ -23,6 +23,8 @@ Revert/restart: y confirms, n/Esc cancels; Enter is inert.
 
 Evidence and actions
 Copy exports full selected text. Editor opens a private snapshot while idle.
+[R] Run tool again reruns the selected historical call while idle.
+Exact arguments; no extra approval; side effects may repeat. Results are linked in history.
 More > Conversation dump or /dump opens the recorded transcript.
 More > Usage or /usage opens session token/cost accounting.
 Request details: arrows select, Enter/click opens the exact dispatch.

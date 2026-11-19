@@ -64,6 +64,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(owner_session),
@@ -82,6 +83,7 @@ fn confirmation_is_visible_at_80x24_and_rejects_enter_repeat_and_global_shortcut
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: None,
@@ -269,6 +271,7 @@ fn workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover() {
     })
     .unwrap();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: None,
@@ -491,6 +494,7 @@ fn approval_prompt_returns_to_its_owning_session_after_sidebar_navigation() {
     let (answers, _received) = mpsc::channel();
     let (_finished, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(owner.id.clone()),
@@ -627,6 +631,7 @@ fn provider_retry_keeps_exact_messages_attempt_and_branch_without_replaying_a_to
         let _ = ft.send(result.map_err(|e| format!("{e:#}")));
     });
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(session.id.clone()),

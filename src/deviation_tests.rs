@@ -707,3 +707,170 @@ async fn growing_conversation_stops_after_preserving_registered_artifact() {
         40_000
     );
 }
+
+#[tokio::test]
+async fn user_rerun_preserves_failure_skips_approval_and_reaches_next_attempt() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [read]"),
+    )
+    .unwrap();
+    fs::write(h.root.path().join("fixed.txt"), "USER_FIXED_ENVIRONMENT").unwrap();
+    h.engine.tools.policies.read = "deny".into();
+    let session = h.engine.store.session(&h.session).unwrap();
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: read\npath: fixed.txt",
+        )
+        .unwrap();
+    let original = h
+        .engine
+        .store
+        .tool_outcome(
+            &session,
+            "step",
+            request,
+            "read",
+            "tool.error",
+            "file missing before user fixed it",
+        )
+        .unwrap();
+    h.engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .unwrap();
+    assert_eq!(h.status(), "blocked");
+    assert!(h.script.lock().unwrap().requests.is_empty());
+    let history = h.engine.store.history(&session).unwrap();
+    assert!(history
+        .iter()
+        .any(|e| e.0 == original && e.3 == "file missing before user fixed it"));
+    assert!(history
+        .iter()
+        .any(|e| e.2 == "protocol.approval" && e.3.contains("user-requested rerun")));
+    let cards = crate::activity_cards::Projection::build(&history);
+    assert!(cards
+        .cards
+        .values()
+        .any(|card| card.title.starts_with("User rerun")));
+    assert!(history
+        .iter()
+        .any(|e| e.2 == "tool.result" && e.3 == "USER_FIXED_ENVIRONMENT"));
+    h.run().await;
+    assert_eq!(h.status(), "completed");
+    let requests = &h.script.lock().unwrap().requests;
+    assert!(serde_json::to_string(requests)
+        .unwrap()
+        .contains("USER_FIXED_ENVIRONMENT"));
+    assert_eq!(requests.len(), 1);
+    // The authorization applies to this rerun, not subsequent model calls.
+    assert!(h.engine.tools.permission("read", "fixed.txt").is_err());
+}
+
+#[tokio::test]
+async fn user_rerun_writes_are_journaled_and_private_paths_remain_blocked() {
+    let mut h = Harness::new(PAUSE, vec![]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [write, read]"),
+    )
+    .unwrap();
+    h.engine.tools.policies.write = "deny".into();
+    let mut session = h.engine.store.session(&h.session).unwrap();
+    session.status = "completed".into();
+    h.engine.store.save(&session).unwrap();
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: write\npath: feature.txt\ncontent: revised",
+        )
+        .unwrap();
+    h.engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(h.root.path().join("feature.txt")).unwrap(),
+        "revised"
+    );
+    assert_eq!(h.count("file.changed"), 1);
+    assert_eq!(h.status(), "blocked");
+    assert!(h.engine.tools.permission("write", "feature.txt").is_err());
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: read\npath: /etc/passwd",
+        )
+        .unwrap();
+    h.engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .unwrap();
+    assert_eq!(h.count("tool.error"), 1);
+    assert_eq!(h.count("tool.rerun-completed"), 2);
+    assert!(h.script.lock().unwrap().requests.is_empty());
+}
+
+#[tokio::test]
+async fn reruns_reject_live_owners_changed_branches_and_disabled_tools() {
+    let mut h = Harness::new(PAUSE, vec![]);
+    let session = h.engine.store.session(&h.session).unwrap();
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: read\npath: file.txt",
+        )
+        .unwrap();
+    assert!(h
+        .engine
+        .rerun_tool(&session.id, "stale-branch", request)
+        .await
+        .is_err());
+    assert_eq!(h.status(), "ready");
+    let owner = h.engine.store.claim_execution(&session.id, None).unwrap();
+    assert!(h
+        .engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .is_err());
+    h.engine
+        .store
+        .finish_execution(&session.id, &owner, None)
+        .unwrap();
+    assert!(h
+        .engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .is_err());
+    assert_eq!(h.count("tool.rerun"), 0);
+    let other = h.engine.store.create("demo", "different", "step").unwrap();
+    assert!(h.engine.store.rerun_request(&other, request).is_err());
+    assert_eq!(
+        h.engine.store.execution_state(&session.id).unwrap(),
+        crate::session_execution::ExecutionState::Idle
+    );
+}

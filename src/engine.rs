@@ -870,6 +870,13 @@ impl Engine {
             ));
         }
         context.push_str(&crate::agent_protocol::step_contract(step));
+        let rerun_budget = 16_000usize.min(
+            self.cfg
+                .session
+                .max_artifact_bytes
+                .saturating_sub(context.len() + 4096),
+        );
+        context.push_str(&self.store.tool_rerun_context(s, rerun_budget)?);
         let mut remaining_draft_bytes = 24_000usize.min(
             self.cfg
                 .session

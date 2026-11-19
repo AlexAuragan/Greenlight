@@ -80,3 +80,8 @@ Input, cached-input and output usage is recorded per physical request, with sour
 Use arrows for list/reader navigation; remove j/k aliases, retaining semantic controls such as h Help and m Markdown/raw. Reserve k for Stop and keep q exclusively Quit. Text editors and decision layers own their input. Stop cancels local provider work, retry waits, web requests and sandboxed commands, releases hidden unanswered prompts without inventing an approval decision, and checks again before dispatching a returned model action. Already-applied edits remain and synchronous journaled writes finish safely. Remote processing/billing and partial command effects can remain unknown. Continue starts a new attempt.
 
 Historical tool reruns remain GL-001: normal failures go back to the model; an explicit user rerun should append a linked user-requested execution/result using the original arguments without another approval prompt, while preserving project/tool boundaries. Do not automatically replay tools.
+
+
+## 2026-11-19 — User-requested tool executions
+
+Implement GL-001 as an explicit rerun of a selected historical call, not an automatic pause/retry loop. Stop execution first. The Run tool again action authorizes only that exact invocation without another approval or saved grant; current tool/project boundaries remain. Append a new request/result and user provenance linked to the original. Reuse execution ownership and native journaling, never replay after crashes automatically, and provide bounded results to a fresh attempt. Completed sessions return to blocked review after reruns; no new verification/completion is implied. See [tool rerun contract](37-tool-reruns.md).

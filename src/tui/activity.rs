@@ -105,6 +105,7 @@ impl App {
                     card.title, card.summary, event.id, event.step, event.kind
                 );
                 if let Some(tool) = tool {
+                    detail.push_str("\n[R] Run tool again executes these exact arguments as a user action without another approval. Stop execution first. Side effects can repeat; project/tool boundaries still apply.\n");
                     detail.push_str(&format!(
                         "\nRecorded request #{}:\n{}\n\nRecorded output #{}:\n{}",
                         tool.metadata.request_event, tool.request, event.id, event.data

@@ -183,20 +183,6 @@ impl App {
                 Action::Copy,
                 Action::Editor,
             ];
-            if self.runner.is_some() && self.view == View::Conversation {
-                return vec![
-                    if self.workflow_live_output().is_some()
-                        && self.shell.preview
-                        && (self.inspector_open || self.focus == Focus::Detail)
-                    {
-                        Action::ReturnLive
-                    } else {
-                        Action::Open
-                    },
-                    Action::Stop,
-                    Action::More,
-                ];
-            }
             if self.session().is_some_and(|s| s.status == "completed") {
                 actions.insert(0, Action::Overview);
             }
@@ -235,6 +221,12 @@ impl App {
         if self.runner.is_some() || self.manager_job.is_some() {
             actions.push(Action::Stop);
         }
+        if self.runner.is_none()
+            && self.manager_job.is_none()
+            && self.selected_tool_request().is_some()
+        {
+            actions.push(Action::RerunTool);
+        }
         if self.result_open && self.view == View::Conversation {
             actions.insert(0, Action::ResultEvidence);
         }
@@ -268,6 +260,19 @@ impl App {
         } else {
             vec![Action::Sessions, Action::Details, Action::Help]
         }
+    }
+    pub(super) fn selected_tool_request(&self) -> Option<i64> {
+        if self.view != View::Conversation {
+            return None;
+        }
+        let event = self.event()?;
+        if event.kind == "tool.request" {
+            return Some(event.id);
+        }
+        self.activity_cards
+            .tools
+            .get(&event.id)
+            .map(|e| e.metadata.request_event)
     }
     pub(super) fn footer_actions(&self) -> Vec<Action> {
         let mut actions = self.base_footer_actions();
@@ -370,20 +375,6 @@ impl App {
             ];
         }
         if self.artifact_browser.is_some() {
-            if self.runner.is_some() && self.view == View::Conversation {
-                return vec![
-                    if self.workflow_live_output().is_some()
-                        && self.shell.preview
-                        && (self.inspector_open || self.focus == Focus::Detail)
-                    {
-                        Action::ReturnLive
-                    } else {
-                        Action::Open
-                    },
-                    Action::Stop,
-                    Action::More,
-                ];
-            }
             if self.session().is_some_and(|s| s.status == "completed") {
                 return if self.viewport.0 < 60 {
                     vec![Action::Overview, Action::Close, Action::More]
@@ -521,6 +512,12 @@ impl App {
                 Action::Stop,
                 Action::More,
             ];
+        }
+        if self.selected_tool_request().is_some()
+            && self.runner.is_none()
+            && self.manager_job.is_none()
+        {
+            return vec![Action::Open, Action::RerunTool, Action::More];
         }
         if self.session().is_some_and(|s| s.status == "completed") {
             return if self.viewport.0 < 60 {
@@ -1008,6 +1005,33 @@ impl App {
                     self.select_end(true);
                 }
             }
+            RerunTool => {
+                if self.runner.is_some() || self.manager_job.is_some() {
+                    self.notice = "Stop execution before rerunning a tool.".into();
+                    return Ok(false);
+                }
+                let request = self
+                    .selected_tool_request()
+                    .context("Select a recorded tool call first")?;
+                let session = self.session().context("No selected session")?;
+                if store.execution_state(&session.id)?
+                    != crate::session_execution::ExecutionState::Idle
+                {
+                    self.notice = "Stop or recover the session before rerunning a tool.".into();
+                    return Ok(false);
+                }
+                store.ensure_no_pending_writes()?;
+                store.rerun_request(session, request)?;
+                self.runner = Some(tui_actions::rerun(
+                    root.to_path_buf(),
+                    session.id.clone(),
+                    session.active_branch.clone(),
+                    request,
+                ));
+                self.result_open = false;
+                self.shell.more = false;
+                self.notice = "Running exact recorded tool arguments at your request. Partial effects may repeat; original history is preserved.".into();
+            }
             Stop => {
                 if let Some(cancel) = self
                     .runner
@@ -1469,6 +1493,7 @@ mod tests {
         let (answers, received) = mpsc::channel();
         let (ft, finished) = mpsc::channel();
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: None,
             cancel_retry: None,
             session_id: None,
@@ -1553,6 +1578,7 @@ mod tests {
         let (answers, received) = mpsc::channel();
         let (_ft, finished) = mpsc::channel();
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: None,
             cancel_retry: None,
             session_id: None,

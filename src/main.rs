@@ -26,6 +26,7 @@ mod sandbox;
 mod session_execution;
 mod session_picker;
 mod store;
+mod tool_rerun;
 mod tools;
 mod tui;
 mod tui_actions;

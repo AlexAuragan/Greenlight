@@ -1222,6 +1222,7 @@ fn permission_popup_is_modal_dismissible_and_keeps_the_worker_waiting() {
     let (answers, received) = std::sync::mpsc::channel();
     let (_ft, finished) = std::sync::mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(session.id.clone()),
@@ -1315,6 +1316,7 @@ fn provider_retry_popup_explains_the_next_action_without_tool_grant_choices() {
     let (answers, received) = std::sync::mpsc::channel();
     let (_ft, finished) = std::sync::mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(session.id.clone()),
@@ -1420,6 +1422,7 @@ fn running_output_fixture() -> (
     let (_complete, finished) = std::sync::mpsc::channel();
     let mut app = App::new(Some(&session.id));
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: Some(preview),
         cancel_retry: None,
         session_id: Some(session.id.clone()),

@@ -217,9 +217,32 @@ impl Projection {
                 }
             }
         }
+        let user_requests: std::collections::HashSet<i64> = history
+            .iter()
+            .filter(|event| event.2 == "tool.rerun")
+            .filter_map(|event| {
+                let link = serde_json::from_str::<crate::tool_rerun::Link>(&event.3).ok()?;
+                let source = records.get(&link.source_request)?;
+                let request = records.get(&link.request_event)?;
+                if link.initiator != "user"
+                    || source.2 != "tool.request"
+                    || request.2 != "tool.request"
+                    || source.1 != request.1
+                    || request.1 != event.1
+                    || !(source.0 < request.0 && request.0 < event.0)
+                {
+                    return None;
+                }
+                let original =
+                    serde_yaml::to_string(&crate::tools::parse_action(&source.3).ok()?).ok()?;
+                let repeated =
+                    serde_yaml::to_string(&crate::tools::parse_action(&request.3).ok()?).ok()?;
+                (original == repeated).then_some(link.request_event)
+            })
+            .collect();
         for (id, step, kind, raw) in history {
             if !is_protocol(kind) {
-                let card = if let Some(evidence) = result.titles.get(id) {
+                let mut card = if let Some(evidence) = result.titles.get(id) {
                     let annotation = &evidence.annotation;
                     card(
                         format!("Agent intent · {}", annotation.title.as_str()),
@@ -259,6 +282,17 @@ impl Projection {
                 } else {
                     describe(*id, kind, raw, result.tools.get(id))
                 };
+                if result
+                    .tools
+                    .get(id)
+                    .is_some_and(|tool| user_requests.contains(&tool.metadata.request_event))
+                {
+                    card.title = format!("User rerun · {}", card.title);
+                }
+                if kind == "tool.rerun" {
+                    card.title = "User requested tool rerun".into();
+                    card.summary = format!("Exact recorded arguments · {raw}");
+                }
                 result.cards.insert(*id, card);
             }
         }

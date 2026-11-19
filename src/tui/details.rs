@@ -943,6 +943,7 @@ mod tests {
                 connection: None,
             }));
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: Some(live),
             cancel_retry: None,
             session_id: Some(session.id.clone()),
@@ -996,6 +997,7 @@ mod tests {
         let (answers, _answers) = std::sync::mpsc::channel();
         let (_finished, finished) = std::sync::mpsc::channel();
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: Some(live),
             cancel_retry: None,
             session_id: Some(session.id.clone()),

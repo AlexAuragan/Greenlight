@@ -197,6 +197,7 @@ pub struct Tools {
     pub client: reqwest::Client,
     prompt_driver: PromptDriver,
     prompt_context: Option<String>,
+    user_requested: bool,
 }
 impl Tools {
     pub fn new(root: PathBuf, policies: Permissions) -> Result<Self> {
@@ -211,6 +212,7 @@ impl Tools {
             client: reqwest::Client::new(),
             prompt_driver: PromptDriver::Terminal,
             prompt_context: None,
+            user_requested: false,
         })
     }
     pub fn use_tui(&mut self, requests: Sender<ApprovalPrompt>, answers: Receiver<String>) {
@@ -245,6 +247,12 @@ impl Tools {
     pub fn permission(&mut self, kind: &str, detail: &str) -> Result<()> {
         if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
             bail!("Execution stopped by user before tool authorization/execution");
+        }
+        if self.user_requested {
+            self.decisions.push(format!(
+                "{kind}: explicitly authorized by user-requested rerun"
+            ));
+            return Ok(());
         }
         let policy = match kind {
             "shell" => &self.policies.shell,
@@ -463,6 +471,19 @@ impl Tools {
         step: &str,
     ) -> Result<String> {
         self.call_inner(action, Some((store, session, step))).await
+    }
+    /// Only for an explicit rerun of an immutable recorded call, never model output.
+    pub async fn call_user_requested(
+        &mut self,
+        action: &AgentAction,
+        store: &crate::store::Store,
+        session: &crate::store::Session,
+        step: &str,
+    ) -> Result<String> {
+        self.user_requested = true;
+        let result = self.call_journaled(action, store, session, step).await;
+        self.user_requested = false;
+        result
     }
     async fn call_inner(
         &mut self,

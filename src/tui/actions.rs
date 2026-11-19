@@ -3,6 +3,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    RerunTool,
     InspectAttention,
     ReviewPermission,
     ReviewProviderRetry,
@@ -186,6 +187,7 @@ pub(super) const BINDINGS: &[Binding] = &[
     binding!(New, 'n', "New session"),
     binding!(Preview, 'P', "Toggle preview"),
     binding!(Expand, 'Z', "Expand preview"),
+    binding!(RerunTool, 'R', "Run tool again"),
     binding!(Stop, 'k', "Stop"),
     binding!(Mouse, 'M', "Toggle mouse"),
     binding!(ReviewOpen, 'e', "Full evidence"),

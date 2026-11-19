@@ -13,6 +13,7 @@ use std::{
 };
 
 pub struct Runner {
+    pub tool_rerun: bool,
     pub live: Option<crate::provider::stream::Preview>,
     pub cancel_retry: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub session_id: Option<String>,
@@ -22,10 +23,24 @@ pub struct Runner {
 }
 
 pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner {
+    start(root, session_id, instruction, None)
+}
+
+pub fn rerun(root: PathBuf, session_id: String, branch: String, request: i64) -> Runner {
+    start(root, session_id, String::new(), Some((branch, request)))
+}
+
+fn start(
+    root: PathBuf,
+    session_id: String,
+    instruction: String,
+    rerun: Option<(String, i64)>,
+) -> Runner {
     let (prompt_tx, prompts) = mpsc::channel();
     let (answers, answer_rx) = mpsc::channel();
     let (finished_tx, finished) = mpsc::channel();
     let owner_session = session_id.clone();
+    let is_rerun = rerun.is_some();
     let cancel_retry = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let worker_cancel = cancel_retry.clone();
 
@@ -43,13 +58,19 @@ pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner 
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
-            runtime.block_on(engine.run(&session_id, Some(&instruction), None))
+            match rerun {
+                Some((branch, request)) => {
+                    runtime.block_on(engine.rerun_tool(&session_id, &branch, request))
+                }
+                None => runtime.block_on(engine.run(&session_id, Some(&instruction), None)),
+            }
         })();
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
     });
 
     Runner {
-        live: Some(live),
+        tool_rerun: is_rerun,
+        live: if is_rerun { None } else { Some(live) },
         prompts,
         finished,
         answers,
