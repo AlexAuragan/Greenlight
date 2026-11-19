@@ -16,11 +16,11 @@ greenlight refresh-pricing                         # refresh supported provider 
 greenlight models --pricing                        # provider model list with resolved metadata
 ```
 
-The TUI footer shows token totals (`~` estimated; `?` incomplete). Use More → Usage, Run details → Usage, or `/usage` in Commands mode for a session summary with count sources and pricing coverage. Request details opens the recorded dispatch list; Enter/click opens exact request evidence. Full accounting retains model/attempt subtotals and captured pricing-source/date notes. Back/Esc returns through the nested views. Accounting records remain in full history but are hidden from the default conversation. Missing historical data is not backfilled.
+Use More → Usage, Run details → Usage, or `/usage` in Commands mode for session token totals, reported/estimated/unknown count sources and pricing coverage. Request details opens the recorded dispatch list; Enter/click opens exact request evidence. Full accounting retains model/attempt subtotals and captured pricing-source/date notes. Back/Esc returns through the nested views. Accounting records remain in full history but are hidden from the default conversation. Missing historical data is not backfilled.
 
 ## Account for every model request
 
-- Record provider/model, request identity, purpose, session, branch and attempt where applicable. Include coding calls, independent verification, deviation detection, rejected responses, retries. Future manager/summarizer calls must use the same central accounting path.
+- Record provider/model, request identity, purpose, session, branch and attempt where applicable. Include coding calls, independent verification, deviation detection, rejected responses, retries. Manager calls use the same central accounting path; any future summarizer must do so too.
 - Persist input, cached-input and output tokens separately. Document whether the provider's input total includes cached tokens; normalize cached input as a subset so it is never counted twice. Preserve additional usage categories such as reasoning tokens when supplied, without counting them twice if already included in output.
 - Prefer provider-reported usage, which is the best available source for billing and cache hits. Store the original usage fields and the source/status of normalized counts.
 - When usage is missing, use the model's compatible tokenizer when available. Use tiktoken for supported encodings, or as an explicitly approximate fallback for other models. Account for conversation/message framing where possible. Tokenizer counts are estimates of usage, not proof of billable tokens.

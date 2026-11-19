@@ -64,7 +64,7 @@ The default activity list uses compact cards: a title/status, step and short sum
 
 Activity and artifact tabs retain independent selection, reading/list focus and scroll positions by session and branch. Selections use event IDs and artifact names/version IDs, so a new row does not move an inspected item. Activity retains its follow/pause state and any opened journal diff. Help/context/diagnostic panels have separate temporary scroll; closing them returns to the saved tab position. If a selected record is filtered out or unavailable, the tab uses a visible fallback with its offset reset. A newer same-name artifact resets that artifact's offset rather than applying an older body's position. Positions, filters and drafts are **in memory only** and disappear when the TUI exits. Raw/Markdown visibility settings retain their existing behavior; this is not a persistent bookmarks system.
 
-From activity navigation press **F** to filter event kinds, steps, card titles and summaries with a case-insensitive literal substring (including Unicode). Typing filters cached rows without reading the database or cloning their bodies; normal background polling still updates the source rows. Enter keeps the filter; Escape clears it. To clear an applied filter, press F then Escape. Filters are remembered per session/branch. This searches displayed metadata/summaries, not complete hidden payloads; use CLI history export for deep source searches. Lowercase `f` remains session search.
+From activity navigation press **F** to filter event kinds, steps, card titles and summaries with a case-insensitive literal substring (including Unicode). Typing filters cached rows without reading the database or cloning their bodies; normal background polling still updates the source rows. Enter keeps the filter; Escape clears it. To clear an applied filter, press F then Escape. Filters are remembered per session/branch. This searches displayed metadata/summaries, not complete hidden payloads; use a full conversation dump for deep source searches. Lowercase `f` remains session search.
 
 Press **C** from a reading/navigation surface to copy its **full selected text**, beyond preview clipping. Artifact content is the original stored text; artifact-version content uses the selected creation ID; provenance/diff panels export their current report. Activity exports the complete expanded evidence (or raw audit record in raw mode). Help, context, diagnostics and restore previews export their displayed source. Clipboard work runs outside the input loop and confirms success only after the utility accepts the complete input and exits successfully.
 
@@ -130,18 +130,18 @@ The restore planner refuses mismatched file snapshots, manual drift, symlinks, a
 
 ## Keys
 
-The focus model uses explicit evidence opening: Enter or click opens details, Enter/Left/Escape returns, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle detail scrolling and approval/restart previews; **PageUp/PageDown optionally scroll eight lines**, and Home/End jump to the beginning/end of reading panels. Navigation opens without focusing the composer, even for blocked sessions.
+The focus model uses explicit evidence opening: Enter or click opens details, Enter/Left/Escape returns, and move or scroll in the currently focused pane rather than switching into an implicit editor. For an AZERTY-friendly keyboard, **Up/Down** or **j/k** handle ordinary detail scrolling and restart previews; tool/provider popups use arrows/page keys for scrolling; **PageUp/PageDown optionally scroll eight lines**, and Home/End jump to the beginning/end of reading panels. Navigation opens without focusing the composer, even for blocked sessions.
 
 - **Enter/click** opens selected evidence; **Left/Esc** returns or opens/closes Sessions. **Right** focuses the action row. Focused detail content scrolls independently of selection.
 - **i** or Compose opens the composer; **Enter** in the composer sends. Enter in detail returns to the list. **Escape** from the composer returns to the previous pane.
 - **Ctrl+J** inserts a newline into the composer; **Escape** returns to the previously focused pane.
-- **1 / 2** switch between Conversation and Artifacts tabs while in navigation mode; **m** toggles rendered Markdown/raw text in Artifacts.
+- **1 / 2 / 3** switch Activity / Artifacts / Edits in navigation mode; **m** toggles rendered Markdown/raw text in Artifacts.
 - **Tab/Shift+Tab** enters/cycles workspace action controls; Enter activates an ordinary focused action, Esc returns. More opens a keyboard/mouse action menu. No function keys are required.
 - **j/k**, Up/Down and **g/G** or Home/End navigate sessions, events and artifacts when a list is focused; Up/Down or j/k scroll line by line when detail is focused.
 - **d** displays a journal-backed unified diff for a selected native write or restore; **v** toggles concise/full event visibility.
-- **Up/Down** (or **j/k**) also scroll permission requests and restoration previews when those dialogs are open.
+- **Up/Down** and page keys scroll tool/provider popup requests; ordinary readers and restoration previews also support **j/k**.
 - **F** filters activity; **C** copies the full selected text; **E** opens a temporary review snapshot in the editor. All are uppercase navigation keys.
-- **h/?** opens contextual keyboard Help; **/help** opens it from Commands mode. Help owns input above approvals: y/a/p/g/n cannot decide there, and Esc closes only Help. Expired requests never regain controls. Within Help, Tab reaches Close and Toggle mouse; **M** toggles capture directly. While editing, letters and `?` remain literal text.
+- **h/?** opens contextual keyboard Help; **/help** opens it from Commands mode. Dismiss a tool/provider popup with Esc before opening Help. Help can sit above human review; decision keys cannot decide there, and Esc closes only Help. Expired requests never regain controls. Within Help, Tab reaches Close and Toggle mouse; **M** toggles capture directly. While editing, letters and `?` remain literal text.
 - **/restart** chooses the step to restart; **/resume** resumes without extra instructions; **/recover** recovers the selected session's interrupted execution owner without running it; **/events** toggles raw event visibility; **/help** lists shortcuts.
 - **q** quits from navigation mode when no agent is running. The TUI intentionally prevents quitting while its own worker is active, to avoid silently abandoning a pending prompt.
 
@@ -197,7 +197,7 @@ Revert restores the original contents recorded before the session first touched 
 
 Reverting changes workspace files and appends restoration records; it does not fork/resume the workflow or erase its artifacts/history. The result then states that its report/checks describe the earlier run, not the restored workspace. This covers tracked native UTF-8 writes, not arbitrary shell/manual changes, Git operations, service state or external effects. Multi-file restore retains the existing partial-failure/crash limitations in [workspace restoration](09-workspace-restore.md); failures report what happened rather than claiming atomic undo.
 
-## Mouse, paste and the first redesign slice
+## Mouse, paste and layout
 
 Mouse capture is enabled by default for this TUI process. Click tabs, workspace actions, More entries, session/activity/artifact rows or the explicit approval-choice rows; keyboard paths use the same routing and guards. Press and release must target the same current control. Resizes, request replacement and layer changes invalidate stale targets. Wheel events navigate/scroll the active region (or the hovered listed row's region). Click inside a focused editor to place its caret.
 
@@ -205,13 +205,13 @@ Open Help (`h`/`?`) and use Toggle mouse or `M` to release capture for terminal 
 
 The composer and sidebar are not permanently allocated. Activity/artifact/native-edit inspection opens deliberately; the workspace action row replaces the old full static key legend. Blue input, cyan focus, neutral model output, scoped green outcomes, amber attention and red errors/destructive actions have separate roles.
 
-This implements the compact workspace/interaction foundations from [the plan](34-ui-implementation-plan.md), not every mockup. Edits now implements All-files/file cycling and durable revision-scoped Keep review. The session browser now separates candidates from the opened workspace, with explicit empty/error states. The focused consistency/regression pass is complete; generating every Help entry from one registry and additional minor polish remain refinements. Result, recovery, artifact, run/usage and human-checkpoint presentation have received focused follow-ups. Existing typed approvals, native restore guards and accounting contracts remain authoritative.
+The compact workspace, focused readers, All-files/file cycling, revision-scoped Keep, explicit session candidates and distinct empty/error states are implemented. Generating every Help entry from shared action definitions and further visual refinements remain follow-up work. Typed decisions, native restoration guards and accounting contracts remain authoritative.
 
 ## Rendered presentation and contextual controls
 
 The TUI uses a shared dark background/panel palette and rounded, framed action buttons, with an accent border/text for primary actions. Only the keyboard-focused control receives a solid cyan fill and a `›` marker. The active Overview button stays visible with bold cyan text and a double border; this current-view state is separate from keyboard focus. The active main tab uses a separate selection style. The bottom row depends on the current screen: results expose `[o] Read final report` (or `[e] Full result`), `[3] Review edits`, `[s] Overview` and `[.] More`; artifacts expose Open selected / Versions / More, or Back / Versions / More while reading. Sessions, Details and Help remain in the header, reachable through the same keyboard focus cycle. Artifact lists use one row per document, with producer and size columns when width allows. Full metadata and version references remain inspectable.
 
-[Actual Ratatui captures](screenshots/README.md) show the current code at explicit cell dimensions. Earlier [design drawings](mockups/README.md) are visual direction rather than terminal screenshots. Text snapshots guard the default 80×24 result and artifact list against accidental return to the older layout.
+[Actual Ratatui captures](screenshots/README.md) show the current code at explicit cell dimensions. Completed proportional design studies have been removed; Git retains their history. Text snapshots guard the default 80×24 result and artifact list against accidental return to the older layout.
 
 Tab cycles the current footer controls, then Sessions / Details / Help in the header, and wraps. Shift+Tab reverses the cycle. The same visible focus treatment applies to one-line header controls and menu items; Escape leaves the action focus. A primary action such as Read final report is not permanently filled.
 

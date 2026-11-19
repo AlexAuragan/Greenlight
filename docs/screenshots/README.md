@@ -1,6 +1,6 @@
 # Actual Ratatui render captures
 
-These PNG/SVG/text files come from the application's `view::draw` through Ratatui's `TestBackend`, with fictional run, failure and accounting fixtures. They are **actual implementation renders**, not the proportional drawings in [mockups](../mockups/README.md).
+These PNG/SVG/text files come from the application's `view::draw` through Ratatui's `TestBackend`, with fictional run, failure and accounting fixtures. They are **actual implementation renders**. Superseded proportional mockups have been removed; their history remains in Git.
 
 Each source cell's text, foreground, background and bold flag is copied to the image at its original grid position. The image renderer does not reposition widgets or add UI elements. PNG/SVG font rasterization can differ from your terminal; the `.txt` files show the exact character grid. These captures do not demonstrate interaction or substitute for PTY tests.
 

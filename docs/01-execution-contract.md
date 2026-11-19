@@ -18,7 +18,7 @@ The harness MUST stop when a step reports an unapproved blocker, prohibited scop
 
 1. Steps start with fresh provider conversation state and selected artifacts.
 2. Required inputs MUST exist in the visible session branch, otherwise the run stops.
-3. LLM responses must be a single YAML action: tool, artifact, finish, or deviation.
+3. Each coding response describes one YAML action: tool, artifact, finish or deviation. The parser can unwrap one unambiguous fence with surrounding commentary; it rejects multiple actions and retains original raw output. See the action contract for required fields.
 4. A tool action is subject to step capabilities and an independent permission check. Denied tools do not execute.
 5. A finish action is accepted only after all required output artifacts were generated during the **current** run and verification passed.
 6. A failed verification blocks by default. No unapproved fallback to another tool/model/architecture.
@@ -31,6 +31,10 @@ The harness MUST stop when a step reports an unapproved blocker, prohibited scop
 13. A CLI/TUI run must hold the session's OS execution lock before publishing instructions or changing execution state. An interrupted owner requires explicit recovery; unanswered approvals expire and are never replayed. Read-only observers remain permitted. Recovery does not resume work or turn a completed session back into runnable work.
     Read-only manager messages/snapshots/results and their usage records may be appended by observers without this lock. They are non-executing records, not `user.instruction`; the [manager Q&A stage](21-manager-qa.md) cannot consume a route or mutate workflow state. This exception does not authorize execution instructions, tools, approvals, restores or transitions.
 14. Each step attempt records a `context.inputs` manifest with exact artifact versions. Human approval records the displayed manifest; changing its selection while approval is pending blocks the gate. Downstream consumers of gated artifacts must use approved versions from a successfully completed gate, or stop for explicit reapproval. Approval ancestry respects fork cutoffs.
+
+Provider failures in a live workflow TUI may pause the current request for an explicit retry without starting a new attempt or replaying prior tools. Esc hides the decision and keeps the worker waiting. A stopped session’s ordinary Resume/Continue step starts a fresh attempt. See [provider recovery](19-provider-failures.md).
+
+Native read/write access is confined to the selected project root; read rejects absolute paths, parent traversal and symlink targets outside it. Directory discovery uses the same read policy. See [file discovery](36-native-file-discovery.md).
 
 ## State diagram
 
@@ -103,4 +107,4 @@ Malformed detector responses, request failures and unreadable detector prompts b
 
 ## Known deviations from the full design
 
-No transactional tool side effects, no automatic Git restoration, no streaming model output, no automatic compaction, no independent review of command outputs, and no graph-branch visualizer. Artifact version browsing/editing in the TUI remains separate from persisted input/approval references. These are deliberate scope boundaries, not guarantees.
+No atomic multi-file tool side effects, automatic Git restoration, automatic context compaction or graph-branch visualizer. Live output previews, artifact versions/provenance and guarded native-edit review are implemented; arbitrary project rollback, editable artifact import and durable process-restart continuations remain separate work. See the README roadmap for current scope boundaries.

@@ -1,6 +1,6 @@
 # Persistent approval whitelists
 
-By default, `greenlight.yaml` specifies `ask`, `allow` or `deny` for each tool type. A configured **`deny` always wins**, even if an approval was saved earlier. A configured `allow` needs no approval.
+The selected configuration (`.greenlight/config.yaml`, or a legacy root config) specifies `ask`, `allow` or `deny` for each tool type. A configured **`deny` always wins**, even if an approval was saved earlier. A configured `allow` needs no approval.
 
 On a shell or native write approval prompt:
 
@@ -38,3 +38,5 @@ Security note: selecting `p`/`g` requests a persistent grant; the separate confi
 Current shell grants still match the **entire command string**, including arguments, paths and operators. Approving `ls` does not approve `ls -la src`, and approving `cat notes.txt` does not approve another file. Process/project/global change the lifetime/scope, not the matching rule.
 
 The TODO tracks a joint design for argument-varying executable grants. It must distinguish the executable and its argument/option/path restrictions from shell composition, executable lookup, wrappers/interpreters, redirections, substitutions and environment assignments. A `cat` grant must not auto-approve `cat something.txt | ./harmful_script.sh`; every executed component must be covered or the whole compound command must prompt. This is not implemented yet. The colored exact-command preview changes presentation only, not grant semantics.
+
+Native read/write grants never expand the selected project root. In particular, `read: allow` permits authorized reads inside that project, not arbitrary host paths. Absolute paths, parent traversal, outside symlink targets and private settings/state remain blocked. Directory discovery uses that same read policy. See [project scope](22-installation-and-projects.md#native-read-scope).

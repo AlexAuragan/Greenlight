@@ -104,15 +104,13 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - DeepInfra/OpenAI-compatible chat-completions transport and model listing.
 - Read-only, network-disabled sandboxed shell; project read/journaled native write tools; optional Brave web search and Discord notifications.
 
-## UI design review
+## Documentation
 
-The [2026-11-17 screen audit and redesign draft](docs/23-ui-audit-and-redesign.md) inventories the current screens and proposes a clearer layout, semantic colors, popups, buttons and contextual actions. It is for joint review before UI implementation.
-
-The [running-screen design and static mockups](docs/24-running-screen-design.md) record the first focused screen review and agreed layout behavior.
+Start with the [documentation index](docs/README.md), [current TUI controls](docs/11-tui.md), [settled decisions](docs/16-decision-log.md) and [actual Ratatui captures](docs/screenshots/README.md). Completed UI plans and proportional mockups have been removed; their history remains in Git. The unfinished [coordinator contract](docs/20-conversational-coordinator.md) is retained for P2.
 
 ## Roadmap / TODO
 
-> **Status (2026-11-19):** this checklist tracks **remaining** work, not all ideas ever discussed. The TUI, workspace manifests, Markdown preview and Greenlight rename landed in PRs #6–#9. For rationale and proposed designs see [the dated TUI UX analysis](docs/12-tui-ux-analysis.md); for settled decisions see [the decision log](docs/16-decision-log.md), and for a repeatable manual exercise see [the smoke-test guide](docs/17-smoke-test.md). The current executable behavior is described in the specialized docs and Rust sources.
+> **Status (2026-11-19):** this checklist tracks **remaining** work, not all ideas ever discussed. The TUI, workspace manifests, Markdown preview and Greenlight rename landed in PRs #6–#9. For settled decisions see [the decision log](docs/16-decision-log.md), and for a repeatable manual exercise see [the smoke-test guide](docs/17-smoke-test.md). The current executable behavior is described in the specialized docs and Rust sources.
 
 ### Implemented baseline (not the finished UX)
 
@@ -188,18 +186,20 @@ The [running-screen design and static mockups](docs/24-running-screen-design.md)
 - [ ] Optimize artifact loading when profiling warrants it: fetch lightweight metadata, load the selected body on demand, and cache by immutable version ID. Keep as a documented scaling task, not an immediate blocker.
 - [ ] Revisit full-workspace / multi-file atomic rollback only if measured drift and restoration failures justify the extra complexity; document the current restore's partial-error handling.
 
-- [ ] Model response streaming, clean cancel/interrupt/queue semantics and resumable sessions across process restarts.
+- [ ] Extend the implemented model preview/future-request stop controls with safe in-flight cancel/interrupt/queue semantics and durable continuation across process restarts.
 - [ ] Safe Git-aware checkpoints and patch export; do not imply native restore captures arbitrary workspace changes.
 - [ ] Parallel/subworkflow orchestration with explicit session ownership and approval routing.
 - [ ] Provider flexibility, context compaction, bounded code retrieval/indexing and opt-in MCP tool integrations.
 - [ ] More complete sandbox resource limits and secret-handling defenses, plus security regression tests.
-- [ ] Optional desktop/Discord notifications, authenticated remote decisions and customizable keybindings/themes.
+- [ ] Add optional desktop notifications, authenticated remote decisions and customizable keybindings/themes. Outbound Discord notifications are already supported.
 - [ ] Branch graph/time-travel visualization, saved views, accessibility/contrast testing and performance profiling.
-- [ ] Keep design docs and the decision log synchronized with implemented behavior as each feature lands; preserve historical proposals as clearly dated snapshots.
+- [ ] Generate complete contextual Help from shared action definitions; retain keyboard/mouse parity and literal text editing.
+- [ ] Improve approval-decision provenance (request identity and UI action/key source) without persisting or replaying unanswered approvals.
+- [ ] Keep current docs and the decision log synchronized with runtime changes; retain unfinished designs, with completed proposals recoverable from Git.
 
 **Prioritization rule:** build and validate one feature at a time. Harden native-write crash consistency, and evaluate recorded workspace manifests against the native journal before expanding restoration; broader rollback can wait for real coverage evidence. Keep the ambitious TUI direction, but distinguish execution facts from model-authored UI titles, preserve saved grants while dropping pending requests after crashes, and keep the existing native-write rollback scope explicit. Models may coordinate, summarize and propose; the harness applies permissions, verification and transitions.
 
-Latest P0/P1 verification and acceptance steps: [pre-merge review](docs/37-premerge-review.md).
+Current verification evidence: [validation](docs/06-validation.md). Repeatable acceptance steps: [smoke tests](docs/17-smoke-test.md).
 
 ## Caveats (read before use)
 
@@ -209,28 +209,4 @@ The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the p
 
 The `optimize-performance` example loops on `target_not_met` and stops on regressions; automatic code rollback is intentionally **not** implemented. For safe rollback, restore the repository from a known Git checkpoint before resuming.
 
-See [documentation and decisions](docs/16-decision-log.md), the [manual smoke-test guide](docs/17-smoke-test.md), and the rest of `docs/` for execution contracts, workflow syntax and engineering tradeoffs.
-
-The [approval-dialog design and static mockups](docs/25-approval-dialog-design.md) show all valid grant choices, explicit scope confirmation and read-only Help. These remain design studies.
-
-The [completed-workflow design and static mockups](docs/26-completed-screen-design.md) propose an outcome-first result view with scoped verification, edits and historical-result warnings.
-
-The [attention and recovery design](docs/27-attention-and-recovery-design.md) proposes distinct blocked, provider-error, interrupted-owner and unfinished-write views.
-
-The [session creation and composer design](docs/28-session-creation-and-composer-design.md) covers workflow selection, goal editing and explicit manager/step message modes.
-
-The [Edits/revert design](docs/29-edits-and-revert-design.md) covers recorded diffs and guarded restoration. The [cross-screen consistency review](docs/30-ui-consistency-review.md) consolidates shared rules and remaining design work.
-
-The [artifact reader/history design](docs/31-artifact-reader-and-history-design.md) covers exact saved versions, document comparison and provenance. The Edits design also includes All files, Tab cycling and Keep-file/Keep-all review.
-
-The [navigation, checkpoints, details and Help design](docs/32-navigation-checkpoints-details-and-help-design.md) completes focused proposals for the major screen families, with six additional static studies.
-
-The [compact layout/navigation revision](docs/33-compact-layout-and-navigation.md) keeps h Help and arrows/j/k/Tab navigation without function-key shortcuts.
-
-Start with the [consolidated UI implementation plan](docs/34-ui-implementation-plan.md) for the current design references, agreed choices and first implementation slice.
-
-The major compact TUI slices and consistency pass are implemented; see [current controls](docs/11-tui.md) and [the implementation record](docs/34-ui-implementation-plan.md). Older static studies are historical design references.
-
-Review [actual Ratatui screen captures](docs/screenshots/README.md) for the implemented result/artifact presentation at 80×24 and 120×36. These replace proportional mockups as the visual review reference for those surfaces.
-
-Session creation and the explicit-recipient composer are implemented; see [current message/command controls](docs/11-tui.md) and [actual creation/composer renders](docs/screenshots/README.md).
+See the [documentation index](docs/README.md) for runtime contracts, current controls, verification and unfinished design work. [Actual Ratatui captures](docs/screenshots/README.md) show implementation renders; they supplement the manual smoke tests and do not establish real-terminal or live-model compatibility on their own.

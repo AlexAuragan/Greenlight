@@ -36,7 +36,9 @@ flowchart TD
 - `approvals.rs` — saved project/global grants, separate from temporary process-level decisions.
 - `usage.rs` — request usage ledger, token-count provenance, tiktoken fallback, immutable pricing snapshots and scoped cost summaries.
 - `provider.rs` — HTTP chat-completions and model discovery through the DeepInfra OpenAI-compatible API.
-- `tools.rs` — permissioned native file access and sandboxed shell/web dispatch.
+- `tools.rs`, `file_discovery.rs` — project-root-confined native file reads, bounded directory discovery, journaled writes and sandboxed shell/web dispatch.
+- `action_envelope.rs`, `agent_protocol.rs` — unambiguous action envelopes, field validation help and the embedded coding prompt.
+- `conversation_dump.rs` — durable exact-message traces and read-only branch-scoped Markdown/JSON exports.
 - `tui.rs` — foreground application state, store refresh, worker lifecycle and the terminal loop.
 - `tui/focus.rs`, `tui/reading.rs`, `tui/routing.rs` — focus/draft state, session/branch reading positions, cached-row activity filtering and modal keyboard precedence.
 - `tui/exports.rs` — explicit clipboard exports and private editor-review snapshots, with terminal handoff/restoration. Helpers receive selected text, never a mutable Store/Engine handle.
@@ -69,7 +71,7 @@ This separates document CPU work, not every blocking operation: store refresh/bl
 - Project and global permission grants are saved explicitly. Their scope is not changed by a model response; a configured `deny` overrides saved grants. Pending TUI approval requests are in-process and expire when their worker disconnects. Per-session OS locks prevent competing CLI/TUI execution, with persisted owner records requiring explicit recovery after worker loss. Different sessions do not share an execution lease for the whole workspace.
 - API keys come from environment variables; they are not included in serialized config or logs by the harness.
 - Search uses the Brave Web Search API if `BRAVE_SEARCH_API_KEY` is set. Web responses are untrusted content and can be prompt-injection sources.
-- The provider sends workflow prompts, step artifacts and tool observations to the configured DeepInfra endpoint. Do not run on confidential projects unless you accept that transfer.
+- The provider sends workflow prompts, step artifacts and tool observations to the configured OpenAI-compatible endpoint (DeepInfra by default). Do not run on confidential projects unless you accept that transfer.
 - Discord webhook notifications are outbound-only; failures are printed to stderr. The webhook URL is read from an environment variable.
 
 ## Architecture decision records
@@ -84,7 +86,7 @@ Choose a single Rust binary with modules instead of a distributed service. Reaso
 
 ### ADR-003: YAML agent protocol, JSON HTTP transport
 
-Choose YAML for model-to-runtime actions and workflow authoring; use JSON only for the required wire format of DeepInfra's OpenAI-compatible REST endpoint. Use strict schema checks and keep raw model responses in logs.
+Choose YAML for model-to-runtime actions and workflow authoring; use JSON only for the required wire format of DeepInfra's OpenAI-compatible REST endpoint. Use required-field/schema checks, reject ambiguous envelopes and keep raw model responses in logs. One unambiguous fenced mapping may have surrounding commentary; only its mapping is dispatched.
 
 ### ADR-004: Branchable append-only session log
 
@@ -96,7 +98,7 @@ Keep the native-write journal as the recovery basis. Record bounded SHA-256 mani
 
 ### ADR-006: Model suggestions are not authority
 
-Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [decision log](16-decision-log.md) and [TUI design analysis](12-tui-ux-analysis.md).
+Optional activity titles and future summaries/manager/coordinator proposals are untrusted annotations or suggestions. The Rust engine validates tool policies, workflow transitions, verification and restoration; an additional model must not bypass those controls. See [settled decisions](16-decision-log.md) and [current TUI behavior](11-tui.md).
 
 The [coordinator contract](20-conversational-coordinator.md) now has a [read-only Q&A implementation](21-manager-qa.md) using its bounded evidence/JSON interface and [compiled system prompt](prompts/manager-v1.md). Original-message records are separate from executing instructions. Manager calls can observe a live owner but cannot act on a route, acquire execution ownership, grant approval or modify coding context. Targeted delivery and the durable live inbox remain future work.
 

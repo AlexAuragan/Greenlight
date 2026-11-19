@@ -47,7 +47,7 @@ Replace `approve` with the workflow's actual human step ID. This does not undo e
 
 ## Precedence and trust
 
-1. Root `greenlight.yaml` provides provider defaults and absolute permission policies (legacy `stepwright.yaml` is accepted if the new file is absent).
+1. `.greenlight/config.yaml` provides provider defaults and host permission policies; root `greenlight.yaml`, then legacy `stepwright.yaml`, are fallbacks. A preferred file containing an error does not silently fall back.
 2. Workflow defaults fill unset step frontmatter.
 3. Step frontmatter overrides workflow defaults.
 4. `.greenlight/instructions.md` augments the step prompt; the legacy `.stepwright/instructions.md` is a fallback. Neither can override permissions.

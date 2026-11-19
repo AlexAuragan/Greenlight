@@ -1,10 +1,10 @@
 # Renaming Stepwright to Greenlight
 
-The project, Cargo package, and installed CLI command are named **Greenlight**. The command is `greenlight`, and the sample configuration is `greenlight.yaml`.
+The project, Cargo package, and installed CLI command are named **Greenlight**. The command is `greenlight`. New initialized projects use `.greenlight/config.yaml`; root `greenlight.yaml` and older `stepwright.yaml` remain supported fallbacks.
 
 ## Existing projects
 
-- Existing `stepwright.yaml` continues to work. If both files exist, `greenlight.yaml` wins. For clarity, rename the old config file yourself when convenient; it is not rewritten automatically.
+- Existing `stepwright.yaml` continues to work. Local `.greenlight/config.yaml` takes precedence; between the two root files, `greenlight.yaml` wins. For clarity, rename the old config file yourself when convenient; it is not rewritten automatically.
 - Project instructions now live at `.greenlight/instructions.md`. The old `.stepwright/instructions.md` remains a read-only fallback if the new file is absent.
 - On the first command that needs project state (including TUI, session history, approvals, sandbox cache), Greenlight **moves** an existing `.stepwright/state` directory to `.greenlight/state`. The complete directory is moved, preserving SQLite data, WAL files, artifact blobs, saved project approvals and sandbox caches. State is not discarded or rebuilt.
 - If both state directories are present, the command **fails** with an explicit error. Do not delete either directory without inspecting their contents and confirming which history you want to keep.

@@ -1,5 +1,7 @@
 # Native file discovery
 
+Native `read` is confined to the selected project root, normally the folder containing `.greenlight/`. Absolute paths, parent traversal and symlinks resolving outside that root are rejected. The model cannot choose another root through `path`; legacy/explicit root selection is described in [project setup](22-installation-and-projects.md).
+
 An enabled `read` tool can list directories as well as read files. This reuses the current read policy: shell permission is unnecessary, `read: deny` prevents discovery, and a workflow without read cannot use it. Existing project/workflow files need no migration or replacement.
 
 Start with the project root instead of guessing filenames:

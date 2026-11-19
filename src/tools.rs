@@ -609,3 +609,32 @@ mod discovery_tests {
         assert!(!tools.decisions.iter().any(|d|d.starts_with("shell:")));
     }
 }
+
+#[cfg(test)]
+mod project_read_scope_tests {
+    use super::*;
+    #[tokio::test]
+    async fn allowed_reads_cannot_cross_the_selected_project_boundary() {
+        let project=tempfile::tempdir().unwrap();let other=tempfile::tempdir().unwrap();
+        std::fs::create_dir(project.path().join(".greenlight")).unwrap();
+        std::fs::create_dir(other.path().join(".greenlight")).unwrap();
+        std::fs::write(project.path().join("inside.txt"),"PROJECT_CONTENT").unwrap();
+        std::fs::write(other.path().join("outside.txt"),"OUTSIDE_CONTENT").unwrap();
+        let mut tools=Tools::new(project.path().to_owned(),Permissions::default()).unwrap();
+        let request=|path:&str|parse_action(&serde_json::json!({"action":"tool","tool":"read","path":path}).to_string()).unwrap();
+        assert_eq!(tools.call(&request("inside.txt")).await.unwrap(),"PROJECT_CONTENT");
+        assert!(tools.call(&request(".")).await.unwrap().contains("inside.txt"));
+        let traversal=format!("../{}/outside.txt",other.path().file_name().unwrap().to_str().unwrap());
+        for path in [other.path().join("outside.txt").to_str().unwrap(),traversal.as_str()] {
+            assert!(format!("{:#}",tools.call(&request(path)).await.unwrap_err()).contains("project root"));
+        }
+        #[cfg(unix)] {
+            std::os::unix::fs::symlink(other.path().join("outside.txt"),project.path().join("outside-link.txt")).unwrap();
+            std::os::unix::fs::symlink(other.path(),project.path().join("outside-dir")).unwrap();
+            for path in ["outside-link.txt","outside-dir","outside-dir/outside.txt"] {
+                assert!(format!("{:#}",tools.call(&request(path)).await.unwrap_err()).contains("project root"));
+            }
+            let listing=tools.call(&request(".")).await.unwrap();assert!(!listing.contains("outside-link") && !listing.contains("outside-dir"));
+        }
+    }
+}
