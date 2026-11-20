@@ -214,6 +214,12 @@ pub(super) fn project(
             state.title = match failure.kind {
                 ProviderKind::Credentials => "Provider credentials rejected",
                 ProviderKind::Billing => "Provider credit or billing quota exhausted",
+                ProviderKind::RateLimit
+                    if failure.limit_reason
+                        == Some(crate::provider_failure::LimitReason::Capacity) =>
+                {
+                    "Model busy · shared provider capacity"
+                }
                 ProviderKind::RateLimit => "Provider rate limit reached",
                 ProviderKind::Permission => "Provider access denied",
                 ProviderKind::Request => "Provider rejected the request",

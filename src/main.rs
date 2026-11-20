@@ -21,6 +21,7 @@ mod paths;
 mod pricing;
 mod project;
 mod provider;
+mod provider_diagnostic;
 mod provider_failure;
 mod restore;
 mod sandbox;

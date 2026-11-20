@@ -565,7 +565,7 @@ impl Engine {
         interaction: Option<(&str, &str)>,
     ) -> Result<String> {
         use crate::provider_failure::{Failure, Kind};
-        for attempt in 1..=3 {
+        for attempt in 1..=5 {
             if self
                 .provider
                 .retry_cancel
@@ -607,6 +607,9 @@ impl Engine {
             if let Some((message, snapshot)) = interaction {
                 call.manager_message_id = Some(message.into());
                 call.manager_snapshot_id = Some(snapshot.into());
+            }
+            if let Some(tier) = &self.cfg.provider.service_tier {
+                call.counts.notes.push(format!("Requested service_tier: {tier}. Standard-tier catalog pricing is not verified for this request."));
             }
             self.store.begin_model_call(s, &mut call)?;
             if let Err(error) = crate::conversation_dump::record_request(
@@ -650,6 +653,9 @@ impl Engine {
                     call.estimated_cost = None;
                 }
             }
+            if self.cfg.provider.service_tier.is_some() {
+                call.estimated_cost = None;
+            }
             self.store
                 .finish_model_call(s, &call)
                 .context("could not persist model usage; initial request record retained")?;
@@ -669,14 +675,18 @@ impl Engine {
                 self.checkpoint_failure(s, purpose, &failure)?;
                 if purpose != "manager" {
                     console_eprintln!(self, "[provider] {failure}");
+                    if let Some(diagnostic) = &failure.diagnostic {
+                        console_eprintln!(self, "[provider diagnostic]\n{}", diagnostic.text());
+                    }
                 }
                 self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"purpose":purpose,"request_number":attempt,"failure":failure}))?)?;
                 if let Some(delay) = failure.delay(attempt) {
                     if purpose != "manager" {
                         console_eprintln!(
                             self,
-                            "[provider retry] request {}/3 in {:.2}s",
+                            "[provider retry] request {}/{} in {:.2}s",
                             attempt + 1,
+                            failure.automatic_attempts(),
                             delay.as_secs_f64()
                         );
                     }

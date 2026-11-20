@@ -30,6 +30,8 @@ Copy exports full selected text. Editor opens a private snapshot while idle.
 Exact arguments; no extra approval; side effects may repeat. Results are linked in history.
 More > Conversation dump or /dump opens the recorded transcript.
 More > Usage or /usage opens session token/cost accounting.
+More > Provider and Request details include recorded API errors and support IDs.
+Copy exports these diagnostics; known credentials are redacted.
 Request details: arrows select, Enter/click opens the exact dispatch.
 Back/Esc returns within details before returning to the workspace.
 v shows raw events in Activity, or artifact versions in Artifacts.

@@ -515,13 +515,17 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             match parsed {
                 Some(f) => card(
                     format!(
-                        "{} · {:?}",
+                        "{} · {}",
                         if manager {
                             "Manager provider"
                         } else {
                             "Provider"
                         },
-                        f.kind
+                        if f.limit_reason == Some(crate::provider_failure::LimitReason::Capacity) {
+                            "Model busy".into()
+                        } else {
+                            format!("{:?}", f.kind)
+                        }
                     ),
                     f.to_string(),
                     if f.retryable {
