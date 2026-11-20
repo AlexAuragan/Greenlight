@@ -43,6 +43,7 @@ pub struct Checkpoint {
     pub cooldown_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Reference {
     manager: bool,
     blob: Option<String>,
@@ -56,7 +57,11 @@ pub fn pending_reference(
         .rev()
         .filter(|event| event.2 == "continuation.state")
     {
-        let reference: Reference = serde_json::from_str(&event.3)?;
+        let value: Value = serde_json::from_str(&event.3)?;
+        if value.get("blob").is_none() {
+            bail!("Saved continuation reference is missing its blob field");
+        }
+        let reference: Reference = serde_json::from_value(value)?;
         if reference.manager == manager {
             return Ok(reference.blob);
         }
@@ -193,6 +198,14 @@ impl Engine {
         if cp.schema_version != 1 {
             bail!("Unsupported saved continuation version; checkpoint retained");
         }
+        let current = self.store.session(&s.id)?;
+        if current.active_branch != s.active_branch
+            || current.current_step != s.current_step
+            || current.workflow != s.workflow
+            || current.goal != s.goal
+        {
+            bail!("Session changed; refresh before retrying the saved request");
+        }
         self.store.ensure_no_pending_writes()?;
         if self
             .store
@@ -223,6 +236,15 @@ impl Engine {
                     .as_deref()
         {
             bail!("The original attempt is no longer current; saved request cannot continue");
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_pending_retry(&self, s: &Session, purpose: &str) -> Result<()> {
+        if let Some(cp) = self.store.pending_continuation(s, purpose == "manager")? {
+            if cp.purpose != purpose {
+                bail!("Saved request phase changed before retry");
+            }
+            self.validate_continuation(s, &cp)?;
         }
         Ok(())
     }

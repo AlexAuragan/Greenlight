@@ -502,6 +502,11 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             format!("Version #{id} · o opens this exact version"),
             Tone::Info,
         ),
+        "continuation.retry-wait" => card(
+            "Waiting for saved request cooldown",
+            "Retry-After is retained · k stops execution",
+            Tone::Info,
+        ),
         "provider.failure" => {
             let manager = serde_json::from_str::<serde_json::Value>(raw)
                 .ok()

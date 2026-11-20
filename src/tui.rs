@@ -378,10 +378,19 @@ impl App {
                     return Ok(());
                 }
             };
-            self.saved_workflow_request =
-                crate::continuation::pending_reference(&history, false)?.is_some();
-            self.saved_manager_request =
-                crate::continuation::pending_reference(&history, true)?.is_some();
+            for (manager, pending) in [
+                (
+                    false,
+                    crate::continuation::pending_reference(&history, false),
+                ),
+                (true, crate::continuation::pending_reference(&history, true)),
+            ] {
+                match pending {
+                    Ok(reference) if manager => self.saved_manager_request = reference.is_some(),
+                    Ok(reference) => self.saved_workflow_request = reference.is_some(),
+                    Err(error) => self.notice = format!("Saved request metadata unreadable ({}): {error}. Recorded history remains available; this saved retry will not start.", if manager {"manager"} else {"workflow"}),
+                }
+            }
 
             let session_changed = self.workspace_session.as_deref() != Some(session.id.as_str());
             let old_primary = self.workspace.as_ref().map(|w| w.primary);

@@ -899,3 +899,25 @@ fn saved_provider_request_is_visible_after_reopen_and_help_cannot_retry_it() {
     assert!(app.notice.contains("Recover"));
     store.finish_execution(&session.id, &owner, None).unwrap();
 }
+
+#[test]
+fn malformed_checkpoint_metadata_preserves_the_tui_and_raw_history() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    store
+        .event(&session, Some("step"), "continuation.state", "not-json")
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    assert!(app.notice.contains("metadata unreadable"));
+    assert!(!app.saved_workflow_request && !app.saved_manager_request);
+    app.show_all = true;
+    app.refresh(&store).unwrap();
+    assert!(app
+        .events
+        .iter()
+        .any(|e| e.kind == "continuation.state" && e.data == "not-json"));
+    key(&mut app, &store, root.path(), KeyCode::Char('t'));
+    assert!(app.runner.is_none());
+}

@@ -432,7 +432,19 @@ impl Engine {
                 .context(crate::provider_failure::ModelCallFailed)?;
             if let Some(until) = cp.cooldown_until {
                 let remaining = (until - chrono::Utc::now()).to_std().unwrap_or_default();
+                if !remaining.is_zero() {
+                    self.store
+                        .event(
+                            s,
+                            Some(step),
+                            "continuation.retry-wait",
+                            &json!({"purpose":purpose,"until":until}).to_string(),
+                        )
+                        .context(crate::provider_failure::ModelCallFailed)?;
+                }
                 crate::provider_failure::wait(remaining, &self.provider.retry_cancel).await?;
+                self.validate_continuation(s, cp)
+                    .context(crate::provider_failure::ModelCallFailed)?;
             }
         }
         let messages = restored
@@ -447,7 +459,11 @@ impl Engine {
             .checkpoint(s, step, purpose, model, messages, interaction)
             .context(crate::provider_failure::ModelCallFailed)?;
         let result: Result<String> = async {
+            let mut retrying = false;
             loop {
+                if retrying {
+                    self.validate_pending_retry(s, purpose)?;
+                }
                 let error = match self
                     .dispatch_model_call(s, step, purpose, model, messages, interaction)
                     .await
@@ -455,6 +471,7 @@ impl Engine {
                     Ok(text) => break Ok(text),
                     Err(error) => error,
                 };
+                retrying = true;
                 let Some(failure) = error
                     .downcast_ref::<crate::provider_failure::Failure>()
                     .cloned()
@@ -598,6 +615,9 @@ impl Engine {
                 .load(std::sync::atomic::Ordering::SeqCst)
             {
                 return Err(Failure::local(Kind::Cancelled).into());
+            }
+            if attempt > 1 {
+                self.validate_pending_retry(s, purpose)?;
             }
             let provider = reqwest::Url::parse(&self.cfg.provider.base_url)
                 .map(|url| url.origin().ascii_serialization())

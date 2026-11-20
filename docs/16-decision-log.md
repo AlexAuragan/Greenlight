@@ -95,3 +95,8 @@ Provider calls publish versioned immutable checkpoint blobs through branch-visib
 ## 2026-11-20 — DeepInfra capacity responses and inspectable API errors
 
 Provider support identified the reported 429s as shared model-pool Model busy responses, not the account concurrency ceiling. The earlier parser missed that phrase and discarded response text, so old exact wording cannot be recovered. Recognize busy/capacity responses and allow up to five sequential attempts with 1/2/4/8-second jittered exponential backoff, respecting Retry-After. DeepInfra unknown non-billing 429s use the ordinary bounded retry budget; other providers retain explicit classification. Never auto-retry quota/billing or usage-bearing/uncertain processed responses. Keep the concise safe advice, while separately persisting bounded redacted body/request-ID diagnostics for Provider details, individual requests and conversation exports. Add opt-in service_tier: priority without changing defaults or applying standard-tier price estimates to priority billing.
+
+
+## 2026-11-20 — GL-002 recovery review
+
+Revalidate saved requests after waiting, not just before cooldown: project files or session state can change during a pause. Apply the same guard to manual and automatic retries, retain the old checkpoint on refusal, and show a saved-cooldown waiting card. Re-read persisted session identity/step/goal during validation. Report malformed checkpoint metadata without terminating the TUI or hiding raw history; validate workflow and manager slots independently. A child-process regression exercises dotenv credential reload, exact messages, unchanged attempt identity and no repeated tools.
