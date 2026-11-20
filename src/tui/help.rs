@@ -18,7 +18,10 @@ Review permission / Review retry reopens the pending request.
 Dismiss tool popups before opening Help; human checkpoints retain h Help.
 Help owns input above the pending decision; Esc closes Help only.
 Provider pause: y retries the exact request, n stops, Esc hides.
-Continue step starts a fresh attempt; it does not replay an exact request.
+[t] Retry saved request restores exact messages/attempt after reopening.
+[T] Retry saved manager restores the original question and evidence snapshot.
+Changed workspace/settings block saved retry; fresh instructions start a new attempt.
+Recover an interrupted owner first. Credentials reload; earlier tools are not replayed.
 Revert/restart: y confirms, n/Esc cancels; Enter is inert.
 
 Evidence and actions

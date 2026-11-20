@@ -150,6 +150,22 @@ impl App {
             self.open_help();
             return Ok(false);
         }
+        if !typing
+            && !self.shell.more
+            && self.new_session.is_none()
+            && self.decision_layer() == actions::DecisionLayer::Workspace
+            && key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            if key.code == KeyCode::Char('T') && self.saved_manager_request {
+                return self.activate(shell::Action::RetrySavedManager, root, store);
+            }
+            if key.code == KeyCode::Char('t') && self.saved_workflow_request {
+                return self.activate(shell::Action::RetrySaved, root, store);
+            }
+        }
         if self.shell.more {
             let actions = self.more_actions();
             match key.code {

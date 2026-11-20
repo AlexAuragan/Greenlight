@@ -23,24 +23,28 @@ pub struct Runner {
 }
 
 pub fn resume(root: PathBuf, session_id: String, instruction: String) -> Runner {
-    start(root, session_id, instruction, None)
+    start(root, session_id, Work::Resume(instruction))
 }
 
 pub fn rerun(root: PathBuf, session_id: String, branch: String, request: i64) -> Runner {
-    start(root, session_id, String::new(), Some((branch, request)))
+    start(root, session_id, Work::Rerun(branch, request))
 }
 
-fn start(
-    root: PathBuf,
-    session_id: String,
-    instruction: String,
-    rerun: Option<(String, i64)>,
-) -> Runner {
+pub fn resume_saved(root: PathBuf, session_id: String) -> Runner {
+    start(root, session_id, Work::Saved)
+}
+
+enum Work {
+    Resume(String),
+    Rerun(String, i64),
+    Saved,
+}
+fn start(root: PathBuf, session_id: String, work: Work) -> Runner {
     let (prompt_tx, prompts) = mpsc::channel();
     let (answers, answer_rx) = mpsc::channel();
     let (finished_tx, finished) = mpsc::channel();
     let owner_session = session_id.clone();
-    let is_rerun = rerun.is_some();
+    let is_rerun = matches!(&work, Work::Rerun(..));
     let cancel_retry = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let worker_cancel = cancel_retry.clone();
 
@@ -58,11 +62,14 @@ fn start(
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
-            match rerun {
-                Some((branch, request)) => {
+            match work {
+                Work::Rerun(branch, request) => {
                     runtime.block_on(engine.rerun_tool(&session_id, &branch, request))
                 }
-                None => runtime.block_on(engine.run(&session_id, Some(&instruction), None)),
+                Work::Resume(instruction) => {
+                    runtime.block_on(engine.run(&session_id, Some(&instruction), None))
+                }
+                Work::Saved => runtime.block_on(engine.resume_saved(&session_id)),
             }
         })();
         let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));

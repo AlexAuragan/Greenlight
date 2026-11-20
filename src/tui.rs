@@ -87,6 +87,8 @@ struct App {
     edits: edits::Edits,
     compose: compose::Composer,
     result_open: bool,
+    saved_workflow_request: bool,
+    saved_manager_request: bool,
     result_text: String,
     result_overview: Option<result::Overview>,
     result_key: Option<(String, String, i64)>,
@@ -171,6 +173,8 @@ impl App {
             edits: Default::default(),
             compose: Default::default(),
             result_open: false,
+            saved_workflow_request: false,
+            saved_manager_request: false,
             result_text: String::new(),
             result_overview: None,
             result_key: None,
@@ -278,6 +282,8 @@ impl App {
     }
 
     fn refresh(&mut self, store: &Store) -> Result<()> {
+        self.saved_workflow_request = false;
+        self.saved_manager_request = false;
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
             let config = crate::config::load_config(root);
             self.details.configured_model = config.as_ref().ok().map(|c| c.provider.model.clone());
@@ -372,6 +378,11 @@ impl App {
                     return Ok(());
                 }
             };
+            self.saved_workflow_request =
+                crate::continuation::pending_reference(&history, false)?.is_some();
+            self.saved_manager_request =
+                crate::continuation::pending_reference(&history, true)?.is_some();
+
             let session_changed = self.workspace_session.as_deref() != Some(session.id.as_str());
             let old_primary = self.workspace.as_ref().map(|w| w.primary);
             let old_blocker = self

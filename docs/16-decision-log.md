@@ -85,3 +85,8 @@ Historical tool reruns remain GL-001: normal failures go back to the model; an e
 ## 2026-11-19 — User-requested tool executions
 
 Implement GL-001 as an explicit rerun of a selected historical call, not an automatic pause/retry loop. Stop execution first. The Run tool again action authorizes only that exact invocation without another approval or saved grant; current tool/project boundaries remain. Append a new request/result and user provenance linked to the original. Reuse execution ownership and native journaling, never replay after crashes automatically, and provide bounded results to a fresh attempt. Completed sessions return to blocked review after reruns; no new verification/completion is implied. See [tool rerun contract](37-tool-reruns.md).
+
+
+## 2026-11-19 — Durable provider continuations
+
+Provider calls publish versioned immutable checkpoint blobs through branch-visible continuation state events. Save exact messages, model, attempt, execution phase, completed verification checks and manager interaction/snapshot identity; keep credentials and unanswered approvals out of checkpoints. Retry explicitly, reload credentials on restart, retain Retry-After and physical-request accounting, and validate project hashes, configuration, inputs, branch, attempt and checkpoint identity under ownership. Preserve failed/corrupt checkpoints without silently starting fresh work. Resume coding/verification/detector phases without replaying earlier tools/checks; manager recovery is independently locked and read-only. Fresh instructions intentionally discard the workflow checkpoint and create a new attempt. See [provider continuations](38-provider-continuations.md).

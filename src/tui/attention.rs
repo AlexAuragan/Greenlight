@@ -20,6 +20,7 @@ pub(super) struct State {
     pub impact: &'static str,
     pub evidence: Option<i64>,
     pub resumable: bool,
+    saved_request: bool,
 }
 impl State {
     pub(super) fn color(&self) -> Color {
@@ -37,6 +38,7 @@ impl State {
             Kind::Writes => vec![WriteGuidance, RecordedActivity, More],
             Kind::Retry => vec![Stop, InspectAttention, More],
             Kind::Observing => vec![RecordedActivity, More],
+            _ if self.resumable && self.saved_request => vec![RetrySaved, InspectAttention, More],
             Kind::Provider if self.resumable => vec![ResumeProvider, InspectAttention, More],
             _ if self.resumable => vec![InspectAttention, GiveInstructions, More],
             _ => vec![InspectAttention, More],
@@ -65,6 +67,10 @@ pub(super) fn project(
         impact: "Execution is stopped; recorded work remains available.",
         evidence,
         resumable: workspace.primary == Primary::Resume && !local,
+        saved_request: crate::continuation::pending_reference(history, false)
+            .ok()
+            .flatten()
+            .is_some(),
     };
     match workspace.primary {
         Primary::RecoverOwner => {
@@ -223,6 +229,11 @@ pub(super) fn project(
             state.next = "Fix the provider issue, then t / Continue step. A live retry popup preserves the exact request.";
             state.impact = "Continue step starts a new attempt; earlier tools may run again. Recorded work and branch are retained.";
         }
+    }
+    if state.saved_request && state.resumable {
+        state.next =
+            "t / Retry saved request validates the workspace and resends the exact messages.";
+        state.impact = "The original attempt is retained; earlier tools/checks are not repeated. Credentials reload on restart. Fresh instructions start a new attempt.";
     }
     Some(state)
 }

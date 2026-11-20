@@ -170,6 +170,7 @@ pub(super) fn conversational_label(kind: &str) -> &str {
         "activity.title" => "Agent intent (model-authored)",
         "workspace.correlation" => "Workspace hash/journal audit",
         "step.started" => "Step started",
+        "attempt.continued" => "Saved request continued",
         "step.completed" => "Step completed",
         "step.blocked" => "Blocked",
         "step.error" => "Error",

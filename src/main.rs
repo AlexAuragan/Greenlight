@@ -6,6 +6,7 @@ mod approvals;
 mod artifact_history;
 mod changes;
 mod config;
+mod continuation;
 mod conversation_dump;
 mod credentials;
 #[cfg(test)]

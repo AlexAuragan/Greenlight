@@ -46,7 +46,7 @@ fn trace_directory(store: &Store) -> Result<std::path::PathBuf> {
     }
     Ok(path)
 }
-fn save_message(store: &Store, message: &Value) -> Result<String> {
+pub(crate) fn save_message(store: &Store, message: &Value) -> Result<String> {
     let bytes = serde_json::to_vec(message)?;
     let id = hash(&bytes);
     let path = trace_directory(store)?.join(format!("trace-{id}.json"));
@@ -71,7 +71,7 @@ fn save_message(store: &Store, message: &Value) -> Result<String> {
     std::fs::File::open(path.parent().context("missing trace directory")?)?.sync_all()?;
     Ok(id)
 }
-fn load_message(store: &Store, id: &str) -> Result<Value> {
+pub(crate) fn load_message(store: &Store, id: &str) -> Result<Value> {
     if id.len() != 64
         || !id
             .bytes()

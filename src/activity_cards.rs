@@ -330,7 +330,8 @@ fn card(title: impl Into<String>, summary: impl Into<String>, tone: Tone) -> Car
 pub fn is_protocol(kind: &str) -> bool {
     matches!(
         kind,
-        "step.definition"
+        "continuation.state"
+            | "step.definition"
             | "context.assembled"
             | "model.output"
             | "tool.request"
@@ -608,6 +609,11 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
         "step.error" | "runner.error" => card("Execution error", short(raw), Tone::Error),
         "step.blocked" => card("Step blocked", short(raw), Tone::Attention),
         "step.completed" => card("Step completed", short(raw), Tone::Good),
+        "attempt.continued" => card(
+            "Saved request continued",
+            "Original attempt retained; earlier tools are not repeated",
+            Tone::Info,
+        ),
         "step.started" => card("Step started", short(raw), Tone::Info),
         "session.started" => card("Session started", short(raw), Tone::Info),
         "session.completed" => card("Session completed", short(raw), Tone::Good),

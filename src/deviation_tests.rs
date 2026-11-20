@@ -874,3 +874,307 @@ async fn reruns_reject_live_owners_changed_branches_and_disabled_tools() {
         crate::session_execution::ExecutionState::Idle
     );
 }
+
+#[tokio::test]
+async fn saved_coding_request_survives_reopen_without_repeating_tools_or_attempt() {
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: tool\ntool: read\npath: source.txt"),
+            Err("offline"),
+            Ok(FINISH),
+        ],
+    );
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [read]"),
+    )
+    .unwrap();
+    fs::write(h.root.path().join("source.txt"), "original source").unwrap();
+    h.run().await;
+    let session = h.engine.store.session(&h.session).unwrap();
+    let attempt = h.engine.store.latest_attempt(&session, "step").unwrap();
+    let saved = h
+        .engine
+        .store
+        .pending_continuation(&session, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.messages, h.script.lock().unwrap().requests[1]);
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&session.id).await.unwrap();
+    assert_eq!(
+        reopened.store.session(&session.id).unwrap().status,
+        "completed"
+    );
+    assert_eq!(
+        reopened.store.latest_attempt(&session, "step").unwrap(),
+        attempt
+    );
+    let history = reopened.store.history(&session).unwrap();
+    assert_eq!(history.iter().filter(|e| e.2 == "tool.request").count(), 1);
+    assert_eq!(history.iter().filter(|e| e.2 == "step.started").count(), 1);
+    assert!(reopened
+        .store
+        .pending_continuation(&session, false)
+        .unwrap()
+        .is_none());
+    let script = h.script.lock().unwrap();
+    assert_eq!(script.requests[1], script.requests[2]);
+}
+
+#[tokio::test]
+async fn saved_verifier_resumes_finish_without_repeating_coding_or_registered_artifacts() {
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: artifact\nname: report.md\ncontent: findings"),
+            Ok(FINISH),
+            Err("offline"),
+            Ok("passed: true\nreason: supported"),
+        ],
+    );
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("type: none", "type: agent\n  prompt: detector.md"),
+    )
+    .unwrap();
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "completed");
+    assert_eq!(
+        reopened
+            .store
+            .history(&s)
+            .unwrap()
+            .iter()
+            .filter(|e| e.2 == "artifact.created")
+            .count(),
+        1
+    );
+    let script = h.script.lock().unwrap();
+    assert_eq!(script.requests.len(), 4);
+    assert_eq!(script.requests[2], script.requests[3]);
+}
+
+#[tokio::test]
+async fn changed_workspace_rejects_saved_request_before_dispatch_and_keeps_checkpoint() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline")]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    fs::write(h.root.path().join("source.txt"), "intervening change").unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(reopened
+        .resume_saved(&s.id)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("changed"));
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert!(reopened
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .is_some());
+}
+
+#[tokio::test]
+async fn credential_file_changes_do_not_invalidate_exact_request_checkpoint() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline"), Ok(FINISH)]);
+    fs::write(
+        h.root.path().join(".env"),
+        "GREENLIGHT_TEST_UNUSED_KEY=old-key\n",
+    )
+    .unwrap();
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    fs::write(
+        h.root.path().join(".env"),
+        "GREENLIGHT_TEST_UNUSED_KEY=new-key\n",
+    )
+    .unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 2);
+}
+
+#[tokio::test]
+async fn saved_detector_resumes_without_counting_the_deviation_twice() {
+    let mut h = Harness::new(PAUSE, vec![Ok(REPORT), Err("offline"), Ok(ACCEPT)]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    let script = h.script.lock().unwrap();
+    assert_eq!(script.requests.len(), 3);
+    assert_eq!(script.requests[1], script.requests[2]);
+    assert_eq!(
+        reopened
+            .store
+            .history(&s)
+            .unwrap()
+            .iter()
+            .filter(|e| e.2 == "step.deviation")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn owner_recovery_is_required_but_does_not_discard_a_saved_request() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline"), Ok(FINISH)]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    // Simulate a worker dying after claiming ownership; releasing the OS lock
+    // does not erase its persistent execution record.
+    let owner = h.engine.store.claim_execution(&s.id, None).unwrap();
+    drop(owner);
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(reopened.resume_saved(&s.id).await.is_err());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    reopened.store.recover_session(&s.id).unwrap();
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 2);
+}
+
+#[tokio::test]
+async fn saved_composite_verification_does_not_repeat_completed_human_checks() {
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: finish\nactivity_title: Finishing evidence"),
+            Err("offline"),
+            Ok("passed: true\nreason: supported"),
+        ],
+    );
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file).unwrap().replace(
+            "type: none",
+            "type: all\n  checks:\n    - type: human\n    - type: agent\n      prompt: detector.md",
+        ),
+    )
+    .unwrap();
+    let (requests, _prompts) = std::sync::mpsc::channel();
+    let (answers, responses) = std::sync::mpsc::channel();
+    answers.send("y".into()).unwrap();
+    h.engine.tools.use_tui(requests, responses);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cp.checks, vec![Ok(())]);
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "completed");
+    let history = reopened.store.history(&s).unwrap();
+    assert_eq!(
+        history
+            .iter()
+            .filter(|e| e.2 == "verification.human")
+            .count(),
+        1
+    );
+    assert_eq!(
+        history.iter().filter(|e| e.2 == "activity.title").count(),
+        1
+    );
+    assert!(crate::activity_cards::Projection::build(&history)
+        .malformed
+        .is_empty());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 3);
+}
+
+#[tokio::test]
+async fn corrupted_checkpoint_never_falls_back_to_fresh_execution() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline")]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let history = h.engine.store.history(&s).unwrap();
+    let reference = crate::continuation::pending_reference(&history, false)
+        .unwrap()
+        .unwrap();
+    fs::write(
+        h.engine
+            .store
+            .directory
+            .join("blobs")
+            .join(format!("trace-{reference}.json")),
+        "corrupt",
+    )
+    .unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(reopened.resume_saved(&s.id).await.is_err());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "blocked");
+}
+
+#[tokio::test]
+async fn saved_retry_after_survives_worker_cancellation_and_owner_recovery() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    let mut failure =
+        crate::provider_failure::Failure::local(crate::provider_failure::Kind::RateLimit);
+    failure.status = Some(429);
+    failure.retry_after_seconds = Some(60);
+    h.script
+        .lock()
+        .unwrap()
+        .completions
+        .push_back(crate::provider::Completion {
+            content: Err("rate limited".into()),
+            failure: Some(failure),
+            raw_usage: None,
+            response_id: None,
+            response_model: None,
+        });
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    assert!(cp.cooldown_until.unwrap() > chrono::Utc::now());
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(tokio::time::timeout(
+        std::time::Duration::from_millis(30),
+        reopened.resume_saved(&s.id)
+    )
+    .await
+    .is_err());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    reopened.store.recover_session(&s.id).unwrap();
+    let mut elapsed = reopened
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    elapsed.cooldown_until = Some(chrono::Utc::now() - chrono::Duration::seconds(1));
+    reopened.store.save_continuation(&s, &elapsed).unwrap();
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 2);
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "completed");
+}

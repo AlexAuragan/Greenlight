@@ -69,3 +69,8 @@ A separate native PTY fixture confirms that a manually retried streaming request
 The [Provider / API key page](11-tui.md#inspecting-the-provider-and-api-key) exposes first/last-five masking and source precedence, with the active worker's captured snapshot. Changing `.env` does not override a preexisting exported variable and does not reload a running process. Normal provider construction now captures credentials once; manual retry cannot silently switch keys if the process environment changes later. No full key or credential snapshot is persisted in accounting or audit events.
 
 A retry succeeding after a brief pause is consistent with temporary throttling or model capacity, but does not identify which limit was enforced. Checking the masked key rules out a credential-selection mistake; it does not independently resolve an HTTP 429's cause.
+
+
+## Saved requests across restarts
+
+Provider calls now have durable private checkpoints. After reopening, **[t] Retry saved request** restores the original messages, attempt and execution phase, including verification/detector calls. **[T] Retry saved manager** in More restores a side question and its original evidence snapshot. Recover an interrupted owner first. Remaining Retry-After is retained; earlier tools and completed checks are not repeated. Restarting reloads credentials from the normal sources, without storing keys in checkpoints. Changed files, configuration, inputs, branch or attempt refuse saved retry; fresh instructions start a new attempt. See [the continuation contract](38-provider-continuations.md).

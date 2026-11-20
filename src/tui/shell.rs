@@ -218,6 +218,12 @@ impl App {
         if self.view == View::Conversation {
             actions.extend([Action::Filter, Action::Follow]);
         }
+        if self.saved_workflow_request && self.runner.is_none() {
+            actions.push(Action::RetrySaved);
+        }
+        if self.saved_manager_request && self.manager_job.is_none() {
+            actions.push(Action::RetrySavedManager);
+        }
         if self.runner.is_some() || self.manager_job.is_some() {
             actions.push(Action::Stop);
         }
@@ -411,6 +417,18 @@ impl App {
         }
         if self.session().is_none() {
             return vec![Action::New, Action::More];
+        }
+        if self.saved_workflow_request
+            && self.runner.is_none()
+            && self.manager_job.is_none()
+            && !self.attention.as_ref().is_some_and(|state| {
+                matches!(
+                    state.kind,
+                    attention::Kind::Owner | attention::Kind::Writes | attention::Kind::Observing
+                )
+            })
+        {
+            return vec![Action::RetrySaved, Action::InspectAttention, Action::More];
         }
         if self.attention_visible() {
             return self.attention.as_ref().unwrap().actions();
@@ -630,8 +648,39 @@ impl App {
             self.shell.more = false;
         }
         match action {
+            RetrySaved => {
+                if self.runner.is_some() || self.manager_job.is_some() {
+                    self.notice = "Stop active execution before retrying the saved request.".into();
+                    return Ok(false);
+                }
+                let session = self.session().context("No selected session")?;
+                if store.execution_state(&session.id)?
+                    != crate::session_execution::ExecutionState::Idle
+                {
+                    self.notice =
+                        "Recover the interrupted owner before retrying the saved request.".into();
+                    return Ok(false);
+                }
+                if store.pending_continuation(session, false)?.is_none() {
+                    self.refresh(store)?;
+                    return Ok(false);
+                }
+                self.runner = Some(tui_actions::resume_saved(
+                    root.to_path_buf(),
+                    session.id.clone(),
+                ));
+                self.clear_diagnostic();
+                self.result_open = false;
+                self.notice = "Validating saved request and workspace. Exact messages and attempt will be retained; earlier tools will not run again. Credentials reload from current settings; remote billing may be uncertain.".into();
+            }
+            RetrySavedManager => {
+                self.retry_saved_manager(root, store);
+            }
             ResumeProvider => {
                 self.refresh(store)?;
+                if self.saved_workflow_request {
+                    return self.activate(RetrySaved, root, store);
+                }
                 if !self
                     .attention
                     .as_ref()

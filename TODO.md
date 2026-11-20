@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Next: recovery and correctness
 
-- [ ] **GL-002** — Persist suspended provider-request continuations across TUI/process restarts, including manager side questions, with exact-message checkpoints, credential/config reload semantics and validation of intervening workspace changes. In-process workflow Retry request preserves messages; ordinary Resume/Continue step starts a fresh step attempt.
 - [ ] **GL-003** — Close concurrent path-swap races with descriptor-anchored file access across tools, include loading, journal snapshots, restore and private blob storage. Current canonicalization/lstat checks reject static escapes but do not make later opens race-free.
 - [ ] **GL-005** — Bound expanded includes, artifact/trace reads and history/export memory. Profile refresh/diff work, load lightweight event metadata and selected immutable bodies on demand, and avoid full-history scans on interactive paths. Define configurable limits and legacy-file behavior before changing schemas.
 - [ ] **GL-007** — Define project-level execution coordination before parallel workflows: session ownership and per-write locking do not prevent concurrent sessions reasoning over stale project state. Session creation, branch switching and fork publication are now transactional; project-level execution coordination remains open.
@@ -42,9 +41,11 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Dependencies and design gates
 
-GL-002 needs durable message checkpoints and workspace validation. GL-007 precedes parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
+GL-007 precedes parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-002** — Implemented on `feat/stop-execution-key` (awaiting merge): durable exact-message provider continuations for coding, verification, detectors and manager side questions; original attempt/check progress, credential reload, cooldown and ownership recovery, immutable checkpoints, and workspace/config/input validation. See [saved provider requests](docs/38-provider-continuations.md).
 
 - [x] **GL-001** — Implemented on `feat/stop-execution-key` (awaiting merge): user-requested historical tool reruns: exact arguments, explicit one-call authorization, linked new history/results, existing project/tool boundaries and write journal, execution ownership/recovery, and bounded evidence in the next attempt. No automatic replay. See [tool reruns](docs/37-tool-reruns.md).
 

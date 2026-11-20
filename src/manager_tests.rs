@@ -485,3 +485,32 @@ async fn retry_calls_link_to_one_original_question_and_snapshot() {
         Some(reply.decision.message_id())
     );
 }
+
+#[tokio::test]
+async fn manager_checkpoint_reopens_exact_original_question_and_snapshot() {
+    let f = Fixture::new();
+    {
+        let mut script = f.script.lock().unwrap();
+        script.responder = None;
+        script.responses.push_back(Err("offline".into()));
+    }
+    assert!(f.ask("  What remains?\n").await.is_err());
+    let original = f.script.lock().unwrap().requests[0].clone();
+    let mut reopened = Engine::open(f.root.path()).unwrap();
+    f.script.lock().unwrap().responder = Some(respond);
+    reopened.provider.script = Some(f.script.clone());
+    let reply = reopened.resume_manager_saved(&f.s.id).await.unwrap();
+    assert_eq!(reply.status, "answered");
+    assert_eq!(f.script.lock().unwrap().requests[1], original);
+    let history = reopened.store.history(&f.s).unwrap();
+    assert_eq!(
+        history.iter().filter(|e| e.2 == "manager.message").count(),
+        1
+    );
+    assert!(reopened
+        .store
+        .pending_continuation(&f.s, true)
+        .unwrap()
+        .is_none());
+    assert_eq!(reopened.store.session(&f.s.id).unwrap().status, "ready");
+}

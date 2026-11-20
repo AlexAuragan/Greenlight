@@ -853,3 +853,49 @@ fn rerun_button_executes_selected_call_and_reports_stopped_workflow() {
         .any(|e| e.2 == "tool.result" && e.3 == "fixed by user"));
     assert!(!history.iter().any(|e| e.2 == "model.call-started"));
 }
+
+#[test]
+fn saved_provider_request_is_visible_after_reopen_and_help_cannot_retry_it() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: fixture\n  api_key_env: GREENLIGHT_TEST_UNUSED_KEY\n  base_url: http://127.0.0.1:9\n").unwrap();
+    let folder = root.path().join("workflows/demo");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("workflow.yaml"),
+        "id: demo\ntitle: Demo\nstart: step\nsteps: [step]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        folder.join("step.md"),
+        "---\nid: step\nverification:\n  type: none\n---\nFixture\n",
+    )
+    .unwrap();
+    let mut engine = crate::engine::Engine::open(root.path()).unwrap();
+    let session = engine.store.create("demo", "goal", "step").unwrap();
+    let script = std::sync::Arc::new(std::sync::Mutex::new(crate::provider::Script {
+        responses: vec![Err("offline".into())].into(),
+        ..Default::default()
+    }));
+    engine.provider.script = Some(script.clone());
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(engine.run(&session.id, None, None))
+        .unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    assert!(app.saved_workflow_request);
+    assert!(app.footer_actions().contains(&shell::Action::RetrySaved));
+    assert!(screen(&mut app, 120, 36).contains("[t] Retry saved request"));
+    key(&mut app, &store, root.path(), KeyCode::Char('h'));
+    key(&mut app, &store, root.path(), KeyCode::Char('t'));
+    assert!(app.runner.is_none());
+    assert_eq!(script.lock().unwrap().requests.len(), 1);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    let owner = store.claim_execution(&session.id, None).unwrap();
+    app.activate(shell::Action::RetrySaved, root.path(), &store)
+        .unwrap();
+    assert!(app.runner.is_none());
+    assert!(app.notice.contains("Recover"));
+    store.finish_execution(&session.id, &owner, None).unwrap();
+}
