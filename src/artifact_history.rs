@@ -47,13 +47,12 @@ impl Store {
             .into_iter()
             .find(|v| v.event_id == event)
             .context("artifact version is not visible on this session's active branch")?;
-        let content = std::fs::read_to_string(self.directory.join("blobs").join(&version.blob))
-            .with_context(|| {
-                format!(
-                    "Artifact {} event #{} body unavailable",
-                    version.name, event
-                )
-            })?;
+        let content = self.read_blob(&version.blob).with_context(|| {
+            format!(
+                "Artifact {} event #{} body unavailable",
+                version.name, event
+            )
+        })?;
         Ok(Artifact {
             name: version.name,
             step: version.step,

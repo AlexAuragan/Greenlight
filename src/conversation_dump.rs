@@ -34,41 +34,28 @@ pub struct Dump {
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-fn trace_directory(store: &Store) -> Result<std::path::PathBuf> {
-    let path = store.directory.join("blobs");
-    match std::fs::create_dir(&path) {
-        Ok(()) => std::fs::File::open(&store.directory)?.sync_all()?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error.into()),
-    }
-    if !std::fs::symlink_metadata(&path)?.file_type().is_dir() {
-        bail!("trace blob directory is not a real directory");
-    }
-    Ok(path)
-}
 pub(crate) fn save_message(store: &Store, message: &Value) -> Result<String> {
     let bytes = serde_json::to_vec(message)?;
     let id = hash(&bytes);
-    let path = trace_directory(store)?.join(format!("trace-{id}.json"));
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-    {
+    let name = format!("trace-{id}.json");
+    let directory = store.directory_fd.create_dirs(Path::new("blobs"))?;
+    match directory.create_new(Path::new(&name)) {
         Ok(mut file) => {
             file.write_all(&bytes)?;
             file.sync_all()?;
         }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            if !std::fs::symlink_metadata(&path)?.file_type().is_file()
-                || std::fs::read(&path)? != bytes
-            {
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
+        {
+            if directory.read(Path::new(&name), u64::MAX)? != bytes {
                 bail!("invalid existing trace blob");
             }
         }
-        Err(e) => return Err(e.into()),
+        Err(error) => return Err(error),
     }
-    std::fs::File::open(path.parent().context("missing trace directory")?)?.sync_all()?;
+    directory.sync()?;
     Ok(id)
 }
 pub(crate) fn load_message(store: &Store, id: &str) -> Result<Value> {
@@ -79,15 +66,10 @@ pub(crate) fn load_message(store: &Store, id: &str) -> Result<Value> {
     {
         bail!("invalid message reference");
     }
-    let directory = store.directory.join("blobs");
-    if !std::fs::symlink_metadata(&directory)?.file_type().is_dir() {
-        bail!("invalid trace directory");
-    }
-    let path = directory.join(format!("trace-{id}.json"));
-    if !std::fs::symlink_metadata(&path)?.file_type().is_file() {
-        bail!("invalid trace blob");
-    }
-    let bytes = std::fs::read(path)?;
+    let bytes = store
+        .directory_fd
+        .open_dir(Path::new("blobs"))?
+        .read(Path::new(&format!("trace-{id}.json")), u64::MAX)?;
     if hash(&bytes) != id {
         bail!("trace blob checksum mismatch");
     }
@@ -333,17 +315,18 @@ impl Dump {
         } else {
             self.markdown()
         };
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-        tmp.write_all(text.as_bytes())?;
-        tmp.as_file().sync_all()?;
-        tmp.persist_noclobber(path)
-            .map_err(|e| e.error)
-            .context("Cannot save dump (existing files are never overwritten)")?;
-        Ok(())
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        let parent =
+            crate::anchored_fs::Dir::open(absolute.parent().context("export lacks parent")?)?;
+        parent
+            .target(Path::new(
+                absolute.file_name().context("export lacks filename")?,
+            ))?
+            .publish_new(text.as_bytes())
     }
 }
 fn body(out: &mut String, text: &str, preview: bool) {

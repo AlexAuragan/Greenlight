@@ -255,8 +255,8 @@ fn capture_with_config(
     // A fixed source allowlist; no model-selected paths or provider/approval files.
     for relative in ["README.md", "TODO.md", ".greenlight/instructions.md"] {
         let data = (|| -> Result<(String, bool)> {
-            let path = crate::restore::checked_path(root, relative)?;
-            let file = std::fs::File::open(path)?;
+            crate::restore::checked_path(root, relative)?;
+            let file = crate::anchored_fs::Dir::open(root)?.open_file(Path::new(relative))?;
             let mut bytes = Vec::new();
             let read_limit = if relative == "README.md" {
                 128 * 1024

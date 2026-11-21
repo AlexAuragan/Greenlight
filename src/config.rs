@@ -1,8 +1,9 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::fs;
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -236,7 +237,9 @@ pub struct LoadedWorkflow {
 
 pub fn load_config(root: &Path) -> Result<Config> {
     let path = crate::paths::config_path(root)?;
-    let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let text = crate::anchored_fs::Dir::open(root)?
+        .read_string(path.strip_prefix(root)?, u64::MAX)
+        .with_context(|| format!("reading {}", path.display()))?;
     let cfg: Config = serde_yaml::from_str(&text)?;
     for value in [
         &cfg.permissions.shell,
@@ -280,7 +283,13 @@ pub fn load_config(root: &Path) -> Result<Config> {
 /// Existing variables are never overridden, so shell exports and real
 /// environment settings keep precedence over the file.
 pub fn load_dotenv(path: &Path) -> Result<()> {
-    let Ok(text) = fs::read_to_string(path) else {
+    let Ok(text) = (|| -> Result<String> {
+        let parent = path.parent().context("dotenv lacks parent")?;
+        crate::anchored_fs::Dir::open(parent)?.read_string(
+            Path::new(path.file_name().context("dotenv lacks name")?),
+            u64::MAX,
+        )
+    })() else {
         return Ok(());
     };
     for (index, raw) in text.lines().enumerate() {
@@ -314,8 +323,9 @@ pub fn load_workflow(root: &Path, id: &str) -> Result<LoadedWorkflow> {
         bail!("invalid workflow name");
     }
     let folder = crate::paths::workflows_directory(root)?.join(id);
-    let definition: Workflow = serde_yaml::from_str(&fs::read_to_string(
-        crate::paths::project_file(root, &folder.join("workflow.yaml"))?,
+    let definition: Workflow = serde_yaml::from_str(&crate::paths::read_project_file(
+        root,
+        &folder.join("workflow.yaml"),
     )?)?;
     if definition.id != id {
         bail!("workflow id does not match directory");
@@ -325,11 +335,8 @@ pub fn load_workflow(root: &Path, id: &str) -> Result<LoadedWorkflow> {
         if name.contains('/') || name.contains('\\') || name.contains("..") {
             bail!("invalid step filename {name}");
         }
-        let source = fs::read_to_string(crate::paths::project_file(
-            root,
-            &folder.join(format!("{name}.md")),
-        )?)
-        .with_context(|| format!("missing step {name}.md"))?;
+        let source = crate::paths::read_project_file(root, &folder.join(format!("{name}.md")))
+            .with_context(|| format!("missing step {name}.md"))?;
         let (header, body) = frontmatter(&source)?;
         let mut step: Step = serde_yaml::from_str(header)?;
         step.prompt = body.to_string();
@@ -435,9 +442,8 @@ pub fn render_includes(text: &str, root: &Path, folder: &Path) -> Result<String>
         let at = start + "{{ include \"".len();
         let end = result[at..].find("\" }}").context("unterminated include")? + at;
         let name = &result[at..end];
-        let path = crate::paths::project_file(root, &folder.join(name))
+        let content = crate::paths::read_project_file(root, &folder.join(name))
             .with_context(|| format!("missing include {name} or inaccessible project file"))?;
-        let content = fs::read_to_string(&path)?;
         result.replace_range(start..end + "\" }}".len(), &content);
     }
     if result.contains("{{ include \"") {
@@ -565,7 +571,7 @@ mod tests {
         assert!(load_workflow(root.path(), "demo")
             .err()
             .unwrap()
-            .to_string()
-            .contains("private"));
+            .chain()
+            .any(|cause| cause.to_string().contains("private")));
     }
 }

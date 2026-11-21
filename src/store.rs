@@ -1,8 +1,9 @@
 use anyhow::{bail, Result};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::fs;
 use std::{
-    fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -59,11 +60,12 @@ pub struct AttemptInfo {
 pub struct Store {
     pub(crate) db: Connection,
     pub directory: PathBuf,
+    pub(crate) directory_fd: crate::anchored_fs::Dir,
 }
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
-        let directory = crate::paths::state_directory(root)?;
-        let db = Connection::open(directory.join("history.db"))?;
+        let (directory, directory_fd) = crate::paths::state_directory_handle(root)?;
+        let db = crate::anchored_sqlite::open(&directory_fd)?;
         db.execute_batch(
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
            CREATE TABLE IF NOT EXISTS sessions (
@@ -106,7 +108,23 @@ impl Store {
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
            CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);",
         )?;
-        Ok(Self { db, directory })
+        Ok(Self {
+            db,
+            directory,
+            directory_fd,
+        })
+    }
+    pub(crate) fn read_blob(&self, name: &str) -> Result<String> {
+        self.directory_fd
+            .open_dir(Path::new("blobs"))?
+            .read_string(Path::new(name), u64::MAX)
+    }
+    fn write_blob(&self, name: &str, text: &str) -> Result<()> {
+        let dir = self.directory_fd.create_dirs(Path::new("blobs"))?;
+        let mut file = dir.create_new(Path::new(name))?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        dir.sync()
     }
     pub fn create(&self, workflow: &str, goal: &str, start: &str) -> Result<Session> {
         let id = Uuid::new_v4().to_string();
@@ -325,20 +343,16 @@ impl Store {
             bail!("artifact path must be relative, without ..");
         }
         let blob = format!("artifact-{}.txt", Uuid::new_v4());
-        let dir = self.directory.join("blobs");
-        fs::create_dir_all(&dir)?;
-        fs::File::open(&self.directory)?.sync_all()?;
-        let blob_path = dir.join(&blob);
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&blob_path)?;
+        let dir = self.directory_fd.create_dirs(Path::new("blobs"))?;
+        self.directory_fd.sync()?;
+        let blob_path = self.directory.join("blobs").join(&blob);
+        let mut file = dir.create_new(Path::new(&blob))?;
         let publication: Result<()> = (|| {
             // Make the immutable body durable before publishing references.
             // A crash here may leave an unreferenced blob, never a success event.
             file.write_all(content.as_bytes())?;
             file.sync_all()?;
-            fs::File::open(&dir)?.sync_all()?;
+            dir.sync()?;
             let tx = self.db.unchecked_transaction()?;
             tx.execute("INSERT INTO events(session,branch,step,kind,data) VALUES (?1,?2,?3,'artifact.created',?4)",
                 params![s.id,s.active_branch,step,name])?;
@@ -350,7 +364,7 @@ impl Store {
         })();
         drop(file);
         if let Err(error) = publication {
-            if let Err(cleanup) = fs::remove_file(&blob_path) {
+            if let Err(cleanup) = dir.target(Path::new(&blob))?.unlink() {
                 return Err(error.context(format!(
                     "artifact publication failed; could not remove unpublished blob {}: {cleanup}",
                     blob_path.display()
@@ -368,22 +382,12 @@ impl Store {
         before: Option<&str>,
         after: &str,
     ) -> Result<i64> {
-        let dir = self.directory.join("blobs");
-        fs::create_dir_all(&dir)?;
         let before_name = before.map(|_| format!("edit-before-{}.txt", Uuid::new_v4()));
         let after_name = format!("edit-after-{}.txt", Uuid::new_v4());
         if let (Some(content), Some(name)) = (before, &before_name) {
-            fs::write(dir.join(name), content)?;
+            self.write_blob(name, content)?;
         }
-        fs::write(dir.join(&after_name), after)?;
-        // Recovered native writes publish references only after their snapshots
-        // are durable. The intent's SQLite transaction owns publication.
-        if let Some(name) = &before_name {
-            fs::File::open(dir.join(name))?.sync_all()?;
-        }
-        fs::File::open(dir.join(&after_name))?.sync_all()?;
-        fs::File::open(&dir)?.sync_all()?;
-        fs::File::open(&self.directory)?.sync_all()?;
+        self.write_blob(&after_name, after)?;
         let event_id = self.event(s, Some(step), "file.changed", path)?;
         self.db.execute(
             "INSERT INTO file_changes(event_id,session,branch,step,path,before_blob,after_blob) VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -409,10 +413,8 @@ impl Store {
             })?;
             for row in rows {
                 let (event_id, step, path, before_blob, after_blob) = row?;
-                let before = before_blob
-                    .map(|b| fs::read_to_string(self.directory.join("blobs").join(b)))
-                    .transpose()?;
-                let after = fs::read_to_string(self.directory.join("blobs").join(after_blob))?;
+                let before = before_blob.map(|b| self.read_blob(&b)).transpose()?;
+                let after = self.read_blob(&after_blob)?;
                 result.push(FileChange {
                     event_id,
                     step,
@@ -452,12 +454,8 @@ impl Store {
             })?;
             for row in rows {
                 let (event_id, path, before_blob, after_blob) = row?;
-                let before = before_blob
-                    .map(|blob| fs::read_to_string(self.directory.join("blobs").join(blob)))
-                    .transpose()?;
-                let after = after_blob
-                    .map(|blob| fs::read_to_string(self.directory.join("blobs").join(blob)))
-                    .transpose()?;
+                let before = before_blob.map(|blob| self.read_blob(&blob)).transpose()?;
+                let after = after_blob.map(|blob| self.read_blob(&blob)).transpose()?;
                 edits.push(WorkspaceEdit {
                     event_id,
                     path,
@@ -479,13 +477,11 @@ impl Store {
         after: Option<&str>,
     ) -> Result<i64> {
         let tx = self.db.unchecked_transaction()?;
-        let dir = self.directory.join("blobs");
-        fs::create_dir_all(&dir)?;
         let save = |content: Option<&str>| -> Result<Option<String>> {
             match content {
                 Some(text) => {
                     let name = format!("restore-{}.txt", Uuid::new_v4());
-                    fs::write(dir.join(&name), text)?;
+                    self.write_blob(&name, text)?;
                     Ok(Some(name))
                 }
                 None => Ok(None),
@@ -564,7 +560,7 @@ impl Store {
                 name.clone(),
                 Artifact {
                     name,
-                    content: fs::read_to_string(self.directory.join("blobs").join(blob))?,
+                    content: self.read_blob(&blob)?,
                     step: step.into(),
                     event_id,
                 },
@@ -643,7 +639,7 @@ impl Store {
                     name,
                     step,
                     event_id,
-                    content: fs::read_to_string(self.directory.join("blobs").join(blob))?,
+                    content: self.read_blob(&blob)?,
                 })
             })
             .collect()
@@ -1002,5 +998,89 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+    #[test]
+    fn state_parent_swap_cannot_redirect_database_blobs_or_trace_files() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        store
+            .db
+            .execute_batch("PRAGMA journal_mode=DELETE")
+            .unwrap();
+        fs::rename(
+            root.path().join(".greenlight/state"),
+            root.path().join(".greenlight/original-state"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join(".greenlight/state")).unwrap();
+        store.db.execute_batch("CREATE TABLE descriptor_probe(value); INSERT INTO descriptor_probe VALUES ('anchored')").unwrap();
+        store
+            .add_artifact(&session, "step", "report.md", "private artifact")
+            .unwrap();
+        let id = crate::conversation_dump::save_message(
+            &store,
+            &serde_json::json!({"evidence":"private trace"}),
+        )
+        .unwrap();
+        assert_eq!(
+            store.artifacts(&session, "step").unwrap()[0].content,
+            "private artifact"
+        );
+        assert!(crate::conversation_dump::load_message(&store, &id).is_ok());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        assert!(Store::open(root.path()).is_err());
+    }
+    #[test]
+    fn private_blob_and_database_links_do_not_follow_host_targets() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("private"), "host private").unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        store
+            .add_artifact(&session, "step", "report.md", "old")
+            .unwrap();
+        let name: String = store
+            .db
+            .query_row("SELECT blob_path FROM artifacts LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        fs::remove_file(store.directory.join("blobs").join(&name)).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("private"),
+            store.directory.join("blobs").join(&name),
+        )
+        .unwrap();
+        assert!(store.artifacts(&session, "step").is_err());
+        fs::rename(
+            store.directory.join("blobs"),
+            store.directory.join("old-blobs"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(outside.path(), store.directory.join("blobs")).unwrap();
+        assert!(store
+            .add_artifact(&session, "step", "next.md", "new")
+            .is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
+        let other = tempfile::tempdir().unwrap();
+        fs::create_dir_all(other.path().join(".greenlight/state")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("private"),
+            other.path().join(".greenlight/state/history.db"),
+        )
+        .unwrap();
+        assert!(Store::open(other.path()).is_err());
+        assert_eq!(
+            fs::read_to_string(outside.path().join("private")).unwrap(),
+            "host private"
+        );
     }
 }

@@ -1,11 +1,13 @@
 //! Durable intent before mutation; explicit reconciliation never rewrites files.
 use crate::{
-    restore::{checked_path, snapshot},
+    restore::{checked_path, snapshot, snapshot_target},
     store::{Session, Store},
 };
 use anyhow::{bail, Context, Result};
 use rusqlite::params;
-use std::{fs, io::Write, path::Path};
+#[cfg(test)]
+use std::fs;
+use std::{io::Write, path::Path};
 use uuid::Uuid;
 
 struct Intent {
@@ -20,12 +22,9 @@ struct Intent {
 
 impl Store {
     pub(crate) fn native_write_lock(&self) -> Result<crate::locks::LockGuard> {
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.directory.join("native-write.lock"))?;
+        let file = self
+            .directory_fd
+            .lock_file(Path::new("native-write.lock"))?;
         let file = crate::locks::LockGuard::acquire(file)
             .context("another native write, recovery or restore is active")?;
         Ok(file)
@@ -130,10 +129,12 @@ impl Store {
     ) -> Result<()> {
         let _lock = self.native_write_lock()?;
         self.ensure_no_pending_writes()?;
-        if snapshot(root, relative)?.as_deref() != before {
+        checked_path(root, relative)?;
+        let directory = crate::anchored_fs::Dir::open(root)?;
+        let target = directory.target(Path::new(relative))?;
+        if snapshot_target(&target, relative)?.as_deref() != before {
             bail!("file changed before native write; edit not applied");
         }
-        let path = checked_path(root, relative)?;
         let id = self.prepare_write(s, step, relative, before, after)?;
         let intent = Intent {
             id,
@@ -144,34 +145,28 @@ impl Store {
             before: before.map(str::to_owned),
             after: after.into(),
         };
-        let parent = path.parent().context("write target has no parent")?;
-        let temp = parent.join(format!(".greenlight-write-{}.tmp", intent.id));
-        // No await between intent and completion. Cancellation cannot abandon a
-        // live background filesystem operation after the mutation lock drops.
+        let temp_name = format!(".greenlight-write-{}.tmp", intent.id);
+        let temp = target.parent.target(Path::new(&temp_name))?;
+        // Pinned parent descriptors survive path replacement; no await between
+        // durable intent and completion of the synchronous mutation.
         let mutation: Result<()> = (|| {
-            let mut options = fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options.open(&temp)?;
-            if let Ok(metadata) = fs::metadata(&path) {
-                file.set_permissions(metadata.permissions())?;
+            let mut file = temp.create_new()?;
+            if let Ok(previous) = target.open() {
+                file.set_permissions(previous.metadata()?.permissions())?;
             }
             file.write_all(after.as_bytes())?;
             file.sync_all()?;
-            if snapshot(root, relative)?.as_deref() != before {
+            if snapshot_target(&target, relative)?.as_deref() != before {
                 bail!("file changed during native write; edit not applied");
             }
-            fs::rename(&temp, &path)?;
-            fs::File::open(parent)?.sync_all()?;
-            Ok(())
+            target.check_parent(&directory, Path::new(relative))?;
+            temp.rename_to(&target)?;
+            target.check_file(&file)?;
+            target.check_parent(&directory, Path::new(relative))
         })();
         if let Err(error) = mutation {
             // Keep the intent: even an I/O error can occur after replacement.
-            return Err(error.context(format!("native write {} interrupted; run greenlight recover-writes; temporary file may remain at {}", intent.id, temp.display())));
+            return Err(error.context(format!("native write {} interrupted; run greenlight recover-writes; temporary file may remain at {}", intent.id, temp_name)));
         }
         self.finish_write(&intent, true)
             .context("file changed but journal completion failed; run greenlight recover-writes")
@@ -201,13 +196,11 @@ impl Store {
                 continue;
             };
             if applied {
-                fs::File::open(checked_path(root, &intent.path)?)?.sync_all()?;
-                fs::File::open(
-                    checked_path(root, &intent.path)?
-                        .parent()
-                        .context("write target has no parent")?,
-                )?
-                .sync_all()?;
+                checked_path(root, &intent.path)?;
+                let target =
+                    crate::anchored_fs::Dir::open(root)?.target(Path::new(&intent.path))?;
+                target.open()?.sync_all()?;
+                target.parent.sync()?;
             }
             // A recovered session must not retain a stale running flag.
             // Saving it first is safe to repeat if journal completion fails.

@@ -105,3 +105,8 @@ Revalidate saved requests after waiting, not just before cooldown: project files
 ## 2026-11-21 — Recovery branch pre-merge validation
 
 Review GL-001/002, stop controls and provider capacity/diagnostic changes together. A native TUI smoke fixture caught diagnostics appended after the decision-help delimiter, which the popup intentionally trims. Keep diagnostics before that final delimiter and test that provider-supplied decision-like text remains evidence rather than a control. Retain stable backlog IDs; GL-004 approval-save serialization was already completed.
+
+
+## 2026-11-21 — GL-003 descriptor-anchored file access
+
+Replace check-then-open path IO with a small Linux directory-capability layer using openat/O_NOFOLLOW and pinned file descriptors. Inspect O_PATH handles before reading regular files; publish mutations relative to pinned parents, verify published inode identity, retain write intents on uncertainty, and refuse changed parent bindings around journaled writes/restores. Route includes, discovery/workspace scans, state blobs, exports, approval saves and locks through that layer. Preserve SQLite descriptor paths with a narrow VFS pathname adapter; default SQLite canonicalization would otherwise undo the anchor. Bubblewrap receives project/cache descriptors using bind-fd options. Existing privacy/approval/sandbox policy remains; no unsafe fallback. Native race/SQLite tests pass, while this cloud environment blocks the optional live sandbox test at its read-only UID-map interface. GL-027 usability work remains deferred.

@@ -2,6 +2,8 @@ mod action_envelope;
 mod activity_cards;
 mod activity_titles;
 mod agent_protocol;
+mod anchored_fs;
+mod anchored_sqlite;
 mod approvals;
 mod artifact_history;
 mod changes;
@@ -13,6 +15,8 @@ mod credentials;
 mod deviation_tests;
 mod engine;
 mod file_discovery;
+#[cfg(test)]
+mod fs_race_tests;
 mod input_pins;
 mod locks;
 mod manager;

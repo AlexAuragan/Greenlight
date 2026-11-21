@@ -70,16 +70,11 @@ pub fn pending_reference(
 }
 impl Store {
     pub(crate) fn manager_lock(&self, id: &str) -> Result<crate::locks::LockGuard> {
-        let path = self.directory.join(format!(
+        let name = format!(
             "manager-continuation-{:x}.lock",
             Sha256::digest(id.as_bytes())
-        ));
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)?;
+        );
+        let file = self.directory_fd.lock_file(std::path::Path::new(&name))?;
         crate::locks::LockGuard::acquire(file)
             .context("A manager request is already running for this session")
     }

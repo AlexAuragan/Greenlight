@@ -1,22 +1,23 @@
 //! Linux shell sandbox: no network or inherited credentials, a read-only
 //! project checkout, and a dedicated writable build cache.
 use anyhow::{bail, Context, Result};
+#[cfg(test)]
+use std::fs;
 use std::{
-    env, fs, io,
+    env,
     path::{Path, PathBuf},
     process::Output,
     time::Duration,
 };
 use tokio::process::Command;
-use walkdir::WalkDir;
 
 const BWRAP: &str = "/usr/bin/bwrap";
 const WORKSPACE: &str = "/workspace";
 const CACHE: &str = "/cache";
 
 pub struct Sandbox {
-    root: PathBuf,
-    cache: PathBuf,
+    root_fd: crate::anchored_fs::Dir,
+    cache_fd: crate::anchored_fs::Dir,
 }
 
 impl Sandbox {
@@ -37,20 +38,16 @@ impl Sandbox {
                 bail!("project root contains the host HOME; select a narrower project");
             }
         }
-        // Check each component before creating the next, to prevent a symlink
-        // under the project from redirecting the writable sandbox cache.
-        let state = crate::paths::state_directory(&root)?;
-        checked_directory(&state)?;
-        let cache = state.join("sandbox-cache");
-        checked_directory(&cache)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&cache, fs::Permissions::from_mode(0o700))?;
-        }
-
-        Ok(Self { root, cache })
+        let (_, state) = crate::paths::state_directory_handle(&root)?;
+        let cache_fd = state.create_dirs(Path::new("sandbox-cache"))?;
+        use std::os::unix::fs::PermissionsExt;
+        cache_fd
+            .clone_file()?
+            .set_permissions(std::fs::Permissions::from_mode(0o700))?;
+        Ok(Self {
+            root_fd: crate::anchored_fs::Dir::open(&root)?,
+            cache_fd,
+        })
     }
 
     fn build(&self, input: &str) -> Result<Command> {
@@ -113,13 +110,31 @@ impl Sandbox {
             }
         }
 
-        command.arg("--ro-bind").arg(&self.root).arg(WORKSPACE);
-        command.arg("--bind").arg(&self.cache).arg(CACHE);
+        use std::os::fd::AsRawFd;
+        let root = self.root_fd.clone_file()?;
+        let cache = self.cache_fd.clone_file()?;
+        let root_fd = root.as_raw_fd();
+        let cache_fd = cache.as_raw_fd();
+        command.args(["--ro-bind-fd", &root_fd.to_string(), WORKSPACE]);
+        command.args(["--bind-fd", &cache_fd.to_string(), CACHE]);
+        // SAFETY: only async-signal-safe fcntl calls run in the child. Owned
+        // clones keep these exact directories alive until command execution.
+        unsafe {
+            command.pre_exec(move || {
+                let _keep_alive = (&root, &cache);
+                for fd in [root_fd, cache_fd] {
+                    if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
 
         // Mask known secret and internal paths that would otherwise be visible
         // through the read-only project bind mount. Source code itself remains
         // readable; the mask is not a general secrets scanner.
-        for (relative, is_dir) in masked_paths(&self.root)? {
+        for (relative, is_dir) in masked_directories(&self.root_fd)? {
             let dest = Path::new(WORKSPACE).join(relative);
             if is_dir {
                 command.arg("--tmpfs").arg(dest);
@@ -191,23 +206,9 @@ impl Sandbox {
         // Never retry outside the sandbox.
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !output.status.success() && stderr.trim_start().starts_with("bwrap:") {
-            bail!("bubblewrap could not establish isolation (check user namespaces): {stderr}");
+            bail!("bubblewrap could not establish isolation (check user namespaces and --bind-fd/--ro-bind-fd support): {stderr}");
         }
         Ok(output)
-    }
-}
-
-fn checked_directory(path: &Path) -> Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => Ok(()),
-        Ok(_) => bail!(
-            "sandbox cache path is not a real directory: {}",
-            path.display()
-        ),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            fs::create_dir(path).with_context(|| format!("creating {}", path.display()))
-        }
-        Err(error) => Err(error).with_context(|| format!("checking {}", path.display())),
     }
 }
 
@@ -232,45 +233,41 @@ fn is_sensitive(name: &str) -> bool {
         || name.starts_with(".env.")
 }
 
+#[cfg(test)]
 fn masked_paths(root: &Path) -> Result<Vec<(PathBuf, bool)>> {
+    masked_directories(&crate::anchored_fs::Dir::open(root)?)
+}
+fn masked_directories(root: &crate::anchored_fs::Dir) -> Result<Vec<(PathBuf, bool)>> {
     let mut masked = Vec::new();
-    let mut walker = WalkDir::new(root).follow_links(false).into_iter();
-    while let Some(entry) = walker.next() {
-        let entry = entry.with_context(|| format!("scanning project {}", root.display()))?;
-        if entry.depth() == 0 {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy();
-        let parent_is_internal =
-            entry
-                .path()
-                .parent()
-                .and_then(Path::file_name)
-                .is_some_and(|parent| {
-                    parent == crate::paths::PROJECT_DIR
-                        || parent == crate::paths::LEGACY_PROJECT_DIR
-                });
-        let internal_state = (name == "state" && parent_is_internal)
-            || crate::paths::is_private_path(entry.path().strip_prefix(root)?);
-        if is_sensitive(&name) || internal_state {
-            if entry.file_type().is_symlink() {
-                bail!("cannot safely mask symlink at {}", entry.path().display());
+    let mut pending = vec![PathBuf::new()];
+    while let Some(relative) = pending.pop() {
+        for entry in root.open_dir(&relative)?.entries()? {
+            let entry = entry?;
+            let path = relative.join(&entry.name);
+            let name = entry.name.to_string_lossy();
+            if is_sensitive(&name)
+                || crate::paths::is_private_path(&path)
+                || (name == "state"
+                    && path
+                        .parent()
+                        .and_then(Path::file_name)
+                        .is_some_and(|parent| {
+                            parent == crate::paths::PROJECT_DIR
+                                || parent == crate::paths::LEGACY_PROJECT_DIR
+                        }))
+            {
+                if entry.symlink {
+                    bail!("cannot safely mask symlink at {}", path.display());
+                }
+                masked.push((path, entry.directory));
+                if masked.len() > 1024 {
+                    bail!("too many sensitive project paths to safely mask");
+                }
+            } else if entry.directory
+                && !matches!(name.as_ref(), "node_modules" | "target" | ".venv" | "venv")
+            {
+                pending.push(path);
             }
-            let relative = entry.path().strip_prefix(root)?.to_path_buf();
-            let directory = entry.file_type().is_dir();
-            masked.push((relative, directory));
-            if masked.len() > 1_024 {
-                bail!("too many sensitive project paths to safely mask");
-            }
-            if directory {
-                walker.skip_current_dir();
-            }
-        } else if entry.file_type().is_dir()
-            && matches!(name.as_ref(), "node_modules" | "target" | ".venv" | "venv")
-        {
-            // Large generated dependency trees: still read-only, but not
-            // exhaustively searched for secrets.
-            walker.skip_current_dir();
         }
     }
     Ok(masked)
@@ -322,10 +319,10 @@ mod tests {
         assert!(args.contains(&"--new-session".into()));
         assert!(args
             .windows(3)
-            .any(|w| { w[0] == "--ro-bind" && w[2] == WORKSPACE }));
+            .any(|w| { w[0] == "--ro-bind-fd" && w[2] == WORKSPACE }));
         assert!(!args
             .windows(3)
-            .any(|w| { w[0] == "--bind" && w[2] == WORKSPACE }));
+            .any(|w| { matches!(w[0].as_str(), "--bind" | "--bind-fd") && w[2] == WORKSPACE }));
         assert!(args.contains(&"--clearenv".into()));
     }
 
@@ -362,5 +359,42 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+    use std::os::unix::fs::MetadataExt;
+    #[test]
+    fn bind_sources_remain_pinned_when_project_path_is_replaced() {
+        if !Path::new(BWRAP).is_file() {
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let sandbox = Sandbox::open(root.path()).unwrap();
+        let inode = fs::metadata(root.path()).unwrap().ino();
+        let renamed = root.path().with_extension("pinned");
+        fs::rename(root.path(), &renamed).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path()).unwrap();
+        let command = sandbox.build("pwd").unwrap();
+        drop(sandbox);
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        let index = args.iter().position(|arg| arg == "--ro-bind-fd").unwrap();
+        assert_eq!(
+            fs::metadata(format!("/proc/self/fd/{}", args[index + 1]))
+                .unwrap()
+                .ino(),
+            inode
+        );
+        assert!(args.iter().any(|arg| arg == "--bind-fd"));
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        fs::remove_file(root.path()).unwrap();
+        fs::rename(&renamed, root.path()).unwrap();
     }
 }

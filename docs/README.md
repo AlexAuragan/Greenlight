@@ -25,6 +25,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Workflow definitions and configuration precedence | [Workflow format](02-workflow-format.md) |
 | Events, branches and immutable artifacts | [Persistence](03-persistence.md) |
 | Modules and trust boundaries | [Architecture](04-architecture.md) |
+| Descriptor-relative project/state IO and race tests | [Anchored file access](39-anchored-file-access.md) |
 | Native write journal and interrupted-write recovery | [Edit history](07-edit-history.md) |
 | One-time/process/project/global grants | [Approvals](08-persistent-approvals.md) |
 | Guarded restoration, forks and scope limits | [Workspace restore](09-workspace-restore.md) |

@@ -4,13 +4,13 @@ use crate::store::{Session, Store};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(test)]
+use std::fs;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
     io::Read,
     path::Path,
 };
-use walkdir::{DirEntry, WalkDir};
 
 const MAX_FILES: usize = 10_000;
 const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
@@ -42,16 +42,6 @@ pub struct ScanStats {
 pub struct FileDifference {
     pub path: String,
     pub change: String,
-}
-
-fn included(entry: &DirEntry) -> bool {
-    if entry.depth() == 0 {
-        return true;
-    }
-    if entry.file_type().is_symlink() {
-        return false;
-    }
-    !excluded_name(&entry.file_name().to_string_lossy())
 }
 
 pub(crate) fn path_in_scope(path: &Path) -> bool {
@@ -105,69 +95,73 @@ pub fn scan(root: &Path) -> Result<Manifest> {
     let mut files = BTreeMap::new();
     let mut skipped = Vec::new();
     let mut count = 0usize;
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| {
-            entry.depth() == 0
-                || (included(entry) && entry.path().strip_prefix(root).is_ok_and(path_in_scope))
-        })
-    {
-        let entry = entry.context("walking project for workspace recording")?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let relative = entry
-            .path()
-            .strip_prefix(root)
-            .context("workspace scan path outside project root")?;
-        let Some(path) = relative.to_str() else {
-            skipped.push(relative.to_string_lossy().into_owned());
-            continue;
-        };
-        count += 1;
-        if count > MAX_FILES {
-            bail!("workspace recording exceeds {MAX_FILES} files; narrow the scan scope");
-        }
-        let metadata = fs::metadata(entry.path())
-            .with_context(|| format!("inspecting workspace file {path}"))?;
-        if metadata.len() > MAX_FILE_BYTES {
-            skipped.push(format!("{path} (larger than {MAX_FILE_BYTES} bytes)"));
-            continue;
-        }
-        let mut file =
-            File::open(entry.path()).with_context(|| format!("opening workspace file {path}"))?;
-        let mut digest = Sha256::new();
-        let mut buffer = [0u8; 16 * 1024];
-        let mut read_bytes = 0u64;
-        loop {
-            let n = file
-                .read(&mut buffer)
-                .with_context(|| format!("hashing workspace file {path}"))?;
-            if n == 0 {
-                break;
+    let root = crate::anchored_fs::Dir::open(root)?;
+    let mut pending = vec![std::path::PathBuf::new()];
+    while let Some(relative) = pending.pop() {
+        for entry in root.open_dir(&relative)?.entries()? {
+            let entry = entry?;
+            let relative = relative.join(&entry.name);
+            if !path_in_scope(&relative) {
+                continue;
             }
-            read_bytes += n as u64;
-            if read_bytes > MAX_FILE_BYTES {
-                bail!("workspace file {path} grew beyond scan limit during hashing");
+            if entry.directory {
+                pending.push(relative);
+                continue;
             }
-            digest.update(&buffer[..n]);
+            if !entry.regular {
+                continue;
+            }
+            let Some(path) = relative.to_str() else {
+                skipped.push(relative.to_string_lossy().into_owned());
+                continue;
+            };
+            count += 1;
+            if count > MAX_FILES {
+                bail!("workspace recording exceeds {MAX_FILES} files; narrow the scan scope");
+            }
+            let mut file = root
+                .open_file(&relative)
+                .with_context(|| format!("opening workspace file {path}"))?;
+            let metadata = file
+                .metadata()
+                .with_context(|| format!("inspecting workspace file {path}"))?;
+            if metadata.len() > MAX_FILE_BYTES {
+                skipped.push(format!("{path} (larger than {MAX_FILE_BYTES} bytes)"));
+                continue;
+            }
+            let mut digest = Sha256::new();
+            let mut buffer = [0u8; 16 * 1024];
+            let mut read_bytes = 0u64;
+            loop {
+                let n = file
+                    .read(&mut buffer)
+                    .with_context(|| format!("hashing workspace file {path}"))?;
+                if n == 0 {
+                    break;
+                }
+                read_bytes += n as u64;
+                if read_bytes > MAX_FILE_BYTES {
+                    bail!("workspace file {path} grew beyond scan limit during hashing");
+                }
+                digest.update(&buffer[..n]);
+            }
+            let after = file
+                .metadata()
+                .with_context(|| format!("rechecking workspace file {path}"))?;
+            if read_bytes != metadata.len()
+                || after.len() != metadata.len()
+                || after.modified()? != metadata.modified()?
+            {
+                bail!("workspace file {path} changed during recording; retry when it is stable");
+            }
+            files.insert(
+                path.to_owned(),
+                FileDigest {
+                    size: read_bytes,
+                    sha256: format!("{:x}", digest.finalize()),
+                },
+            );
         }
-        let after = fs::metadata(entry.path())
-            .with_context(|| format!("rechecking workspace file {path}"))?;
-        if read_bytes != metadata.len()
-            || after.len() != metadata.len()
-            || after.modified()? != metadata.modified()?
-        {
-            bail!("workspace file {path} changed during recording; retry when it is stable");
-        }
-        files.insert(
-            path.to_owned(),
-            FileDigest {
-                size: read_bytes,
-                sha256: format!("{:x}", digest.finalize()),
-            },
-        );
     }
     let stats = ScanStats {
         files: files.len() as u64,

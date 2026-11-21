@@ -188,6 +188,7 @@ impl PromptDriver {
 }
 
 pub struct Tools {
+    directory: crate::anchored_fs::Dir,
     pub root: PathBuf,
     pub stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub policies: Permissions,
@@ -201,8 +202,10 @@ pub struct Tools {
 }
 impl Tools {
     pub fn new(root: PathBuf, policies: Permissions) -> Result<Self> {
+        let root = root.canonicalize()?;
         let approvals = ApprovalStore::open(&root)?;
         Ok(Self {
+            directory: crate::anchored_fs::Dir::open(&root)?,
             root,
             stop: Default::default(),
             policies,
@@ -388,7 +391,6 @@ impl Tools {
             }
         }
     }
-    // TODO(GL-003): anchor file IO to directory descriptors; path checks can race.
     fn safe_path(&self, relative: &str) -> Result<PathBuf> {
         let p = Path::new(relative);
         if p.as_os_str().is_empty()
@@ -504,30 +506,27 @@ impl Tools {
                 } else {
                     self.safe_path(path.strip_prefix("./").unwrap_or(path))?
                 };
-                let metadata = tokio::fs::metadata(&file).await.with_context(|| {
-                    format!("Could not read {path:?}; use read path: . to discover project files")
-                })?;
-                if metadata.is_dir() {
-                    return crate::file_discovery::list(&self.root, &file, action.input.as_deref());
+                let relative = file
+                    .strip_prefix(&self.root)
+                    .context("read escapes project root")?;
+                if self.directory.open_dir(relative).is_ok() {
+                    return crate::file_discovery::list_anchored(
+                        &self.directory,
+                        relative,
+                        action.input.as_deref(),
+                    );
                 }
-                if action.input.as_ref().is_some_and(|f| !f.is_empty()) {
+                if action
+                    .input
+                    .as_ref()
+                    .is_some_and(|filter| !filter.is_empty())
+                {
                     bail!("read input filters apply to directories, not file contents");
                 }
-                if !metadata.is_file() {
-                    bail!("read only supports regular UTF-8 files and directory discovery");
-                }
-                if metadata.len() > 100_000 {
-                    bail!("file exceeds read limit (100KB)");
-                }
-                use tokio::io::AsyncReadExt;
-                let file = tokio::fs::File::open(&file).await?;
-                let mut bytes = Vec::new();
-                file.take(100_001).read_to_end(&mut bytes).await?;
-                if bytes.len() > 100_000 {
-                    bail!("file exceeds read limit (100KB)");
-                }
-                Ok(String::from_utf8(bytes).context("read only supports UTF-8 files")?)
+                self.directory.read_string(relative, 100_000)
+                    .with_context(||format!("Could not read {path:?}; read only supports regular UTF-8 files up to 100KB; use read path: . to discover project files"))
             }
+
             "write" => {
                 let path = action.path.as_deref().context("write path required")?;
                 let content = action

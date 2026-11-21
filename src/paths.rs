@@ -24,8 +24,8 @@ pub fn is_private_path(relative: &Path) -> bool {
 }
 
 /// Read model-visible project files under the same privacy boundary as tools.
-// TODO(GL-003): use descriptor-anchored access to close concurrent path swaps.
-pub(crate) fn project_file(root: &Path, path: &Path) -> Result<PathBuf> {
+pub(crate) fn read_project_file(root: &Path, path: &Path) -> Result<String> {
+    let directory = crate::anchored_fs::Dir::open(root)?;
     let root = root.canonicalize()?;
     if let Ok(relative) = path.strip_prefix(&root) {
         if is_private_path(relative) {
@@ -42,7 +42,7 @@ pub(crate) fn project_file(root: &Path, path: &Path) -> Result<PathBuf> {
     if !resolved.is_file() {
         bail!("project file is not a regular file: {}", path.display());
     }
-    Ok(resolved)
+    directory.read_string(relative, u64::MAX)
 }
 
 pub fn config_path(root: &Path) -> Result<PathBuf> {
@@ -95,45 +95,39 @@ pub(crate) fn existing_directory(path: &Path) -> Result<bool> {
 /// intact; conflicting state directories cause an explicit error, never an
 /// implicit choice between two session histories.
 pub fn state_directory(root: &Path) -> Result<PathBuf> {
-    let current_parent = root.join(PROJECT_DIR);
-    let legacy_parent = root.join(LEGACY_PROJECT_DIR);
-    let current_parent_exists = existing_directory(&current_parent)?;
-    // Reject legacy symlinks even when its state has not been initialized.
-    let legacy_parent_exists = existing_directory(&legacy_parent)?;
-    let current = current_parent.join("state");
-    let legacy = legacy_parent.join("state");
-    let current_exists = if current_parent_exists {
-        existing_directory(&current)?
-    } else {
-        false
+    Ok(state_directory_handle(root)?.0)
+}
+pub(crate) fn state_directory_handle(root: &Path) -> Result<(PathBuf, crate::anchored_fs::Dir)> {
+    let directory = crate::anchored_fs::Dir::open(root)?;
+    let exists = |path: &str| -> Result<bool> {
+        match directory.open_dir(Path::new(path)) {
+            Ok(_) => Ok(true),
+            Err(error)
+                if error
+                    .downcast_ref::<io::Error>()
+                    .is_some_and(|error| error.kind() == io::ErrorKind::NotFound) =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
     };
-    let legacy_exists = if legacy_parent_exists {
-        existing_directory(&legacy)?
-    } else {
-        false
-    };
-    if current_exists && legacy_exists {
-        bail!(
-            "both {} and {} exist; resolve the two state directories manually before continuing",
-            current.display(),
-            legacy.display()
-        );
+    // Check both parents before mutation, including legacy symlinks without state.
+    exists(PROJECT_DIR)?;
+    exists(LEGACY_PROJECT_DIR)?;
+    let current = exists(".greenlight/state")?;
+    let legacy = exists(".stepwright/state")?;
+    if current && legacy {
+        bail!("both state directories exist; resolve manually before continuing");
     }
-    if !current_parent_exists {
-        fs::create_dir(&current_parent)
-            .with_context(|| format!("creating {}", current_parent.display()))?;
+    directory.create_dirs(Path::new(PROJECT_DIR))?;
+    if legacy {
+        directory
+            .target(Path::new(".stepwright/state"))?
+            .rename_to(&directory.target(Path::new(".greenlight/state"))?)?;
     }
-    if legacy_exists {
-        fs::rename(&legacy, &current).with_context(|| {
-            format!(
-                "migrating legacy state from {} to {}; original state is retained if the move fails",
-                legacy.display(), current.display()
-            )
-        })?;
-    } else if !current_exists {
-        fs::create_dir(&current).with_context(|| format!("creating {}", current.display()))?;
-    }
-    Ok(current)
+    let state = directory.create_dirs(Path::new(".greenlight/state"))?;
+    Ok((root.join(".greenlight/state"), state))
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ All Greenlight-initiated shell commands run through Bubblewrap. **There is no un
 
 ## Requirements and health check
 
-On Linux, install Bubblewrap (on Arch: `sudo pacman -S bubblewrap`; on other distributions use the `bubblewrap` package). The executable must exist at `/usr/bin/bwrap`, and the kernel must allow unprivileged user namespaces.
+On Linux, install Bubblewrap (on Arch: `sudo pacman -S bubblewrap`; on other distributions use the `bubblewrap` package). The executable must exist at `/usr/bin/bwrap`, support `--ro-bind-fd` and `--bind-fd`, and the kernel must allow unprivileged user namespaces. Project and cache sources are pinned directory descriptors; unsupported Bubblewrap versions fail closed rather than reverting to pathname binds.
 
 Run `cargo run -- sandbox-check`, or `greenlight --root PROJECT sandbox-check` when installed. It confirms that the project is read-only and the build cache and `/tmp` are writable. If Bubblewrap is missing or cannot establish namespaces, shell operations fail explicitly. Other commands such as `history` remain available.
 
