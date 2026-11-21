@@ -50,6 +50,8 @@ pub enum LimitReason {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Failure {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<crate::provider_diagnostic::Diagnostic>,
     pub kind: Kind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit_reason: Option<LimitReason>,
@@ -77,7 +79,7 @@ impl fmt::Display for Failure {
             Kind::Timeout=>"Provider request timed out. Check connectivity and provider status before resuming.",
             Kind::Connection=>"Could not connect to the provider. Check network access and the configured endpoint.",
             Kind::Protocol=>"Provider returned an invalid or unsupported response. Check endpoint/model compatibility before resuming.",
-            Kind::Cancelled=>"Provider retry cancelled. No further retry was sent; resume explicitly when ready.",
+            Kind::Cancelled=>"Execution stopped by user. No further request will start; resume explicitly when ready.",
             Kind::Unknown=>"Provider request failed. Check provider status and account settings before resuming.",
         };
         write!(f, "{advice}")?;
@@ -96,11 +98,19 @@ impl fmt::Display for Failure {
 impl Failure {
     pub fn retry_prompt(&self, model: &str) -> String {
         let failure = self;
-        format!("{failure}\n\nRetry sends the same request to {model}. Earlier tools will not run again.\nWait or fix the provider issue, then retry. Any remaining Retry-After cooldown is respected.\nLocal credential/config changes may require restarting Greenlight; this request retains its original settings.\n[y] Retry request / [n] Stop for now. Esc hides this popup and keeps waiting.")
+        let mut text = format!("{failure}\n\nRetry sends the same request to {model}. Earlier tools will not run again.\nWait or fix the provider issue, then retry. Any remaining Retry-After cooldown is respected.\nLocal credential/config changes may require restarting Greenlight; this request retains its original settings.");
+        if let Some(diagnostic) = &self.diagnostic {
+            text.push_str(&format!("\n\n{}\nEsc hides this popup; Provider details and recorded activity retain this diagnostic for copying.", diagnostic.text()));
+        }
+        text.push_str(
+            "\n[y] Retry request / [n] Stop for now. Esc hides this popup and keeps waiting.",
+        );
+        text
     }
     pub fn local(kind: Kind) -> Self {
         Self {
             kind,
+            diagnostic: None,
             limit_reason: None,
             status: None,
             retry_after_seconds: None,
@@ -197,10 +207,12 @@ impl Failure {
         } else if codes.iter().any(|code| {
             matches!(
                 code.as_str(),
-                "model_overloaded" | "model_capacity_exceeded"
+                "model_busy" | "model_overloaded" | "model_capacity_exceeded"
             )
         }) || messages.iter().any(|message| {
             [
+                "model busy",
+                "model is busy",
                 "model is overloaded",
                 "model overloaded",
                 "model capacity",
@@ -247,10 +259,13 @@ impl Failure {
         };
         Self {
             kind,
+            diagnostic: None,
             limit_reason,
             status: Some(status),
             retry_after_seconds,
-            retryable: status == 429 && kind == Kind::RateLimit && explicit_rate,
+            retryable: status == 429
+                && kind == Kind::RateLimit
+                && (explicit_rate || limit_reason == Some(LimitReason::Capacity)),
             billing_uncertain: status == 408 || status >= 500,
         }
     }
@@ -264,8 +279,23 @@ impl Failure {
         } else {
             Kind::Unknown
         };
+        let mut detail = error.to_string();
+        let mut source = std::error::Error::source(error);
+        for _ in 0..6 {
+            let Some(cause) = source else { break };
+            detail.push_str(&format!("\nCaused by: {cause}"));
+            source = cause.source();
+        }
+        if let Some(url) = error.url() {
+            detail = detail.replace(url.as_str(), "[request URL]");
+        }
         Self {
             kind,
+            diagnostic: Some(crate::provider_diagnostic::Diagnostic::capture(
+                &detail,
+                &Default::default(),
+                "",
+            )),
             limit_reason: None,
             status: None,
             retry_after_seconds: None,
@@ -273,9 +303,16 @@ impl Failure {
             billing_uncertain: !matches!(kind, Kind::Connection | Kind::Request),
         }
     }
-    /// Attempt numbers start at 1. Two waits, each <=15s, bound total backoff.
+    pub fn automatic_attempts(&self) -> usize {
+        if self.limit_reason == Some(LimitReason::Capacity) {
+            5
+        } else {
+            3
+        }
+    }
+    /// Capacity rejections allow four waits, others two; each wait <=15s.
     pub fn delay(&self, attempt: usize) -> Option<Duration> {
-        if !self.retryable || attempt >= 3 {
+        if !self.retryable || attempt >= self.automatic_attempts() {
             return None;
         }
         if let Some(seconds) = self.retry_after_seconds {
@@ -311,6 +348,13 @@ pub async fn wait(delay: Duration, cancel: &Arc<AtomicBool>) -> Result<(), Failu
             return Ok(());
         }
         tokio::time::sleep((deadline - now).min(Duration::from_millis(50))).await;
+    }
+}
+
+/// Shared stop signal for in-flight work and waits. Does not interrupt synchronous writes.
+pub async fn cancelled(cancel: &Arc<AtomicBool>) {
+    while !cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
@@ -429,7 +473,7 @@ mod tests {
             assert!(!saved.contains("fixture-secret"));
             assert!(!failure.to_string().contains("fixture-secret"));
             if reason == Some(LimitReason::Capacity) {
-                assert!(!failure.retryable);
+                assert!(failure.retryable);
             }
             if reason.is_none() {
                 assert!(failure.to_string().contains("does not establish"));

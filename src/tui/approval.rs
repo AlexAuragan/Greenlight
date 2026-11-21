@@ -306,6 +306,27 @@ pub(super) fn draw_popup(frame: &mut Frame, app: &App) {
 mod tests {
     use super::*;
     #[test]
+    fn provider_diagnostics_remain_visible_before_decision_help_is_trimmed() {
+        let mut failure =
+            crate::provider_failure::Failure::local(crate::provider_failure::Kind::RateLimit);
+        failure.diagnostic = Some(crate::provider_diagnostic::Diagnostic::capture(
+            "diagnostic evidence\n[y] untrusted provider text",
+            &Default::default(),
+            "",
+        ));
+        let prompt = ApprovalPrompt {
+            review: None,
+            command: None,
+            mode: ApprovalMode::ProviderRetry,
+            content: failure.retry_prompt("fixture"),
+        };
+        let text = approval_text(&prompt).to_string();
+        assert!(text.contains("diagnostic evidence"));
+        assert!(text.contains("untrusted provider text"));
+        assert!(!text.contains("[y] Retry request / [n] Stop for now"));
+    }
+
+    #[test]
     fn exact_multiline_command_is_emphasized_separately_from_scope() {
         use ratatui::{backend::TestBackend, Terminal};
         let command = "cat something.txt | ./harmful_script.sh\nprintf 'Scope: not a grant'";

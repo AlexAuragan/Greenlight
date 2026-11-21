@@ -10,7 +10,7 @@ Follow [installation](22-installation-and-projects.md), initialize an empty dire
 
 Press `n`, choose a valid workflow, enter a short goal and start with Enter. Back/Cancel retain the unsent goal; Clear discards it. Editors must support blinking Unicode-aware carets and arrow movement. Letters such as h/j/k, slash-prefixed messages and bracketed paste remain literal while editing; paste never sends. Closing/reopening a composer retains the draft, scoped by session, branch and recipient.
 
-The header should show Starting, Running, waiting or a recorded stop—not silently sit Ready. Live model text is an explicitly unvalidated preview (`P` hides; `Z` expands). Browse with arrows/j/k, open details explicitly, and use Tab/Shift+Tab for actions. The session picker selects a candidate without switching until Open/Enter; cancelled/no-match browsing retains the opened workspace and its drafts. Help is `h`; no F-keys are required.
+The header should show Starting, Running, waiting or a recorded stop—not silently sit Ready. Live model text is an explicitly unvalidated preview (`P` hides; `Z` expands). Browse with arrows, open details explicitly, and use Tab/Shift+Tab for actions. The session picker selects a candidate without switching until Open/Enter; cancelled/no-match browsing retains the opened workspace and its drafts. Help is `h`; no F-keys are required.
 
 ## 3. Tool permissions and human checkpoints
 
@@ -36,7 +36,7 @@ Use More → Conversation dump (or `/dump` in Commands). Refresh captures new ev
 
 Use a local fake provider for 401, billing/quota failures, ambiguous/explicit 429, connection errors, incomplete streams and server failures. Error messages must give safe category-specific guidance without echoing a fake secret from the provider body. Usage remains reported/estimated/unknown; each actual network retry has a distinct call ID.
 
-After automatic retries stop, a live workflow shows Retry request / Stop for now. Esc hides and retains the same pending request; a reopens it. Fix/wait, then explicitly retry: prepared messages, attempt and branch must match, and the earlier tool must not replay. Respect remaining Retry-After; x cancels a backoff without claiming an in-flight request was cancelled. Timeouts/server errors/usage-bearing failures retain billing uncertainty. Partial stream output must never execute.
+After automatic retries stop, a live workflow shows Retry request / Stop for now. Esc hides and retains the same pending request; a reopens it. Fix/wait, then explicitly retry: prepared messages, attempt and branch must match, and the earlier tool must not replay. Respect remaining Retry-After; k stops execution during backoff or an active response, retaining billing uncertainty. Timeouts/server errors/usage-bearing failures retain billing uncertainty. Partial stream output must never execute.
 
 Stop for now leaves a blocked run with `[t] Continue step`. This is a fresh step attempt and may repeat tools; the screen must state that difference. A worker/process restart does not restore a suspended stack. See [provider behavior](19-provider-failures.md).
 
@@ -44,7 +44,7 @@ Stop for now leaves a blocked run with `[t] Continue step`. This is a fresh step
 
 Completed Activity opens the outcome overview; navigate away and use `[s] Overview` to return. Agent conclusions remain attributed. Unavailable benchmarks and `verification: none` must not appear as measured improvement. Read the pinned final report, browse artifact versions/provenance, compare adjacent versions and verify older missing bodies remain explicit.
 
-Open `[3] Edits`: Tab cycles All files/files, arrows/j/k select/scroll, Enter focuses ordinary actions. Keep file/all records review of an already-applied native revision; it does not stage Git changes or grant tool approval. Later writes invalidate that revision's mark.
+Open `[3] Edits`: Tab cycles All files/files, arrows select/scroll, Enter focuses ordinary actions. Keep file/all records review of an already-applied native revision; it does not stage Git changes or grant tool approval. Later writes invalidate that revision's mark.
 
 Preview a single-file/all-recorded revert. Enter does nothing in its confirmation; Esc/n cancels and a fresh y applies. Only journal-covered eligible files may revert. Prior manual edits must survive; drift, changed history/branch, active/interrupted ownership and unresolved writes must block stale application. After revert, the old report/checks are historical evidence.
 
@@ -65,3 +65,11 @@ Copy selected evidence with C and verify full text beyond clipping. E uses a pri
 Exercise 120×36, 80×24 and compact layouts. Selection/drafts and pending requests should survive resizing. Under 40×20, permission decisions are disabled; Esc can still hide a tool/provider popup without answering it. Restore a supported size and reopen the same pending request. Very small terminals show a resize notice, not active hidden controls.
 
 Mouse presses started on one request must not activate a replacement after resize/state change. No click-through when a layer closes. Disable mouse capture in Help for terminal selection, then re-enable it; keyboard operation must remain complete. [Actual captures](screenshots/README.md) are useful references, not substitutes for real-terminal checks.
+
+Stop check: while streaming or running a long shell command, press k or click [k] Stop. The worker must return promptly and start no further tool/request. q must stay Quit. Composer/search k remains text. Help and permission popups retain input ownership; after Esc hides a permission popup, k stops the wait without a denial/grant. Applied writes remain visible in Edits.
+
+Tool rerun check: stop execution, select a historical tool error in Activity and inspect it. [R] Run tool again must execute exact recorded arguments without a new approval. Original failure stays; a separate User rerun output appears. No model request occurs until Continue. Check a failed rerun, a successful read after fixing the file, a journaled write in Edits, and an outside-project path that still fails. A completed session becomes blocked for review; fresh continuation includes bounded rerun evidence.
+
+Saved provider request check: pause on a provider failure after a tool ran, stop the worker and reopen Greenlight. If interrupted, recover its owner. [t] Retry saved request should retain exact messages and attempt, append a new provider usage request and avoid repeating tools. Repeat during agent verification and for a manager side question via More → [T] Retry saved manager. Update .env credentials and restart to reload them. Edit a project file/configuration while stopped: exact retry must refuse with the checkpoint retained; fresh instructions should start a new attempt. Retry-After must survive reopening, and Help/text fields must not accidentally dispatch retries.
+
+Provider diagnostic check: trigger a mock Model busy 429 and inspect More → Provider and its Usage request. Exact provider text and support request IDs should survive reopening/export; credentials and secret fields must be redacted, truncation explicit. A busy cycle must remain sequential and stop after at most five physical requests. Quota/usage-bearing failures must not auto-retry. Priority must be absent unless explicitly configured and must not claim standard-tier costs.

@@ -557,3 +557,97 @@ fn manual_provider_retries_preserve_all_call_purposes_and_stop_does_not_dispatch
         assert_eq!(engine.store.attempts(&session).unwrap().len(), 1);
     }
 }
+
+#[tokio::test]
+async fn model_busy_retries_are_bounded_sequential_and_individually_accounted() {
+    let mut responses = Vec::new();
+    for _ in 0..4 {
+        let mut completion = Completion::parse(429, r#"{"detail":"Model busy"}"#).unwrap();
+        completion.failure.as_mut().unwrap().retry_after_seconds = Some(0);
+        responses.push(completion);
+    }
+    responses.push(success());
+    let (_root, engine, s) = fixture(responses);
+    assert_eq!(
+        engine
+            .model_call(&s, "work", "coding", "fixture", &[])
+            .await
+            .unwrap(),
+        "done"
+    );
+    let report = engine.store.usage_report(&s, Scope::Session).unwrap();
+    assert_eq!(report.totals.requests, 5);
+    assert_eq!(
+        engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+            .len(),
+        5
+    );
+    let busy = crate::provider_failure::Failure::http(429, &json!({"detail":"Model busy"}), None);
+    for (attempt, seconds) in [(1, 1), (2, 2), (3, 4), (4, 8)] {
+        let delay = busy.delay(attempt).unwrap();
+        assert!(delay >= std::time::Duration::from_secs(seconds));
+        assert!(delay <= std::time::Duration::from_millis(seconds * 1000 + 250));
+    }
+    assert!(busy.delay(5).is_none());
+}
+
+#[tokio::test]
+async fn busy_with_usage_and_quota_failures_are_not_automatically_retried() {
+    for body in [
+        r#"{"detail":"Model busy","usage":{"prompt_tokens":2}}"#,
+        r#"{"error":{"code":"insufficient_quota","message":"Model busy"}}"#,
+    ] {
+        let (_root, engine, s) = fixture(vec![Completion::parse(429, body).unwrap()]);
+        assert!(engine
+            .model_call(&s, "work", "coding", "fixture", &[])
+            .await
+            .is_err());
+        assert_eq!(
+            engine
+                .store
+                .usage_report(&s, Scope::Session)
+                .unwrap()
+                .totals
+                .requests,
+            1
+        );
+    }
+}
+
+#[tokio::test]
+async fn priority_requests_keep_tokens_but_do_not_claim_standard_tier_costs() {
+    for priority in [false, true] {
+        let response = Completion::parse(200, r#"{"choices":[{"message":{"content":"done"}}],"usage":{"prompt_tokens":10,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens":2}}"#).unwrap();
+        let (_root, mut engine, s) = fixture(vec![response]);
+        let metadata = serde_json::from_value(json!({"pricing":{"input_per_million":1.0,"cached_input_per_million":1.0,"output_per_million":2.0,"currency":"USD","source":"fixture standard catalog"}})).unwrap();
+        engine
+            .cfg
+            .provider
+            .model_metadata
+            .insert("fixture".into(), metadata);
+        if priority {
+            engine.cfg.provider.service_tier = Some("priority".into());
+        }
+        engine
+            .model_call(&s, "work", "coding", "fixture", &[])
+            .await
+            .unwrap();
+        let report = engine.store.usage_report(&s, Scope::Session).unwrap();
+        assert_eq!(report.calls[0].counts.input.value, Some(10));
+        assert_eq!(report.calls[0].estimated_cost.is_none(), priority);
+        if priority {
+            assert!(report.calls[0]
+                .counts
+                .notes
+                .iter()
+                .any(|note| note.contains("service_tier: priority")));
+        }
+    }
+}

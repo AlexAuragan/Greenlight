@@ -1,6 +1,6 @@
 //! Shortcut reference generated from command metadata, plus contextual safety rules.
 const GUIDE: &str = r"Navigation
-Arrows or j/k select or scroll the current region.
+Arrows select or scroll the current region.
 Tab / Shift+Tab focus and cycle action buttons; Enter activates the focused action.
 Esc leaves actions, closes a reader/layer, or toggles the sidebar.
 Help also accepts ?. H returns to recorded activity.
@@ -18,14 +18,21 @@ Review permission / Review retry reopens the pending request.
 Dismiss tool popups before opening Help; human checkpoints retain h Help.
 Help owns input above the pending decision; Esc closes Help only.
 Provider pause: y retries the exact request, n stops, Esc hides.
-Continue step starts a fresh attempt; it does not replay an exact request.
+[t] Retry saved request restores exact messages/attempt after reopening.
+[T] Retry saved manager restores the original question and evidence snapshot.
+Changed workspace/settings block saved retry; fresh instructions start a new attempt.
+Recover an interrupted owner first. Credentials reload; earlier tools are not replayed.
 Revert/restart: y confirms, n/Esc cancels; Enter is inert.
 
 Evidence and actions
 Copy exports full selected text. Editor opens a private snapshot while idle.
+[R] Run tool again reruns the selected historical call while idle.
+Exact arguments; no extra approval; side effects may repeat. Results are linked in history.
 More > Conversation dump or /dump opens the recorded transcript.
 More > Usage or /usage opens session token/cost accounting.
-Request details: arrows/j/k select, Enter/click opens the exact dispatch.
+More > Provider and Request details include recorded API errors and support IDs.
+Copy exports these diagnostics; known credentials are redacted.
+Request details: arrows select, Enter/click opens the exact dispatch.
 Back/Esc returns within details before returning to the workspace.
 v shows raw events in Activity, or artifact versions in Artifacts.
 o opens the exact artifact; p shows provenance; d opens previous/journal diff.
@@ -37,7 +44,8 @@ End/G follows latest activity; Home/g pauses at the first record.
 Running Activity uses a compact list beside the larger model/tool output pane.
 Enter/click opens an event there; Live output returns to the stream.
 Narrow screens stack activity above output. P hides output; Z toggles full width.
-Stop requests cancels retry waits; an in-flight request may finish.
+[k] Stop cancels active execution and retry waits; applied edits remain.
+[q] Quit exits while idle. Stopping may leave uncertain billing/partial command effects.
 
 Text editing
 Arrows move the caret; Home/End and Delete/Backspace edit.

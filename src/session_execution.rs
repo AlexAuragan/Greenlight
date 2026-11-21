@@ -81,10 +81,28 @@ impl Store {
 
     // TODO(GL-007): session ownership does not coordinate separate sessions editing one project.
     pub fn claim_execution(&self, id: &str, instruction: Option<&str>) -> Result<ExecutionOwner> {
+        self.claim_owner(id, instruction, None)
+    }
+
+    pub fn claim_tool_execution(&self, id: &str, branch: &str) -> Result<ExecutionOwner> {
+        self.claim_owner(id, None, Some(branch))
+    }
+
+    fn claim_owner(
+        &self,
+        id: &str,
+        instruction: Option<&str>,
+        rerun_branch: Option<&str>,
+    ) -> Result<ExecutionOwner> {
         let lock = self.lock_idle_session(id)?;
         self.ensure_no_pending_writes()?;
         let mut session = self.session(id)?;
-        if !matches!(session.status.as_str(), "ready" | "blocked") {
+        if rerun_branch.is_some_and(|branch| branch != session.active_branch) {
+            bail!("Branch changed; select the tool call again");
+        }
+        if !matches!(session.status.as_str(), "ready" | "blocked")
+            && !(rerun_branch.is_some() && session.status == "completed")
+        {
             bail!(
                 "cannot run session in {} state; completed sessions require a fork",
                 session.status

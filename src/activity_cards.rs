@@ -217,9 +217,32 @@ impl Projection {
                 }
             }
         }
+        let user_requests: std::collections::HashSet<i64> = history
+            .iter()
+            .filter(|event| event.2 == "tool.rerun")
+            .filter_map(|event| {
+                let link = serde_json::from_str::<crate::tool_rerun::Link>(&event.3).ok()?;
+                let source = records.get(&link.source_request)?;
+                let request = records.get(&link.request_event)?;
+                if link.initiator != "user"
+                    || source.2 != "tool.request"
+                    || request.2 != "tool.request"
+                    || source.1 != request.1
+                    || request.1 != event.1
+                    || !(source.0 < request.0 && request.0 < event.0)
+                {
+                    return None;
+                }
+                let original =
+                    serde_yaml::to_string(&crate::tools::parse_action(&source.3).ok()?).ok()?;
+                let repeated =
+                    serde_yaml::to_string(&crate::tools::parse_action(&request.3).ok()?).ok()?;
+                (original == repeated).then_some(link.request_event)
+            })
+            .collect();
         for (id, step, kind, raw) in history {
             if !is_protocol(kind) {
-                let card = if let Some(evidence) = result.titles.get(id) {
+                let mut card = if let Some(evidence) = result.titles.get(id) {
                     let annotation = &evidence.annotation;
                     card(
                         format!("Agent intent · {}", annotation.title.as_str()),
@@ -259,6 +282,17 @@ impl Projection {
                 } else {
                     describe(*id, kind, raw, result.tools.get(id))
                 };
+                if result
+                    .tools
+                    .get(id)
+                    .is_some_and(|tool| user_requests.contains(&tool.metadata.request_event))
+                {
+                    card.title = format!("User rerun · {}", card.title);
+                }
+                if kind == "tool.rerun" {
+                    card.title = "User requested tool rerun".into();
+                    card.summary = format!("Exact recorded arguments · {raw}");
+                }
                 result.cards.insert(*id, card);
             }
         }
@@ -296,7 +330,8 @@ fn card(title: impl Into<String>, summary: impl Into<String>, tone: Tone) -> Car
 pub fn is_protocol(kind: &str) -> bool {
     matches!(
         kind,
-        "step.definition"
+        "continuation.state"
+            | "step.definition"
             | "context.assembled"
             | "model.output"
             | "tool.request"
@@ -467,6 +502,11 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             format!("Version #{id} · o opens this exact version"),
             Tone::Info,
         ),
+        "continuation.retry-wait" => card(
+            "Waiting for saved request cooldown",
+            "Retry-After is retained · k stops execution",
+            Tone::Info,
+        ),
         "provider.failure" => {
             let manager = serde_json::from_str::<serde_json::Value>(raw)
                 .ok()
@@ -480,13 +520,17 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             match parsed {
                 Some(f) => card(
                     format!(
-                        "{} · {:?}",
+                        "{} · {}",
                         if manager {
                             "Manager provider"
                         } else {
                             "Provider"
                         },
-                        f.kind
+                        if f.limit_reason == Some(crate::provider_failure::LimitReason::Capacity) {
+                            "Model busy".into()
+                        } else {
+                            format!("{:?}", f.kind)
+                        }
                     ),
                     f.to_string(),
                     if f.retryable {
@@ -574,6 +618,11 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
         "step.error" | "runner.error" => card("Execution error", short(raw), Tone::Error),
         "step.blocked" => card("Step blocked", short(raw), Tone::Attention),
         "step.completed" => card("Step completed", short(raw), Tone::Good),
+        "attempt.continued" => card(
+            "Saved request continued",
+            "Original attempt retained; earlier tools are not repeated",
+            Tone::Info,
+        ),
         "step.started" => card("Step started", short(raw), Tone::Info),
         "session.started" => card("Session started", short(raw), Tone::Info),
         "session.completed" => card("Session completed", short(raw), Tone::Good),

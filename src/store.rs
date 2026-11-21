@@ -539,6 +539,10 @@ impl Store {
         tx.commit()?;
         Ok(id)
     }
+    pub fn latest_attempt(&self, s: &Session, step: &str) -> Result<(String, i64)> {
+        self.db.query_row("SELECT id,start_event FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 ORDER BY start_event DESC LIMIT 1",
+            params![s.id,s.active_branch,step], |row|Ok((row.get(0)?,row.get(1)?))).map_err(Into::into)
+    }
     pub fn active_attempt(&self, s: &Session, step: &str) -> Result<(String, i64)> {
         self.db.query_row("SELECT id,start_event FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 AND status='running' ORDER BY start_event DESC LIMIT 1",
             params![s.id,s.active_branch,step], |r| Ok((r.get(0)?,r.get(1)?))).map_err(Into::into)

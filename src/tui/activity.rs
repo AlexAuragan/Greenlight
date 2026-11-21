@@ -105,6 +105,7 @@ impl App {
                     card.title, card.summary, event.id, event.step, event.kind
                 );
                 if let Some(tool) = tool {
+                    detail.push_str("\n[R] Run tool again executes these exact arguments as a user action without another approval. Stop execution first. Side effects can repeat; project/tool boundaries still apply.\n");
                     detail.push_str(&format!(
                         "\nRecorded request #{}:\n{}\n\nRecorded output #{}:\n{}",
                         tool.metadata.request_event, tool.request, event.id, event.data
@@ -169,6 +170,7 @@ pub(super) fn conversational_label(kind: &str) -> &str {
         "activity.title" => "Agent intent (model-authored)",
         "workspace.correlation" => "Workspace hash/journal audit",
         "step.started" => "Step started",
+        "attempt.continued" => "Saved request continued",
         "step.completed" => "Step completed",
         "step.blocked" => "Blocked",
         "step.error" => "Error",
@@ -179,7 +181,7 @@ pub(super) fn conversational_label(kind: &str) -> &str {
         "step.deviation" => "Needs attention",
         "verification.failed" => "Verification failed",
         "provider.failure" => "Provider failure",
-        "provider.retry" => "Waiting for provider retry (x cancels)",
+        "provider.retry" => "Waiting for provider retry (k stops)",
         "provider.retry-stopped" | "provider.retry-cancelled" => "Provider retry stopped",
         "tool.error" => "Tool failed",
         "tool.result" => "Tool output",

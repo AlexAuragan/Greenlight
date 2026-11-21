@@ -42,6 +42,7 @@ fn protocol() -> Failure {
 }
 #[derive(Default)]
 struct Stream {
+    redaction_key: String,
     pending: Vec<u8>,
     event: Vec<String>,
     content: String,
@@ -58,7 +59,19 @@ impl Stream {
         self.pending.extend_from_slice(bytes);
         while let Some(end) = self.pending.iter().position(|b| *b == b'\n') {
             let line =
-                String::from_utf8(self.pending.drain(..=end).collect()).map_err(|_| protocol())?;
+                String::from_utf8(self.pending.drain(..=end).collect()).map_err(|error| {
+                    let mut failure = protocol();
+                    failure.diagnostic = Some(crate::provider_diagnostic::Diagnostic::capture(
+                        &format!(
+                            "Invalid UTF-8 event: {}\n{}",
+                            error.utf8_error(),
+                            String::from_utf8_lossy(error.as_bytes())
+                        ),
+                        &Default::default(),
+                        &self.redaction_key,
+                    ));
+                    failure
+                })?;
             let line = line.trim_end_matches(['\r', '\n']);
             if line.is_empty() {
                 self.dispatch(preview)?;
@@ -81,7 +94,15 @@ impl Stream {
             self.done = true;
             return Ok(());
         }
-        let v: Value = serde_json::from_str(&data).map_err(|_| protocol())?;
+        let v: Value = serde_json::from_str(&data).map_err(|_| {
+            let mut failure = protocol();
+            failure.diagnostic = Some(crate::provider_diagnostic::Diagnostic::capture(
+                &data,
+                &Default::default(),
+                &self.redaction_key,
+            ));
+            failure
+        })?;
         if let Some(id) = v["id"].as_str() {
             self.id = Some(id.into());
         }
@@ -93,6 +114,11 @@ impl Stream {
         }
         if v.get("error").is_some_and(|e| !e.is_null()) {
             let mut failure = Failure::http(200, &v, None);
+            failure.diagnostic = Some(crate::provider_diagnostic::Diagnostic::capture(
+                &data,
+                &Default::default(),
+                &self.redaction_key,
+            ));
             // An accepted streaming request may already have produced billable tokens.
             failure.retryable = false;
             failure.billing_uncertain = true;
@@ -141,8 +167,11 @@ impl Stream {
         }
     }
 }
-pub async fn read(mut response: reqwest::Response, preview: &Preview) -> Completion {
-    let mut stream = Stream::default();
+pub async fn read(mut response: reqwest::Response, preview: &Preview, secret: &str) -> Completion {
+    let mut stream = Stream {
+        redaction_key: secret.into(),
+        ..Default::default()
+    };
     let mut total = 0usize;
     let mut error = None;
     loop {
@@ -168,7 +197,13 @@ pub async fn read(mut response: reqwest::Response, preview: &Preview) -> Complet
             }
         }
     }
-    stream.completion(error)
+    let mut completion = stream.completion(error);
+    if let Some(failure) = &mut completion.failure {
+        if failure.diagnostic.is_none() {
+            failure.diagnostic = Some(crate::provider_diagnostic::Diagnostic::capture("Provider stream ended or failed before a complete response; no complete provider error body was received.", &Default::default(), secret));
+        }
+    }
+    completion
 }
 
 #[cfg(test)]
@@ -250,5 +285,30 @@ mod tests {
         let p = preview.lock().unwrap();
         assert!(p.text.len() <= 65536);
         assert!(p.truncated);
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn stream_error_details_are_retained_without_retrying_accepted_work() {
+        let preview = Preview::default();
+        let mut stream = Stream {
+            redaction_key: "actual-api-key".into(),
+            ..Default::default()
+        };
+        stream
+            .feed(
+                b"data: {\"error\":{\"message\":\"Model busy actual-api-key\"}}\n\n",
+                &preview,
+            )
+            .unwrap();
+        let failure = stream.completion(None).failure.unwrap();
+        assert!(!failure.retryable);
+        assert!(failure.billing_uncertain);
+        let diagnostic = failure.diagnostic.unwrap();
+        assert!(diagnostic.body.contains("Model busy"));
+        assert!(!diagnostic.body.contains("actual-api-key"));
     }
 }

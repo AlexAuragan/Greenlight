@@ -9,6 +9,8 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Install, update, initialize and select a project | [Installation and projects](22-installation-and-projects.md) |
 | Current TUI controls, popups, drafts, artifacts and Edits | [Interactive TUI](11-tui.md) |
 | Project-only file reads, directory listing and path filtering | [Native file discovery](36-native-file-discovery.md) |
+| Explicit user reruns of historical tool calls | [Tool reruns](37-tool-reruns.md) |
+| Saved exact requests across app restarts | [Provider continuations](38-provider-continuations.md) |
 | Rate limits, provider errors and explicit retry | [Provider recovery](19-provider-failures.md) |
 | Full model/tool evidence and local exports | [Conversation dumps](35-conversation-dump.md) |
 | Input/cached-input/output counts and model pricing | [Usage and pricing](18-token-usage-and-pricing.md) |

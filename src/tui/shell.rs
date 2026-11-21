@@ -218,8 +218,20 @@ impl App {
         if self.view == View::Conversation {
             actions.extend([Action::Filter, Action::Follow]);
         }
+        if self.saved_workflow_request && self.runner.is_none() {
+            actions.push(Action::RetrySaved);
+        }
+        if self.saved_manager_request && self.manager_job.is_none() {
+            actions.push(Action::RetrySavedManager);
+        }
         if self.runner.is_some() || self.manager_job.is_some() {
             actions.push(Action::Stop);
+        }
+        if self.runner.is_none()
+            && self.manager_job.is_none()
+            && self.selected_tool_request().is_some()
+        {
+            actions.push(Action::RerunTool);
         }
         if self.result_open && self.view == View::Conversation {
             actions.insert(0, Action::ResultEvidence);
@@ -254,6 +266,19 @@ impl App {
         } else {
             vec![Action::Sessions, Action::Details, Action::Help]
         }
+    }
+    pub(super) fn selected_tool_request(&self) -> Option<i64> {
+        if self.view != View::Conversation {
+            return None;
+        }
+        let event = self.event()?;
+        if event.kind == "tool.request" {
+            return Some(event.id);
+        }
+        self.activity_cards
+            .tools
+            .get(&event.id)
+            .map(|e| e.metadata.request_event)
     }
     pub(super) fn footer_actions(&self) -> Vec<Action> {
         let mut actions = self.base_footer_actions();
@@ -393,6 +418,18 @@ impl App {
         if self.session().is_none() {
             return vec![Action::New, Action::More];
         }
+        if self.saved_workflow_request
+            && self.runner.is_none()
+            && self.manager_job.is_none()
+            && !self.attention.as_ref().is_some_and(|state| {
+                matches!(
+                    state.kind,
+                    attention::Kind::Owner | attention::Kind::Writes | attention::Kind::Observing
+                )
+            })
+        {
+            return vec![Action::RetrySaved, Action::InspectAttention, Action::More];
+        }
         if self.attention_visible() {
             return self.attention.as_ref().unwrap().actions();
         }
@@ -479,6 +516,26 @@ impl App {
                 Action::Versions,
                 Action::More,
             ];
+        }
+        if self.runner.is_some() && self.view == View::Conversation {
+            return vec![
+                if self.workflow_live_output().is_some()
+                    && self.shell.preview
+                    && (self.inspector_open || self.focus == Focus::Detail)
+                {
+                    Action::ReturnLive
+                } else {
+                    Action::Open
+                },
+                Action::Stop,
+                Action::More,
+            ];
+        }
+        if self.selected_tool_request().is_some()
+            && self.runner.is_none()
+            && self.manager_job.is_none()
+        {
+            return vec![Action::Open, Action::RerunTool, Action::More];
         }
         if self.session().is_some_and(|s| s.status == "completed") {
             return if self.viewport.0 < 60 {
@@ -591,8 +648,39 @@ impl App {
             self.shell.more = false;
         }
         match action {
+            RetrySaved => {
+                if self.runner.is_some() || self.manager_job.is_some() {
+                    self.notice = "Stop active execution before retrying the saved request.".into();
+                    return Ok(false);
+                }
+                let session = self.session().context("No selected session")?;
+                if store.execution_state(&session.id)?
+                    != crate::session_execution::ExecutionState::Idle
+                {
+                    self.notice =
+                        "Recover the interrupted owner before retrying the saved request.".into();
+                    return Ok(false);
+                }
+                if store.pending_continuation(session, false)?.is_none() {
+                    self.refresh(store)?;
+                    return Ok(false);
+                }
+                self.runner = Some(tui_actions::resume_saved(
+                    root.to_path_buf(),
+                    session.id.clone(),
+                ));
+                self.clear_diagnostic();
+                self.result_open = false;
+                self.notice = "Validating saved request and workspace. Exact messages and attempt will be retained; earlier tools will not run again. Credentials reload from current settings; remote billing may be uncertain.".into();
+            }
+            RetrySavedManager => {
+                self.retry_saved_manager(root, store);
+            }
             ResumeProvider => {
                 self.refresh(store)?;
+                if self.saved_workflow_request {
+                    return self.activate(RetrySaved, root, store);
+                }
                 if !self
                     .attention
                     .as_ref()
@@ -966,6 +1054,33 @@ impl App {
                     self.select_end(true);
                 }
             }
+            RerunTool => {
+                if self.runner.is_some() || self.manager_job.is_some() {
+                    self.notice = "Stop execution before rerunning a tool.".into();
+                    return Ok(false);
+                }
+                let request = self
+                    .selected_tool_request()
+                    .context("Select a recorded tool call first")?;
+                let session = self.session().context("No selected session")?;
+                if store.execution_state(&session.id)?
+                    != crate::session_execution::ExecutionState::Idle
+                {
+                    self.notice = "Stop or recover the session before rerunning a tool.".into();
+                    return Ok(false);
+                }
+                store.ensure_no_pending_writes()?;
+                store.rerun_request(session, request)?;
+                self.runner = Some(tui_actions::rerun(
+                    root.to_path_buf(),
+                    session.id.clone(),
+                    session.active_branch.clone(),
+                    request,
+                ));
+                self.result_open = false;
+                self.shell.more = false;
+                self.notice = "Running exact recorded tool arguments at your request. Partial effects may repeat; original history is preserved.".into();
+            }
             Stop => {
                 if let Some(cancel) = self
                     .runner
@@ -973,7 +1088,7 @@ impl App {
                     .and_then(|runner| runner.cancel_retry.as_ref())
                 {
                     cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                    self.notice = "Stop requested: retry waits cancel promptly; an in-flight request may finish, and no further provider request will start.".into();
+                    self.notice = "Stopping execution… Active requests/commands are being cancelled; applied edits remain. Provider billing or partial command effects may be uncertain.".into();
                 } else if self.manager_job.is_some() {
                     self.cancel_manager();
                 }
@@ -1427,6 +1542,7 @@ mod tests {
         let (answers, received) = mpsc::channel();
         let (ft, finished) = mpsc::channel();
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: None,
             cancel_retry: None,
             session_id: None,
@@ -1511,6 +1627,7 @@ mod tests {
         let (answers, received) = mpsc::channel();
         let (_ft, finished) = mpsc::channel();
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: None,
             cancel_retry: None,
             session_id: None,

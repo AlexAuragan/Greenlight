@@ -87,6 +87,8 @@ struct App {
     edits: edits::Edits,
     compose: compose::Composer,
     result_open: bool,
+    saved_workflow_request: bool,
+    saved_manager_request: bool,
     result_text: String,
     result_overview: Option<result::Overview>,
     result_key: Option<(String, String, i64)>,
@@ -96,6 +98,7 @@ struct App {
     events: Vec<std::sync::Arc<EventRow>>,
     activity_rows: Vec<std::sync::Arc<EventRow>>,
     event_index: usize,
+    rerun_output: Option<(String, String)>,
     artifacts: Vec<Artifact>,
     artifact_index: usize,
     view: View,
@@ -170,6 +173,8 @@ impl App {
             edits: Default::default(),
             compose: Default::default(),
             result_open: false,
+            saved_workflow_request: false,
+            saved_manager_request: false,
             result_text: String::new(),
             result_overview: None,
             result_key: None,
@@ -179,6 +184,7 @@ impl App {
             events: Vec::new(),
             activity_rows: Vec::new(),
             event_index: 0,
+            rerun_output: None,
             artifacts: Vec::new(),
             artifact_index: 0,
             view: View::Conversation,
@@ -276,6 +282,8 @@ impl App {
     }
 
     fn refresh(&mut self, store: &Store) -> Result<()> {
+        self.saved_workflow_request = false;
+        self.saved_manager_request = false;
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
             let config = crate::config::load_config(root);
             self.details.configured_model = config.as_ref().ok().map(|c| c.provider.model.clone());
@@ -370,6 +378,20 @@ impl App {
                     return Ok(());
                 }
             };
+            for (manager, pending) in [
+                (
+                    false,
+                    crate::continuation::pending_reference(&history, false),
+                ),
+                (true, crate::continuation::pending_reference(&history, true)),
+            ] {
+                match pending {
+                    Ok(reference) if manager => self.saved_manager_request = reference.is_some(),
+                    Ok(reference) => self.saved_workflow_request = reference.is_some(),
+                    Err(error) => self.notice = format!("Saved request metadata unreadable ({}): {error}. Recorded history remains available; this saved retry will not start.", if manager {"manager"} else {"workflow"}),
+                }
+            }
+
             let session_changed = self.workspace_session.as_deref() != Some(session.id.as_str());
             let old_primary = self.workspace.as_ref().map(|w| w.primary);
             let old_blocker = self
@@ -623,6 +645,24 @@ impl App {
         } else {
             self.event_index = self.events.len().saturating_sub(1);
         }
+        if let Some((session_id, branch)) = self.rerun_output.take() {
+            if self
+                .session()
+                .is_some_and(|s| s.id == session_id && s.active_branch == branch)
+            {
+                if let Some(id) = self.activity_cards.tools.keys().max() {
+                    if let Some(index) = self.events.iter().position(|event| event.id == *id) {
+                        self.event_index = index;
+                        self.view = View::Conversation;
+                        self.result_open = false;
+                        self.follow_activity = false;
+                        self.inspector_open = true;
+                        self.focus = Focus::Detail;
+                        self.detail_scroll = 0;
+                    }
+                }
+            }
+        }
         let event_changed = old_event != self.event().map(|e| e.id);
         if (changed_session || event_changed)
             && self.view == View::Conversation
@@ -704,11 +744,26 @@ impl App {
                 Err(TryRecvError::Disconnected | TryRecvError::Empty) => {}
             }
         }
+        let stopped = runner
+            .cancel_retry
+            .as_ref()
+            .is_some_and(|signal| signal.load(std::sync::atomic::Ordering::SeqCst));
+        let tool_rerun = runner.tool_rerun;
         let completion = runner.finished.try_recv();
         let failed = !matches!(&completion, Ok(Ok(())) | Err(TryRecvError::Empty));
         if !matches!(&completion, Err(TryRecvError::Empty)) {
+            if tool_rerun && matches!(&completion, Ok(Ok(()))) {
+                if let Some(session) = self
+                    .session()
+                    .filter(|s| runner.session_id.as_deref() == Some(s.id.as_str()))
+                {
+                    self.rerun_output = Some((session.id.clone(), session.active_branch.clone()));
+                }
+            }
             self.notice = match completion {
                 Ok(result) => match result {
+                Ok(()) if stopped => "Execution stopped. Applied edits remain; review recorded work before continuing.".into(),
+                Ok(()) if tool_rerun => "Tool rerun recorded. Workflow remains stopped; inspect its output, then continue when ready.".into(),
                 Ok(()) => "Workflow finished. Review the result and recorded evidence.".into(),
                 Err(error) => format!("Runner error: {error}"),
                 },

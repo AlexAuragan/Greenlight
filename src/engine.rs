@@ -30,6 +30,10 @@ macro_rules! console_eprintln {
 }
 
 pub struct Engine {
+    pub(crate) continuation: std::cell::RefCell<Option<crate::continuation::Checkpoint>>,
+    pub(crate) frame: std::cell::RefCell<crate::continuation::Frame>,
+    pub(crate) checks: std::cell::RefCell<Vec<Result<(), String>>>,
+    check_cursor: std::cell::Cell<usize>,
     pub root: std::path::PathBuf,
     pub cfg: Config,
     pub store: Store,
@@ -46,6 +50,10 @@ impl Engine {
         let provider = Provider::new(cfg.provider.clone());
         let tools = Tools::new(root.clone(), cfg.permissions.clone())?;
         Ok(Self {
+            continuation: Default::default(),
+            frame: Default::default(),
+            checks: Default::default(),
+            check_cursor: Default::default(),
             root,
             cfg,
             store,
@@ -86,6 +94,10 @@ impl Engine {
         self.store.ensure_no_pending_writes()?;
         let mut s = self.store.session(session_id)?;
         let mut steps = 0usize;
+        let mut continuing = self.continuation.borrow().is_some();
+        if !continuing {
+            self.store.close_continuation(&s, false)?;
+        }
         while s.status != "completed" && steps < 100 {
             let workflow = config::load_workflow(&self.root, &s.workflow)?;
             let step = workflow
@@ -99,8 +111,33 @@ impl Engine {
                 .unwrap_or(&self.cfg.provider.model)
                 .to_owned();
             let definition = serde_yaml::to_string(&step)?;
-            self.store
-                .begin_attempt(&s, &step.id, &definition, &resolved_model)?;
+            let resolved_model = if continuing {
+                self.continuation.borrow().as_ref().unwrap().model.clone()
+            } else {
+                resolved_model
+            };
+            if continuing {
+                self.validate_continuation(&s, self.continuation.borrow().as_ref().unwrap())?;
+                let attempt = self
+                    .continuation
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .attempt
+                    .clone()
+                    .context("Saved workflow request has no attempt")?;
+                self.store.db.execute(
+                    "UPDATE step_attempts SET status='running',end_event=NULL WHERE id=?1",
+                    [&attempt],
+                )?;
+                self.store
+                    .event(&s, Some(&step.id), "attempt.continued", &attempt)?;
+            } else {
+                *self.frame.borrow_mut() = crate::continuation::Frame::None;
+                self.checks.borrow_mut().clear();
+                self.store
+                    .begin_attempt(&s, &step.id, &definition, &resolved_model)?;
+            }
             s.status = "running".into();
             self.store.save(&s)?;
             console_println!(self, "\n=== {} / {} ===", s.workflow, step.id);
@@ -116,9 +153,29 @@ impl Engine {
                     break;
                 }
             };
-            let outcome = self
-                .execute_step(&s, &workflow, &step, override_prompt, &resolved_model)
-                .await;
+            let saved_frame = self.frame.borrow().clone();
+            let resumed_deviation =
+                continuing && matches!(saved_frame, crate::continuation::Frame::Deviation { .. });
+            if continuing {
+                self.enforce_input_approvals(
+                    &s,
+                    &workflow,
+                    &step,
+                    &self.select_inputs(&s, &workflow, &step)?,
+                )?;
+            }
+            let outcome = if continuing {
+                if let crate::continuation::Frame::Deviation { outcome } = saved_frame {
+                    Ok(outcome)
+                } else {
+                    self.execute_step(&s, &workflow, &step, override_prompt, &resolved_model)
+                        .await
+                }
+            } else {
+                self.execute_step(&s, &workflow, &step, override_prompt, &resolved_model)
+                    .await
+            };
+            continuing = false;
             // Record even failed/blocked attempts, so an external edit cannot
             // disappear from the observed step's workspace history.
             let audit = workspace::record(&self.root, &self.store, &s, &step.id, "after").and_then(
@@ -178,12 +235,21 @@ impl Engine {
                 }
                 Ok(Outcome::Deviation(id, summary))
                 | Ok(Outcome::DetectedDeviation(id, summary)) => {
-                    self.store.event(
-                        &s,
-                        Some(&step.id),
-                        "step.deviation",
-                        &format!("{id}: {summary}"),
-                    )?;
+                    *self.frame.borrow_mut() = crate::continuation::Frame::Deviation {
+                        outcome: if already_detected {
+                            Outcome::DetectedDeviation(id.clone(), summary.clone())
+                        } else {
+                            Outcome::Deviation(id.clone(), summary.clone())
+                        },
+                    };
+                    if !resumed_deviation {
+                        self.store.event(
+                            &s,
+                            Some(&step.id),
+                            "step.deviation",
+                            &format!("{id}: {summary}"),
+                        )?;
+                    }
                     console_println!(self, "[deviation: {id}] {summary}");
                     let rule = step.deviations.iter().find(|d| d.id == id);
                     if !already_detected {
@@ -354,8 +420,50 @@ impl Engine {
         messages: &[serde_json::Value],
         interaction: Option<(&str, &str)>,
     ) -> Result<String> {
+        let restored = self.continuation.borrow_mut().take();
+        if let Some(cp) = &restored {
+            if cp.purpose != purpose || cp.step != step || cp.model != model {
+                return Err(
+                    anyhow!("Saved request does not match the resumed execution phase")
+                        .context(crate::provider_failure::ModelCallFailed),
+                );
+            }
+            self.validate_continuation(s, cp)
+                .context(crate::provider_failure::ModelCallFailed)?;
+            if let Some(until) = cp.cooldown_until {
+                let remaining = (until - chrono::Utc::now()).to_std().unwrap_or_default();
+                if !remaining.is_zero() {
+                    self.store
+                        .event(
+                            s,
+                            Some(step),
+                            "continuation.retry-wait",
+                            &json!({"purpose":purpose,"until":until}).to_string(),
+                        )
+                        .context(crate::provider_failure::ModelCallFailed)?;
+                }
+                crate::provider_failure::wait(remaining, &self.provider.retry_cancel).await?;
+                self.validate_continuation(s, cp)
+                    .context(crate::provider_failure::ModelCallFailed)?;
+            }
+        }
+        let messages = restored
+            .as_ref()
+            .map_or(messages, |cp| cp.messages.as_slice());
+        let interaction = restored
+            .as_ref()
+            .and_then(|cp| cp.interaction.as_ref())
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .or(interaction);
+        let checkpoint = self
+            .checkpoint(s, step, purpose, model, messages, interaction)
+            .context(crate::provider_failure::ModelCallFailed)?;
         let result: Result<String> = async {
+            let mut retrying = false;
             loop {
+                if retrying {
+                    self.validate_pending_retry(s, purpose)?;
+                }
                 let error = match self
                     .dispatch_model_call(s, step, purpose, model, messages, interaction)
                     .await
@@ -363,6 +471,7 @@ impl Engine {
                     Ok(text) => break Ok(text),
                     Err(error) => error,
                 };
+                retrying = true;
                 let Some(failure) = error
                     .downcast_ref::<crate::provider_failure::Failure>()
                     .cloned()
@@ -439,7 +548,7 @@ impl Engine {
                         "wait_ms": remaining.as_millis(),
                         "message": concat!(
                             "User requested retry of the same prepared messages; ",
-                            "waiting for any remaining provider cooldown. x stops future requests."
+                            "waiting for any remaining provider cooldown. k stops execution."
                         )
                     })
                     .to_string(),
@@ -458,6 +567,9 @@ impl Engine {
             }
         }
         .await;
+        if result.is_ok() && checkpoint.is_some() {
+            self.store.close_continuation(s, purpose == "manager")?;
+        }
         result.context(crate::provider_failure::ModelCallFailed)
     }
     async fn dispatch_model_call(
@@ -470,7 +582,7 @@ impl Engine {
         interaction: Option<(&str, &str)>,
     ) -> Result<String> {
         use crate::provider_failure::{Failure, Kind};
-        for attempt in 1..=3 {
+        for attempt in 1..=5 {
             if self
                 .provider
                 .retry_cancel
@@ -482,7 +594,13 @@ impl Engine {
             #[cfg(test)]
             let discover = discover && self.provider.script.is_none();
             let metadata = if discover {
-                crate::pricing::resolve(&self.root, &self.cfg.provider, model, false).await
+                tokio::select! {
+                    biased;
+                    _ = crate::provider_failure::cancelled(&self.provider.retry_cancel) => {
+                        return Err(Failure::local(Kind::Cancelled).into());
+                    }
+                    metadata = crate::pricing::resolve(&self.root, &self.cfg.provider, model, false) => metadata,
+                }
             } else {
                 self.cfg
                     .provider
@@ -498,6 +616,9 @@ impl Engine {
             {
                 return Err(Failure::local(Kind::Cancelled).into());
             }
+            if attempt > 1 {
+                self.validate_pending_retry(s, purpose)?;
+            }
             let provider = reqwest::Url::parse(&self.cfg.provider.base_url)
                 .map(|url| url.origin().ascii_serialization())
                 .unwrap_or_else(|_| "unknown provider".into());
@@ -506,6 +627,9 @@ impl Engine {
             if let Some((message, snapshot)) = interaction {
                 call.manager_message_id = Some(message.into());
                 call.manager_snapshot_id = Some(snapshot.into());
+            }
+            if let Some(tier) = &self.cfg.provider.service_tier {
+                call.counts.notes.push(format!("Requested service_tier: {tier}. Standard-tier catalog pricing is not verified for this request."));
             }
             self.store.begin_model_call(s, &mut call)?;
             if let Err(error) = crate::conversation_dump::record_request(
@@ -549,6 +673,9 @@ impl Engine {
                     call.estimated_cost = None;
                 }
             }
+            if self.cfg.provider.service_tier.is_some() {
+                call.estimated_cost = None;
+            }
             self.store
                 .finish_model_call(s, &call)
                 .context("could not persist model usage; initial request record retained")?;
@@ -565,20 +692,25 @@ impl Engine {
             )
             .context("Cannot persist returned conversation; inspect usage before retrying")?;
             if let Some(failure) = failure {
+                self.checkpoint_failure(s, purpose, &failure)?;
                 if purpose != "manager" {
                     console_eprintln!(self, "[provider] {failure}");
+                    if let Some(diagnostic) = &failure.diagnostic {
+                        console_eprintln!(self, "[provider diagnostic]\n{}", diagnostic.text());
+                    }
                 }
                 self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"purpose":purpose,"request_number":attempt,"failure":failure}))?)?;
                 if let Some(delay) = failure.delay(attempt) {
                     if purpose != "manager" {
                         console_eprintln!(
                             self,
-                            "[provider retry] request {}/3 in {:.2}s",
+                            "[provider retry] request {}/{} in {:.2}s",
                             attempt + 1,
+                            failure.automatic_attempts(),
                             delay.as_secs_f64()
                         );
                     }
-                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; x in TUI cancels future provider requests"}}).to_string())?;
+                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; k in TUI stops execution"}}).to_string())?;
                     if let Err(cancelled) =
                         crate::provider_failure::wait(delay, &self.provider.retry_cancel).await
                     {
@@ -730,6 +862,11 @@ impl Engine {
         let input_manifest = self
             .store
             .record_approved_input_manifest(s, &step.id, &inputs, approvals)?;
+        let frame = self.frame.borrow().clone();
+        if let crate::continuation::Frame::Verify { summary } = frame {
+            self.verify(s, wf, step, model).await?;
+            return Ok(Outcome::Done(summary));
+        }
         match step.kind.as_str() {
             "human" => {
                 let prompt = config::render_includes(&step.prompt, &self.root, &wf.folder)?;
@@ -770,6 +907,13 @@ impl Engine {
                     .approve_inputs(s, &step.id, input_manifest, &inputs, || {
                         self.select_inputs(s, wf, step)
                     })?;
+                *self.frame.borrow_mut() = crate::continuation::Frame::Verify {
+                    summary: if step.kind == "human" {
+                        "human approval granted".into()
+                    } else {
+                        "command succeeded".into()
+                    },
+                };
                 if let Err(e) = self.verify(s, wf, step, model).await {
                     if crate::provider_failure::is_fatal_model_error(&e) {
                         return Err(e);
@@ -830,6 +974,13 @@ impl Engine {
                 if !result.starts_with("exit_code: 0\n") {
                     return Ok(Outcome::Deviation("command_failed".into(), result));
                 }
+                *self.frame.borrow_mut() = crate::continuation::Frame::Verify {
+                    summary: if step.kind == "human" {
+                        "human approval granted".into()
+                    } else {
+                        "command succeeded".into()
+                    },
+                };
                 if let Err(e) = self.verify(s, wf, step, model).await {
                     if crate::provider_failure::is_fatal_model_error(&e) {
                         return Err(e);
@@ -864,6 +1015,13 @@ impl Engine {
             ));
         }
         context.push_str(&crate::agent_protocol::step_contract(step));
+        let rerun_budget = 16_000usize.min(
+            self.cfg
+                .session
+                .max_artifact_bytes
+                .saturating_sub(context.len() + 4096),
+        );
+        context.push_str(&self.store.tool_rerun_context(s, rerun_budget)?);
         let mut remaining_draft_bytes = 24_000usize.min(
             self.cfg
                 .session
@@ -916,10 +1074,28 @@ impl Engine {
             json!({"role":"system","content":PROTOCOL}),
             json!({"role":"user","content":context}),
         ];
+        let mut replay = None;
+        if let crate::continuation::Frame::Coding {
+            messages: saved,
+            response,
+        } = self.frame.borrow().clone()
+        {
+            messages = saved;
+            replay = response;
+        }
         let mut repairs = crate::agent_protocol::Repairs::default();
         // Continue until the model finishes, reports a deviation, or execution fails/stops.
         // Legacy max_turns settings are accepted for compatibility, not enforced.
         loop {
+            if self
+                .provider
+                .retry_cancel
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                bail!(crate::provider_failure::Failure::local(
+                    crate::provider_failure::Kind::Cancelled
+                ));
+            }
             let bytes = serde_json::to_vec(&messages)?.len();
             if bytes > self.cfg.session.max_conversation_bytes {
                 let reason = format!("Prepared conversation is {bytes} bytes, exceeding session.max_conversation_bytes={}. Execution paused before another provider request; saved artifacts and applied edits remain available. Review inputs/drafts or increase the configured byte budget before continuing.", self.cfg.session.max_conversation_bytes);
@@ -927,10 +1103,33 @@ impl Engine {
                     .event(s, Some(&step.id), "context.limit-reached", &reason)?;
                 bail!("{reason}");
             }
-            let raw = self
-                .model_call(s, &step.id, "coding", model, &messages)
-                .await?;
-            let model_event = self.store.event(s, Some(&step.id), "model.output", &raw)?;
+            let replaying = replay.is_some();
+            let (raw, model_event) = if let Some(response) = replay.take() {
+                response
+            } else {
+                *self.frame.borrow_mut() = crate::continuation::Frame::Coding {
+                    messages: messages.clone(),
+                    response: None,
+                };
+                let raw = self
+                    .model_call(s, &step.id, "coding", model, &messages)
+                    .await?;
+                let model_event = self.store.event(s, Some(&step.id), "model.output", &raw)?;
+                (raw, model_event)
+            };
+            *self.frame.borrow_mut() = crate::continuation::Frame::Coding {
+                messages: messages.clone(),
+                response: Some((raw.clone(), model_event)),
+            };
+            if self
+                .provider
+                .retry_cancel
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                bail!(crate::provider_failure::Failure::local(
+                    crate::provider_failure::Kind::Cancelled
+                ));
+            }
             // An in-flight response cannot authorize work against an input
             // version that changed while the model was running.
             self.enforce_input_approvals(s, wf, step, &self.select_inputs(s, wf, step)?)?;
@@ -953,7 +1152,7 @@ impl Engine {
                     continue;
                 }
             };
-            if let Some(title) = &action.activity_title {
+            if let Some(title) = action.activity_title.as_ref().filter(|_| !replaying) {
                 let annotation = crate::activity_titles::Annotation {
                     model_event,
                     title: title.clone(),
@@ -1120,6 +1319,7 @@ impl Engine {
         step: &Step,
         model: &str,
     ) -> Result<()> {
+        self.check_cursor.set(0);
         let checks = step.verification.as_ref().context("missing verification")?;
         // Iterative traversal keeps nested AND composites straightforward.
         let mut stack: Vec<&Verify> = vec![checks];
@@ -1173,6 +1373,34 @@ impl Engine {
         Ok(())
     }
     async fn verify_leaf(
+        &mut self,
+        s: &Session,
+        wf: &LoadedWorkflow,
+        step: &Step,
+        model: &str,
+        check: &Verify,
+    ) -> Result<()> {
+        let index = self.check_cursor.get();
+        self.check_cursor.set(index + 1);
+        if let Some(result) = self.checks.borrow().get(index).cloned() {
+            return result.map_err(anyhow::Error::msg);
+        }
+        let result = self.verify_leaf_run(s, wf, step, model, check).await;
+        if !result
+            .as_ref()
+            .err()
+            .is_some_and(crate::provider_failure::is_fatal_model_error)
+        {
+            self.checks.borrow_mut().push(
+                result
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:#}")),
+            );
+        }
+        result
+    }
+    async fn verify_leaf_run(
         &mut self,
         s: &Session,
         wf: &LoadedWorkflow,
@@ -1339,7 +1567,8 @@ struct Detection {
     reason: String,
 }
 
-enum Outcome {
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) enum Outcome {
     Done(String),
     Deviation(String, String),
     DetectedDeviation(String, String),

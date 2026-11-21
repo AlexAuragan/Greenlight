@@ -345,6 +345,7 @@ pub(super) mod tests {
         let mut app = App::new(Some(&s.id));
         app.refresh(&store).unwrap();
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: None,
             cancel_retry: None,
             session_id: Some(s.id.clone()),

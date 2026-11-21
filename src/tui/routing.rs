@@ -50,8 +50,8 @@ impl App {
                         self.shell.mouse = !self.shell.mouse;
                     }
                 }
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Down => self.scroll_detail(1),
+                KeyCode::Up => self.scroll_detail(-1),
                 KeyCode::PageDown => self.scroll_detail(8),
                 KeyCode::PageUp => self.scroll_detail(-8),
                 KeyCode::Home => self.detail_scroll = 0,
@@ -94,6 +94,16 @@ impl App {
             || self.searching
             || self.activity_filtering
             || self.new_session.as_ref().is_some_and(|f| f.goal.is_some());
+        if !typing
+            && key.code == KeyCode::Char('k')
+            && key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && self.decision_layer() == actions::DecisionLayer::Workspace
+        {
+            return self.activate(shell::Action::Stop, root, store);
+        }
         if (self.searching
             || self.activity_filtering
             || self.new_session.is_some()
@@ -140,14 +150,30 @@ impl App {
             self.open_help();
             return Ok(false);
         }
+        if !typing
+            && !self.shell.more
+            && self.new_session.is_none()
+            && self.decision_layer() == actions::DecisionLayer::Workspace
+            && key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            if key.code == KeyCode::Char('T') && self.saved_manager_request {
+                return self.activate(shell::Action::RetrySavedManager, root, store);
+            }
+            if key.code == KeyCode::Char('t') && self.saved_workflow_request {
+                return self.activate(shell::Action::RetrySaved, root, store);
+            }
+        }
         if self.shell.more {
             let actions = self.more_actions();
             match key.code {
                 KeyCode::Esc => self.shell.more = false,
-                KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
+                KeyCode::Down | KeyCode::Tab => {
                     self.shell.menu_index = (self.shell.menu_index + 1) % actions.len()
                 }
-                KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => {
+                KeyCode::Up | KeyCode::BackTab => {
                     self.shell.menu_index =
                         (self.shell.menu_index + actions.len() - 1) % actions.len()
                 }
@@ -215,8 +241,6 @@ impl App {
                 }
                 KeyCode::Down => self.navigation.select(1),
                 KeyCode::Up => self.navigation.select(-1),
-                KeyCode::Char('j') if !self.searching => self.navigation.select(1),
-                KeyCode::Char('k') if !self.searching => self.navigation.select(-1),
                 KeyCode::Home if !self.searching => self.navigation.select(isize::MIN),
                 KeyCode::End if !self.searching => self.navigation.select(isize::MAX),
                 KeyCode::Char('f') if !self.searching => {
@@ -321,28 +345,12 @@ impl App {
             }
         }
 
-        if !self.approval_visible()
-            && self.focus != Focus::Compose
-            && !self.searching
-            && self.new_session.is_none()
-            && key.code == KeyCode::Char('x')
-        {
-            if let Some(cancel) = self.runner.as_ref().and_then(|r| r.cancel_retry.as_ref()) {
-                cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                self.notice="Stop requested: retry waits cancel promptly; an in-flight request may finish, and no further provider request will start.".into();
-                return Ok(false);
-            }
-            if self.manager_job.is_some() {
-                self.cancel_manager();
-                return Ok(false);
-            }
-        }
         if self.decision_layer() == actions::DecisionLayer::HumanEvidence {
             match key.code {
                 KeyCode::Esc => self.checkpoint_back(store),
                 KeyCode::Char('C') => self.start_copy(),
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Down => self.scroll_detail(1),
+                KeyCode::Up => self.scroll_detail(-1),
                 KeyCode::PageDown => self.scroll_detail(8),
                 KeyCode::PageUp => self.scroll_detail(-8),
                 KeyCode::Home => self.detail_scroll = 0,
@@ -406,8 +414,8 @@ impl App {
                 KeyCode::PageUp => self.scroll_detail(-8),
                 KeyCode::Home => self.detail_scroll = 0,
                 KeyCode::End => self.detail_scroll = u16::MAX,
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Down => self.scroll_detail(1),
+                KeyCode::Up => self.scroll_detail(-1),
                 _ => {}
             }
             return Ok(false);
@@ -460,8 +468,8 @@ impl App {
                     self.detail_scroll = 0;
                     self.notice = "Revert cancelled; no files changed.".into();
                 }
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
+                KeyCode::Up => self.scroll_detail(-1),
+                KeyCode::Down => self.scroll_detail(1),
                 KeyCode::PageUp => self.scroll_detail(-8),
                 KeyCode::PageDown => self.scroll_detail(8),
                 KeyCode::Home => self.detail_scroll = 0,
@@ -528,18 +536,18 @@ impl App {
                     browser.reading = true;
                     self.detail_scroll = 0;
                 }
-                KeyCode::Down | KeyCode::Char('j') if browser.reading => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') if browser.reading => self.scroll_detail(-1),
+                KeyCode::Down if browser.reading => self.scroll_detail(1),
+                KeyCode::Up if browser.reading => self.scroll_detail(-1),
                 KeyCode::PageDown if browser.reading => self.scroll_detail(8),
                 KeyCode::PageUp if browser.reading => self.scroll_detail(-8),
                 KeyCode::Home if browser.reading => self.detail_scroll = 0,
                 KeyCode::End if browser.reading => self.detail_scroll = u16::MAX,
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Down => {
                     browser.index = move_index(browser.index, 1, browser.versions.len());
                     browser.load(store, &session);
                     self.detail_scroll = 0;
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
+                KeyCode::Up => {
                     browser.index = move_index(browser.index, -1, browser.versions.len());
                     browser.load(store, &session);
                     self.detail_scroll = 0;
@@ -560,14 +568,10 @@ impl App {
                 }
                 KeyCode::Char('C') => self.start_copy(),
                 KeyCode::Char('E') => self.request_editor(),
-                KeyCode::Down | KeyCode::Char('j')
-                    if self.details.page == Some(details::Page::Requests) =>
-                {
+                KeyCode::Down if self.details.page == Some(details::Page::Requests) => {
                     self.move_usage_request(1, store)
                 }
-                KeyCode::Up | KeyCode::Char('k')
-                    if self.details.page == Some(details::Page::Requests) =>
-                {
+                KeyCode::Up if self.details.page == Some(details::Page::Requests) => {
                     self.move_usage_request(-1, store)
                 }
                 KeyCode::PageDown if self.details.page == Some(details::Page::Requests) => {
@@ -587,8 +591,8 @@ impl App {
                         self.open_run_details(details::Page::Request, store);
                     }
                 }
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Down => self.scroll_detail(1),
+                KeyCode::Up => self.scroll_detail(-1),
                 KeyCode::PageDown => self.scroll_detail(8),
                 KeyCode::PageUp => self.scroll_detail(-8),
                 KeyCode::Home => self.detail_scroll = 0,
@@ -639,11 +643,11 @@ impl App {
                     self.detail_scroll = 0;
                     return Ok(false);
                 }
-                KeyCode::Up | KeyCode::Char('k') if self.focus != Focus::Sessions => {
+                KeyCode::Up if self.focus != Focus::Sessions => {
                     self.scroll_detail(-1);
                     return Ok(false);
                 }
-                KeyCode::Down | KeyCode::Char('j') if self.focus != Focus::Sessions => {
+                KeyCode::Down if self.focus != Focus::Sessions => {
                     self.scroll_detail(1);
                     return Ok(false);
                 }
@@ -725,16 +729,12 @@ impl App {
                 {
                     self.submit_new_session(root, store)?;
                 }
-                KeyCode::Down | KeyCode::Char('j')
-                    if self.new_session.as_ref().unwrap().goal.is_none() =>
-                {
+                KeyCode::Down if self.new_session.as_ref().unwrap().goal.is_none() => {
                     let form = self.new_session.as_mut().unwrap();
                     form.cursor = move_index(form.cursor, 1, form.workflows.len());
                     form.error = None;
                 }
-                KeyCode::Up | KeyCode::Char('k')
-                    if self.new_session.as_ref().unwrap().goal.is_none() =>
-                {
+                KeyCode::Up if self.new_session.as_ref().unwrap().goal.is_none() => {
                     let form = self.new_session.as_mut().unwrap();
                     form.cursor = move_index(form.cursor, -1, form.workflows.len());
                     form.error = None;
@@ -774,8 +774,8 @@ impl App {
                     self.context_detail = None;
                     self.detail_scroll = 0;
                 }
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Down => self.scroll_detail(1),
+                KeyCode::Up => self.scroll_detail(-1),
                 KeyCode::Char('q') if self.runner.is_none() && self.manager_job.is_none() => {
                     return Ok(true)
                 }
@@ -792,8 +792,8 @@ impl App {
                     self.restart_choices.clear();
                     self.notice = "Restart cancelled; no files modified.".into();
                 }
-                KeyCode::Down | KeyCode::Char('j') => self.scroll_detail(1),
-                KeyCode::Up | KeyCode::Char('k') => self.scroll_detail(-1),
+                KeyCode::Down => self.scroll_detail(1),
+                KeyCode::Up => self.scroll_detail(-1),
                 _ => {}
             }
             return Ok(false);
@@ -805,11 +805,11 @@ impl App {
                     self.restart_choices.clear();
                     self.notice = "Restart selection cancelled.".into();
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Down => {
                     self.restart_cursor =
                         move_index(self.restart_cursor, 1, self.restart_choices.len());
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
+                KeyCode::Up => {
                     self.restart_cursor =
                         move_index(self.restart_cursor, -1, self.restart_choices.len());
                 }
@@ -916,7 +916,7 @@ impl App {
                     self.composer.push('/');
                 }
             }
-            KeyCode::Char('j') | KeyCode::Down => {
+            KeyCode::Down => {
                 if self.focus == Focus::Detail
                     || (self.blocker_card
                         && self.view == View::Conversation
@@ -927,7 +927,7 @@ impl App {
                     self.navigate(1);
                 }
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            KeyCode::Up => {
                 if self.focus == Focus::Detail
                     || (self.blocker_card
                         && self.view == View::Conversation

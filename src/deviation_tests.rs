@@ -707,3 +707,690 @@ async fn growing_conversation_stops_after_preserving_registered_artifact() {
         40_000
     );
 }
+
+#[tokio::test]
+async fn user_rerun_preserves_failure_skips_approval_and_reaches_next_attempt() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [read]"),
+    )
+    .unwrap();
+    fs::write(h.root.path().join("fixed.txt"), "USER_FIXED_ENVIRONMENT").unwrap();
+    h.engine.tools.policies.read = "deny".into();
+    let session = h.engine.store.session(&h.session).unwrap();
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: read\npath: fixed.txt",
+        )
+        .unwrap();
+    let original = h
+        .engine
+        .store
+        .tool_outcome(
+            &session,
+            "step",
+            request,
+            "read",
+            "tool.error",
+            "file missing before user fixed it",
+        )
+        .unwrap();
+    h.engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .unwrap();
+    assert_eq!(h.status(), "blocked");
+    assert!(h.script.lock().unwrap().requests.is_empty());
+    let history = h.engine.store.history(&session).unwrap();
+    assert!(history
+        .iter()
+        .any(|e| e.0 == original && e.3 == "file missing before user fixed it"));
+    assert!(history
+        .iter()
+        .any(|e| e.2 == "protocol.approval" && e.3.contains("user-requested rerun")));
+    let cards = crate::activity_cards::Projection::build(&history);
+    assert!(cards
+        .cards
+        .values()
+        .any(|card| card.title.starts_with("User rerun")));
+    assert!(history
+        .iter()
+        .any(|e| e.2 == "tool.result" && e.3 == "USER_FIXED_ENVIRONMENT"));
+    h.run().await;
+    assert_eq!(h.status(), "completed");
+    let requests = &h.script.lock().unwrap().requests;
+    assert!(serde_json::to_string(requests)
+        .unwrap()
+        .contains("USER_FIXED_ENVIRONMENT"));
+    assert_eq!(requests.len(), 1);
+    // The authorization applies to this rerun, not subsequent model calls.
+    assert!(h.engine.tools.permission("read", "fixed.txt").is_err());
+}
+
+#[tokio::test]
+async fn user_rerun_writes_are_journaled_and_private_paths_remain_blocked() {
+    let mut h = Harness::new(PAUSE, vec![]);
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [write, read]"),
+    )
+    .unwrap();
+    h.engine.tools.policies.write = "deny".into();
+    let mut session = h.engine.store.session(&h.session).unwrap();
+    session.status = "completed".into();
+    h.engine.store.save(&session).unwrap();
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: write\npath: feature.txt\ncontent: revised",
+        )
+        .unwrap();
+    h.engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(h.root.path().join("feature.txt")).unwrap(),
+        "revised"
+    );
+    assert_eq!(h.count("file.changed"), 1);
+    assert_eq!(h.status(), "blocked");
+    assert!(h.engine.tools.permission("write", "feature.txt").is_err());
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: read\npath: /etc/passwd",
+        )
+        .unwrap();
+    h.engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .unwrap();
+    assert_eq!(h.count("tool.error"), 1);
+    assert_eq!(h.count("tool.rerun-completed"), 2);
+    assert!(h.script.lock().unwrap().requests.is_empty());
+}
+
+#[tokio::test]
+async fn reruns_reject_live_owners_changed_branches_and_disabled_tools() {
+    let mut h = Harness::new(PAUSE, vec![]);
+    let session = h.engine.store.session(&h.session).unwrap();
+    let request = h
+        .engine
+        .store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: read\npath: file.txt",
+        )
+        .unwrap();
+    assert!(h
+        .engine
+        .rerun_tool(&session.id, "stale-branch", request)
+        .await
+        .is_err());
+    assert_eq!(h.status(), "ready");
+    let owner = h.engine.store.claim_execution(&session.id, None).unwrap();
+    assert!(h
+        .engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .is_err());
+    h.engine
+        .store
+        .finish_execution(&session.id, &owner, None)
+        .unwrap();
+    assert!(h
+        .engine
+        .rerun_tool(&session.id, &session.active_branch, request)
+        .await
+        .is_err());
+    assert_eq!(h.count("tool.rerun"), 0);
+    let other = h.engine.store.create("demo", "different", "step").unwrap();
+    assert!(h.engine.store.rerun_request(&other, request).is_err());
+    assert_eq!(
+        h.engine.store.execution_state(&session.id).unwrap(),
+        crate::session_execution::ExecutionState::Idle
+    );
+}
+
+#[tokio::test]
+async fn saved_coding_request_survives_reopen_without_repeating_tools_or_attempt() {
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: tool\ntool: read\npath: source.txt"),
+            Err("offline"),
+            Ok(FINISH),
+        ],
+    );
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [read]"),
+    )
+    .unwrap();
+    fs::write(h.root.path().join("source.txt"), "original source").unwrap();
+    h.run().await;
+    let session = h.engine.store.session(&h.session).unwrap();
+    let attempt = h.engine.store.latest_attempt(&session, "step").unwrap();
+    let saved = h
+        .engine
+        .store
+        .pending_continuation(&session, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.messages, h.script.lock().unwrap().requests[1]);
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&session.id).await.unwrap();
+    assert_eq!(
+        reopened.store.session(&session.id).unwrap().status,
+        "completed"
+    );
+    assert_eq!(
+        reopened.store.latest_attempt(&session, "step").unwrap(),
+        attempt
+    );
+    let history = reopened.store.history(&session).unwrap();
+    assert_eq!(history.iter().filter(|e| e.2 == "tool.request").count(), 1);
+    assert_eq!(history.iter().filter(|e| e.2 == "step.started").count(), 1);
+    assert!(reopened
+        .store
+        .pending_continuation(&session, false)
+        .unwrap()
+        .is_none());
+    let script = h.script.lock().unwrap();
+    assert_eq!(script.requests[1], script.requests[2]);
+}
+
+#[tokio::test]
+async fn saved_verifier_resumes_finish_without_repeating_coding_or_registered_artifacts() {
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: artifact\nname: report.md\ncontent: findings"),
+            Ok(FINISH),
+            Err("offline"),
+            Ok("passed: true\nreason: supported"),
+        ],
+    );
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("type: none", "type: agent\n  prompt: detector.md"),
+    )
+    .unwrap();
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "completed");
+    assert_eq!(
+        reopened
+            .store
+            .history(&s)
+            .unwrap()
+            .iter()
+            .filter(|e| e.2 == "artifact.created")
+            .count(),
+        1
+    );
+    let script = h.script.lock().unwrap();
+    assert_eq!(script.requests.len(), 4);
+    assert_eq!(script.requests[2], script.requests[3]);
+}
+
+#[tokio::test]
+async fn changed_workspace_rejects_saved_request_before_dispatch_and_keeps_checkpoint() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline")]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    fs::write(h.root.path().join("source.txt"), "intervening change").unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(reopened
+        .resume_saved(&s.id)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("changed"));
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert!(reopened
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .is_some());
+}
+
+#[tokio::test]
+async fn credential_file_changes_do_not_invalidate_exact_request_checkpoint() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline"), Ok(FINISH)]);
+    fs::write(
+        h.root.path().join(".env"),
+        "GREENLIGHT_TEST_UNUSED_KEY=old-key\n",
+    )
+    .unwrap();
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    fs::write(
+        h.root.path().join(".env"),
+        "GREENLIGHT_TEST_UNUSED_KEY=new-key\n",
+    )
+    .unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 2);
+}
+
+#[tokio::test]
+async fn saved_detector_resumes_without_counting_the_deviation_twice() {
+    let mut h = Harness::new(PAUSE, vec![Ok(REPORT), Err("offline"), Ok(ACCEPT)]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    let script = h.script.lock().unwrap();
+    assert_eq!(script.requests.len(), 3);
+    assert_eq!(script.requests[1], script.requests[2]);
+    assert_eq!(
+        reopened
+            .store
+            .history(&s)
+            .unwrap()
+            .iter()
+            .filter(|e| e.2 == "step.deviation")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn owner_recovery_is_required_but_does_not_discard_a_saved_request() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline"), Ok(FINISH)]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    // Simulate a worker dying after claiming ownership; releasing the OS lock
+    // does not erase its persistent execution record.
+    let owner = h.engine.store.claim_execution(&s.id, None).unwrap();
+    drop(owner);
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(reopened.resume_saved(&s.id).await.is_err());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    reopened.store.recover_session(&s.id).unwrap();
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 2);
+}
+
+#[tokio::test]
+async fn saved_composite_verification_does_not_repeat_completed_human_checks() {
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: finish\nactivity_title: Finishing evidence"),
+            Err("offline"),
+            Ok("passed: true\nreason: supported"),
+        ],
+    );
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file).unwrap().replace(
+            "type: none",
+            "type: all\n  checks:\n    - type: human\n    - type: agent\n      prompt: detector.md",
+        ),
+    )
+    .unwrap();
+    let (requests, _prompts) = std::sync::mpsc::channel();
+    let (answers, responses) = std::sync::mpsc::channel();
+    answers.send("y".into()).unwrap();
+    h.engine.tools.use_tui(requests, responses);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cp.checks, vec![Ok(())]);
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "completed");
+    let history = reopened.store.history(&s).unwrap();
+    assert_eq!(
+        history
+            .iter()
+            .filter(|e| e.2 == "verification.human")
+            .count(),
+        1
+    );
+    assert_eq!(
+        history.iter().filter(|e| e.2 == "activity.title").count(),
+        1
+    );
+    assert!(crate::activity_cards::Projection::build(&history)
+        .malformed
+        .is_empty());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 3);
+}
+
+#[tokio::test]
+async fn corrupted_checkpoint_never_falls_back_to_fresh_execution() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline")]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let history = h.engine.store.history(&s).unwrap();
+    let reference = crate::continuation::pending_reference(&history, false)
+        .unwrap()
+        .unwrap();
+    fs::write(
+        h.engine
+            .store
+            .directory
+            .join("blobs")
+            .join(format!("trace-{reference}.json")),
+        "corrupt",
+    )
+    .unwrap();
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(reopened.resume_saved(&s.id).await.is_err());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "blocked");
+}
+
+#[tokio::test]
+async fn saved_retry_after_survives_worker_cancellation_and_owner_recovery() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    let mut failure =
+        crate::provider_failure::Failure::local(crate::provider_failure::Kind::RateLimit);
+    failure.status = Some(429);
+    failure.retry_after_seconds = Some(60);
+    h.script
+        .lock()
+        .unwrap()
+        .completions
+        .push_back(crate::provider::Completion {
+            content: Err("rate limited".into()),
+            failure: Some(failure),
+            raw_usage: None,
+            response_id: None,
+            response_model: None,
+        });
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    assert!(cp.cooldown_until.unwrap() > chrono::Utc::now());
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    assert!(tokio::time::timeout(
+        std::time::Duration::from_millis(30),
+        reopened.resume_saved(&s.id)
+    )
+    .await
+    .is_err());
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    reopened.store.recover_session(&s.id).unwrap();
+    let mut elapsed = reopened
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    elapsed.cooldown_until = Some(chrono::Utc::now() - chrono::Duration::seconds(1));
+    reopened.store.save_continuation(&s, &elapsed).unwrap();
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 2);
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "completed");
+}
+
+#[tokio::test]
+async fn saved_request_rechecks_files_after_its_cooldown_wait() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline"), Ok(FINISH)]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let mut cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    cp.cooldown_until = Some(chrono::Utc::now() + chrono::Duration::milliseconds(300));
+    h.engine.store.save_continuation(&s, &cp).unwrap();
+    let root = h.root.path().to_path_buf();
+    let id = s.id.clone();
+    let changed = tokio::spawn(async move {
+        let store = crate::store::Store::open(&root).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let session = store.session(&id).unwrap();
+            if store
+                .history(&session)
+                .unwrap()
+                .iter()
+                .any(|e| e.2 == "continuation.retry-wait")
+            {
+                fs::write(root.join("changed-during-wait.txt"), "new evidence").unwrap();
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "saved retry never entered cooldown"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    });
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    reopened.provider.script = Some(h.script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    changed.await.unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "blocked");
+    assert!(reopened
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .is_some());
+}
+
+#[tokio::test]
+async fn manual_provider_retry_rejects_workspace_changes_while_the_prompt_waits() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    h.script.lock().unwrap().completions.push_back(
+        crate::provider::Completion::parse(401, r#"{"error":{"message":"credentials rejected"}}"#)
+            .unwrap(),
+    );
+    let (requests, prompts) = std::sync::mpsc::channel();
+    let (answers, responses) = std::sync::mpsc::channel();
+    h.engine.tools.use_tui(requests, responses);
+    h.engine.interactive_provider_retry = true;
+    let root = h.root.path().to_path_buf();
+    let changed = std::thread::spawn(move || {
+        let prompt = prompts
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        assert_eq!(prompt.mode, crate::tools::ApprovalMode::ProviderRetry);
+        fs::write(root.join("changed-during-prompt.txt"), "new evidence").unwrap();
+        answers.send("y".into()).unwrap();
+    });
+    h.run().await;
+    changed.join().unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("provider.retry-decision"), 1);
+}
+
+#[tokio::test]
+async fn validation_rejects_a_stale_session_snapshot() {
+    let mut h = Harness::new(PAUSE, vec![Err("offline")]);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    let mut current = s.clone();
+    current.current_step = "different-step".into();
+    h.engine.store.save(&current).unwrap();
+    assert!(h
+        .engine
+        .validate_continuation(&s, &cp)
+        .unwrap_err()
+        .to_string()
+        .contains("Session changed"));
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+}
+
+#[tokio::test]
+async fn automatic_provider_retry_rechecks_workspace_after_backoff() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    let mut failure =
+        crate::provider::Completion::parse(429, r#"{"error":{"code":"rate_limit_exceeded"}}"#)
+            .unwrap();
+    failure.failure.as_mut().unwrap().retry_after_seconds = Some(1);
+    h.script.lock().unwrap().completions.push_back(failure);
+    let root = h.root.path().to_path_buf();
+    let id = h.session.clone();
+    let changed = std::thread::spawn(move || {
+        let store = crate::store::Store::open(&root).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let session = store.session(&id).unwrap();
+            if store
+                .history(&session)
+                .unwrap()
+                .iter()
+                .any(|e| e.2 == "provider.retry")
+            {
+                fs::write(root.join("changed-during-backoff.txt"), "new evidence").unwrap();
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    });
+    h.run().await;
+    changed.join().unwrap();
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert_eq!(h.status(), "blocked");
+}
+
+#[test]
+fn continuation_restart_child() {
+    let Some(root) = std::env::var_os("GREENLIGHT_CONTINUATION_TEST_ROOT") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    crate::project::load_environment(&root).unwrap();
+    let mut engine = Engine::open(&root).unwrap();
+    assert_eq!(
+        engine.provider.connection_info().credential.masked,
+        "fresh…last5"
+    );
+    let id = std::env::var("GREENLIGHT_CONTINUATION_TEST_SESSION").unwrap();
+    let session = engine.store.session(&id).unwrap();
+    let checkpoint = engine
+        .store
+        .pending_continuation(&session, false)
+        .unwrap()
+        .unwrap();
+    let script = Arc::new(Mutex::new(Script {
+        responses: vec![Ok(FINISH.into())].into(),
+        ..Default::default()
+    }));
+    engine.provider.script = Some(script.clone());
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(engine.resume_saved(&id))
+        .unwrap();
+    assert_eq!(script.lock().unwrap().requests, vec![checkpoint.messages]);
+    assert_eq!(engine.store.session(&id).unwrap().status, "completed");
+}
+
+#[tokio::test]
+async fn real_process_restart_loads_updated_credentials_without_repeating_tools() {
+    let mut h = Harness::new(
+        PAUSE,
+        vec![
+            Ok("action: tool\ntool: read\npath: source.txt"),
+            Err("offline"),
+        ],
+    );
+    let file = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &file,
+        fs::read_to_string(&file)
+            .unwrap()
+            .replace("tools: []", "tools: [read]"),
+    )
+    .unwrap();
+    fs::write(h.root.path().join("source.txt"), "existing source").unwrap();
+    h.run().await;
+    let session = h.engine.store.session(&h.session).unwrap();
+    let attempt = h.engine.store.latest_attempt(&session, "step").unwrap();
+    fs::write(
+        h.root.path().join(".env"),
+        "GREENLIGHT_TEST_UNUSED_KEY=fresh-private-key-last5\n",
+    )
+    .unwrap();
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "deviation_tests::continuation_restart_child",
+            "--nocapture",
+        ])
+        .env("GREENLIGHT_CONTINUATION_TEST_ROOT", h.root.path())
+        .env("GREENLIGHT_CONTINUATION_TEST_SESSION", &h.session)
+        .env_remove("GREENLIGHT_TEST_UNUSED_KEY")
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "child stdout: {}\nchild stderr: {}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    assert_eq!(h.status(), "completed");
+    assert_eq!(h.count("tool.request"), 1);
+    assert_eq!(
+        h.engine.store.latest_attempt(&session, "step").unwrap(),
+        attempt
+    );
+}

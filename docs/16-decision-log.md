@@ -73,3 +73,35 @@ Accept one unambiguous fenced action with ordinary surrounding commentary, prese
 ## Accounting and pricing
 
 Input, cached-input and output usage is recorded per physical request, with source/unknown labels and immutable rate snapshots. Retries incur separate records; inherited branch evidence does not create another charge. tiktoken estimates are qualified; absent rates/cache data are not zero. DeepInfra discovery, explicit overrides, context tiers and cache-creation rates are implemented. Invoice reconciliation, broader provider adapters and budgets remain separate. See [accounting](18-token-usage-and-pricing.md).
+
+
+## 2026-11-19 — Explicit stop key and arrow navigation
+
+Use arrows for list/reader navigation; remove j/k aliases, retaining semantic controls such as h Help and m Markdown/raw. Reserve k for Stop and keep q exclusively Quit. Text editors and decision layers own their input. Stop cancels local provider work, retry waits, web requests and sandboxed commands, releases hidden unanswered prompts without inventing an approval decision, and checks again before dispatching a returned model action. Already-applied edits remain and synchronous journaled writes finish safely. Remote processing/billing and partial command effects can remain unknown. Continue starts a new attempt.
+
+Historical tool reruns remain GL-001: normal failures go back to the model; an explicit user rerun should append a linked user-requested execution/result using the original arguments without another approval prompt, while preserving project/tool boundaries. Do not automatically replay tools.
+
+
+## 2026-11-19 — User-requested tool executions
+
+Implement GL-001 as an explicit rerun of a selected historical call, not an automatic pause/retry loop. Stop execution first. The Run tool again action authorizes only that exact invocation without another approval or saved grant; current tool/project boundaries remain. Append a new request/result and user provenance linked to the original. Reuse execution ownership and native journaling, never replay after crashes automatically, and provide bounded results to a fresh attempt. Completed sessions return to blocked review after reruns; no new verification/completion is implied. See [tool rerun contract](37-tool-reruns.md).
+
+
+## 2026-11-19 — Durable provider continuations
+
+Provider calls publish versioned immutable checkpoint blobs through branch-visible continuation state events. Save exact messages, model, attempt, execution phase, completed verification checks and manager interaction/snapshot identity; keep credentials and unanswered approvals out of checkpoints. Retry explicitly, reload credentials on restart, retain Retry-After and physical-request accounting, and validate project hashes, configuration, inputs, branch, attempt and checkpoint identity under ownership. Preserve failed/corrupt checkpoints without silently starting fresh work. Resume coding/verification/detector phases without replaying earlier tools/checks; manager recovery is independently locked and read-only. Fresh instructions intentionally discard the workflow checkpoint and create a new attempt. See [provider continuations](38-provider-continuations.md).
+
+
+## 2026-11-20 — DeepInfra capacity responses and inspectable API errors
+
+Provider support identified the reported 429s as shared model-pool Model busy responses, not the account concurrency ceiling. The earlier parser missed that phrase and discarded response text, so old exact wording cannot be recovered. Recognize busy/capacity responses and allow up to five sequential attempts with 1/2/4/8-second jittered exponential backoff, respecting Retry-After. DeepInfra unknown non-billing 429s use the ordinary bounded retry budget; other providers retain explicit classification. Never auto-retry quota/billing or usage-bearing/uncertain processed responses. Keep the concise safe advice, while separately persisting bounded redacted body/request-ID diagnostics for Provider details, individual requests and conversation exports. Add opt-in service_tier: priority without changing defaults or applying standard-tier price estimates to priority billing.
+
+
+## 2026-11-20 — GL-002 recovery review
+
+Revalidate saved requests after waiting, not just before cooldown: project files or session state can change during a pause. Apply the same guard to manual and automatic retries, retain the old checkpoint on refusal, and show a saved-cooldown waiting card. Re-read persisted session identity/step/goal during validation. Report malformed checkpoint metadata without terminating the TUI or hiding raw history; validate workflow and manager slots independently. A child-process regression exercises dotenv credential reload, exact messages, unchanged attempt identity and no repeated tools.
+
+
+## 2026-11-21 — Recovery branch pre-merge validation
+
+Review GL-001/002, stop controls and provider capacity/diagnostic changes together. A native TUI smoke fixture caught diagnostics appended after the decision-help delimiter, which the popup intentionally trims. Keep diagnostics before that final delimiter and test that provider-supplied decision-like text remains evidence rather than a control. Retain stable backlog IDs; GL-004 approval-save serialization was already completed.

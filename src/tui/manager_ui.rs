@@ -70,6 +70,52 @@ impl App {
         self.follow_activity = true;
         self.notice = "Question saved. Manager is answering (read-only).".into();
     }
+    pub(super) fn retry_saved_manager(&mut self, root: &Path, store: &Store) {
+        if self.manager_job.is_some() {
+            self.notice = "A manager request is already active.".into();
+            return;
+        }
+        let Some(session) = self.session().cloned() else {
+            return;
+        };
+        match store.pending_continuation(&session, true) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                self.notice = "No saved manager request.".into();
+                return;
+            }
+            Err(error) => {
+                self.notice = format!("Saved manager request unavailable: {error:#}");
+                return;
+            }
+        }
+        let root = root.to_path_buf();
+        let id = session.id.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let (sent, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<()> {
+                let mut engine = crate::engine::Engine::open(&root)?;
+                engine.provider.retry_cancel = worker_cancel;
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                runtime.block_on(engine.resume_manager_saved(&id))?;
+                Ok(())
+            })();
+            let _ = sent.send(result.map_err(|error| format!("{error:#}")));
+        });
+        self.manager_job = Some(ManagerJob {
+            session: session.id,
+            branch: session.active_branch,
+            cancel,
+            finished,
+        });
+        self.notice =
+            "Validating and retrying the exact saved manager request with current credentials."
+                .into();
+    }
     pub(super) fn poll_manager(&mut self) {
         let Some(job) = self.manager_job.as_ref() else {
             return;
@@ -94,7 +140,8 @@ impl App {
     pub(super) fn cancel_manager(&mut self) {
         if let Some(job) = &self.manager_job {
             job.cancel.store(true, Ordering::SeqCst);
-            self.notice="Manager stop requested; no further retry will start. An in-flight request may finish.".into();
+            self.notice =
+                "Stopping manager request… Remote processing/billing may be uncertain.".into();
         } else {
             self.notice = "No manager request is active.".into();
         }

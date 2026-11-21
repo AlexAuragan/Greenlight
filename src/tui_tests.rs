@@ -8,6 +8,7 @@ fn disconnected_worker_expires_approval_and_does_not_replay_it() {
     let (finished_tx, finished) = std::sync::mpsc::channel();
     let mut app = App::new(None);
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         prompts,
@@ -32,6 +33,7 @@ fn disconnected_worker_expires_approval_and_does_not_replay_it() {
     let (answers, fresh_answers) = std::sync::mpsc::channel();
     let (_finished_tx, finished) = std::sync::mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         prompts,
@@ -138,7 +140,7 @@ fn focus_moves_across_panes_and_arrows_scroll_detail() {
     )
     .unwrap();
     app.on_key(
-        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
         root.path(),
         &store,
     )
@@ -246,6 +248,7 @@ fn approval_shortcuts_submit_immediately_but_enter_does_not() {
     let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
     let mut app = App::new(None);
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: None,
@@ -301,6 +304,7 @@ fn human_approval_rejects_global_scope_and_escape_denies() {
     let (_finish_tx, finish_rx) = std::sync::mpsc::channel();
     let mut app = App::new(None);
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: None,

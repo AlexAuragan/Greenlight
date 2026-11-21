@@ -593,6 +593,7 @@ impl Engine {
         saved: &SavedMessage,
         artifacts: &[String],
     ) -> Result<Reply> {
+        let _lock = self.store.manager_lock(&saved.session.id)?;
         let s = &saved.session;
         let result = self
             .manager_exchange(s, &saved.message_id, &saved.text, artifacts)
@@ -602,21 +603,32 @@ impl Engine {
         }
         result
     }
-    async fn manager_exchange(
+    pub(crate) async fn manager_exchange(
         &self,
         s: &Session,
         message_id: &str,
         text: &str,
         artifacts: &[String],
     ) -> Result<Reply> {
-        let snapshot = capture_with_config(
-            &self.root,
-            &self.store,
-            &s.id,
-            message_id,
-            artifacts,
-            &self.cfg,
-        )?;
+        let restored = self.continuation.borrow().clone();
+        let snapshot: Snapshot =
+            if let Some(cp) = restored.as_ref().filter(|cp| cp.purpose == "manager") {
+                let payload: serde_json::Value = serde_json::from_str(
+                    cp.messages[1]["content"]
+                        .as_str()
+                        .context("Missing saved manager payload")?,
+                )?;
+                serde_json::from_value(payload["evidence"].clone())?
+            } else {
+                capture_with_config(
+                    &self.root,
+                    &self.store,
+                    &s.id,
+                    message_id,
+                    artifacts,
+                    &self.cfg,
+                )?
+            };
         if snapshot.session.active_branch != s.active_branch {
             bail!("Branch changed before manager snapshot; message retained for review");
         }

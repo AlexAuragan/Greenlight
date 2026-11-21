@@ -248,6 +248,7 @@ fn tiny_approval_cannot_be_accepted_and_resize_keeps_its_request() {
     let (answers, received) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: None,
@@ -306,6 +307,7 @@ fn approval_owner_switch_preserves_both_session_drafts() {
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(owner.id.clone()),
@@ -481,6 +483,7 @@ fn artifact_history_closes_after_branch_switch_and_approvals_take_priority() {
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(s.id),
@@ -513,6 +516,7 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: Some(cancel.clone()),
         session_id: None,
@@ -521,8 +525,8 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
         finished,
     });
     app.focus_composer();
-    key(&mut app, &store, root.path(), KeyCode::Char('x'));
-    assert_eq!(app.composer, "x");
+    key(&mut app, &store, root.path(), KeyCode::Char('k'));
+    assert_eq!(app.composer, "k");
     assert!(!cancel.load(Ordering::SeqCst));
     key(&mut app, &store, root.path(), KeyCode::Esc);
     app.approval = Some(ApprovalPrompt {
@@ -531,13 +535,13 @@ fn retry_cancellation_is_explicit_and_does_not_interfere_with_text_or_approvals(
         content: "Approval stays explicit".into(),
         mode: ApprovalMode::Human,
     });
-    key(&mut app, &store, root.path(), KeyCode::Char('x'));
+    key(&mut app, &store, root.path(), KeyCode::Char('k'));
     assert!(!cancel.load(Ordering::SeqCst));
     assert!(app.approval.is_some());
     app.approval = None;
-    key(&mut app, &store, root.path(), KeyCode::Char('x'));
+    key(&mut app, &store, root.path(), KeyCode::Char('k'));
     assert!(cancel.load(Ordering::SeqCst));
-    assert!(app.notice.contains("in-flight request may finish"));
+    assert!(app.notice.contains("Stopping execution"));
 }
 
 #[test]
@@ -759,4 +763,161 @@ fn workspace_audit_card_expands_classification_and_scan_metrics_without_mutation
         std::fs::read_to_string(root.path().join("manual.txt")).unwrap(),
         "external body"
     );
+}
+
+#[test]
+fn arrows_navigate_but_letters_do_not_and_stop_is_discoverable() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    store
+        .event(&session, Some("step"), "step.started", "one")
+        .unwrap();
+    store
+        .event(&session, Some("step"), "step.blocked", "two")
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    app.focus = Focus::Events;
+    let index = app.event_index;
+    for letter in ['j', 'k', 'l'] {
+        key(&mut app, &store, root.path(), KeyCode::Char(letter));
+    }
+    assert_eq!(app.event_index, index);
+    key(&mut app, &store, root.path(), KeyCode::Up);
+    assert!(app.event_index < index);
+    assert_eq!(super::shell::Action::Stop.label(), "[k] Stop");
+    assert!(super::shell::Action::Stop.matches_key(KeyCode::Char('k')));
+}
+
+#[test]
+fn rerun_button_executes_selected_call_and_reports_stopped_workflow() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: fixture\n  api_key_env: GREENLIGHT_TEST_UNUSED_KEY\n  base_url: http://127.0.0.1:9\npermissions:\n  read: deny\n").unwrap();
+    let folder = root.path().join("workflows/demo");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("workflow.yaml"),
+        "id: demo\ntitle: Demo\nstart: step\nsteps: [step]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        folder.join("step.md"),
+        "---\nid: step\ntools: [read]\nverification:\n  type: none\n---\nFixture\n",
+    )
+    .unwrap();
+    std::fs::write(root.path().join("fixed.txt"), "fixed by user").unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    let request = store
+        .event(
+            &session,
+            Some("step"),
+            "tool.request",
+            "action: tool\ntool: read\npath: fixed.txt",
+        )
+        .unwrap();
+    let original = store
+        .tool_outcome(
+            &session,
+            "step",
+            request,
+            "read",
+            "tool.error",
+            "previous failure",
+        )
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    app.focus = Focus::Events;
+    app.event_index = app.events.iter().position(|e| e.id == original).unwrap();
+    assert!(app.footer_actions().contains(&shell::Action::RerunTool));
+    assert!(screen(&mut app, 120, 36).contains("[R] Run tool again"));
+    key(&mut app, &store, root.path(), KeyCode::Char('R'));
+    assert!(app.runner.as_ref().unwrap().tool_rerun);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while app.runner.is_some() && Instant::now() < deadline {
+        app.tick();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(app.runner.is_none());
+    assert!(app.approval.is_none());
+    assert!(app.notice.contains("Tool rerun recorded"), "{}", app.notice);
+    app.refresh(&store).unwrap();
+    assert_eq!(app.event().unwrap().kind, "tool.result");
+    assert!(app.inspector_open);
+    assert_eq!(app.event().unwrap().data, "fixed by user");
+    let history = store.history(&session).unwrap();
+    assert!(history
+        .iter()
+        .any(|e| e.2 == "tool.result" && e.3 == "fixed by user"));
+    assert!(!history.iter().any(|e| e.2 == "model.call-started"));
+}
+
+#[test]
+fn saved_provider_request_is_visible_after_reopen_and_help_cannot_retry_it() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: fixture\n  api_key_env: GREENLIGHT_TEST_UNUSED_KEY\n  base_url: http://127.0.0.1:9\n").unwrap();
+    let folder = root.path().join("workflows/demo");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("workflow.yaml"),
+        "id: demo\ntitle: Demo\nstart: step\nsteps: [step]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        folder.join("step.md"),
+        "---\nid: step\nverification:\n  type: none\n---\nFixture\n",
+    )
+    .unwrap();
+    let mut engine = crate::engine::Engine::open(root.path()).unwrap();
+    let session = engine.store.create("demo", "goal", "step").unwrap();
+    let script = std::sync::Arc::new(std::sync::Mutex::new(crate::provider::Script {
+        responses: vec![Err("offline".into())].into(),
+        ..Default::default()
+    }));
+    engine.provider.script = Some(script.clone());
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(engine.run(&session.id, None, None))
+        .unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    assert!(app.saved_workflow_request);
+    assert!(app.footer_actions().contains(&shell::Action::RetrySaved));
+    assert!(screen(&mut app, 120, 36).contains("[t] Retry saved request"));
+    key(&mut app, &store, root.path(), KeyCode::Char('h'));
+    key(&mut app, &store, root.path(), KeyCode::Char('t'));
+    assert!(app.runner.is_none());
+    assert_eq!(script.lock().unwrap().requests.len(), 1);
+    key(&mut app, &store, root.path(), KeyCode::Esc);
+    let owner = store.claim_execution(&session.id, None).unwrap();
+    app.activate(shell::Action::RetrySaved, root.path(), &store)
+        .unwrap();
+    assert!(app.runner.is_none());
+    assert!(app.notice.contains("Recover"));
+    store.finish_execution(&session.id, &owner, None).unwrap();
+}
+
+#[test]
+fn malformed_checkpoint_metadata_preserves_the_tui_and_raw_history() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    store
+        .event(&session, Some("step"), "continuation.state", "not-json")
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    assert!(app.notice.contains("metadata unreadable"));
+    assert!(!app.saved_workflow_request && !app.saved_manager_request);
+    app.show_all = true;
+    app.refresh(&store).unwrap();
+    assert!(app
+        .events
+        .iter()
+        .any(|e| e.kind == "continuation.state" && e.data == "not-json"));
+    key(&mut app, &store, root.path(), KeyCode::Char('t'));
+    assert!(app.runner.is_none());
 }

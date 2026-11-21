@@ -185,6 +185,7 @@ fn export_snapshot_is_full_source_and_editor_refuses_an_active_worker() {
     let (answers, _rx) = mpsc::channel();
     let (_ft, finished) = mpsc::channel();
     app.runner = Some(Runner {
+        tool_rerun: false,
         live: None,
         cancel_retry: None,
         session_id: Some(s.id),

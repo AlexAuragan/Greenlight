@@ -9,6 +9,8 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
     #[serde(default = "base_url")]
     pub base_url: String,
     #[serde(default = "api_key_env")]
@@ -256,6 +258,14 @@ pub fn load_config(root: &Path) -> Result<Config> {
         .is_some_and(|v| v.trim().is_empty())
     {
         bail!("manager model must not be empty");
+    }
+    if cfg
+        .provider
+        .service_tier
+        .as_deref()
+        .is_some_and(|tier| tier != "priority")
+    {
+        bail!("service_tier supports priority; omit it for the provider default");
     }
     if cfg.session.max_conversation_bytes == 0 {
         bail!("max_conversation_bytes must be positive");

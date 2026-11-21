@@ -341,7 +341,7 @@ impl App {
                 "Execution ownership unavailable; inspect the recorded state before continuing."
             }
         };
-        let text = match page {
+        let mut text = match page {
             Page::Conversation => self.details.dump.as_ref().map(|d|format!("Conversation snapshot · previews limited to 800 characters per body\n[R] Refresh · [w] Save full dump · [C] Copy full dump\n\n{}",d.preview())).unwrap_or_else(||"Conversation dump not loaded; R refreshes the snapshot.".into()),
             Page::Run => {
                 let mut text = format!("Run details · this session / active branch\n\nGoal\n{}\n\nWorkflow and current state\n{} · {} · {}\n", session.goal, session.workflow, session.status, session.current_step);
@@ -394,6 +394,41 @@ impl App {
                 text
             },
         };
+        if matches!(page, Page::Provider | Page::Request) {
+            let mut scope = session.clone();
+            if page == Page::Request {
+                if let Some(call) = self.details.selected_call() {
+                    scope.active_branch = call.branch.clone();
+                }
+            }
+            if let Ok(history) = store.history(&scope) {
+                let evidence = history
+                    .iter()
+                    .rev()
+                    .filter(|event| event.2 == "provider.failure")
+                    .filter_map(|event| serde_json::from_str::<serde_json::Value>(&event.3).ok())
+                    .find(|value| {
+                        page == Page::Provider
+                            || self.details.selected.as_deref() == value["call_id"].as_str()
+                    });
+                if let Some(value) = evidence {
+                    text.push_str(&format!(
+                        "\n\nRecorded API error · request {}\n",
+                        value["call_id"].as_str().unwrap_or("unknown")
+                    ));
+                    if let Ok(failure) = serde_json::from_value::<crate::provider_failure::Failure>(
+                        value["failure"].clone(),
+                    ) {
+                        text.push_str(&format!("{failure}\n"));
+                        if let Some(diagnostic) = failure.diagnostic {
+                            text.push_str(&diagnostic.text());
+                        } else {
+                            text.push_str("No original provider response text was recorded; older discarded bodies cannot be backfilled.");
+                        }
+                    }
+                }
+            }
+        }
         if self.details.text != text {
             self.details.text = text;
             self.details.revision = self.details.revision.wrapping_add(1);
@@ -943,6 +978,7 @@ mod tests {
                 connection: None,
             }));
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: Some(live),
             cancel_retry: None,
             session_id: Some(session.id.clone()),
@@ -996,6 +1032,7 @@ mod tests {
         let (answers, _answers) = std::sync::mpsc::channel();
         let (_finished, finished) = std::sync::mpsc::channel();
         app.runner = Some(Runner {
+            tool_rerun: false,
             live: Some(live),
             cancel_retry: None,
             session_id: Some(session.id.clone()),
@@ -1026,5 +1063,37 @@ mod tests {
         assert!(app.details.text.contains("current viewer process"));
         assert!(app.details.text.contains("other…final"));
         std::env::remove_var(name);
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn provider_details_show_copyable_recorded_error_text_and_support_id() {
+        let root = tempfile::tempdir().unwrap();
+        crate::project::init(root.path()).unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("fix-bug", "goal", "investigate").unwrap();
+        let mut failure = crate::provider_failure::Failure::http(
+            429,
+            &serde_json::json!({"detail":"Model busy"}),
+            None,
+        );
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-request-id", "support-id-123".parse().unwrap());
+        failure.diagnostic = Some(crate::provider_diagnostic::Diagnostic::capture(
+            r#"{"detail":"Model busy"}"#,
+            &headers,
+            "",
+        ));
+        store.event(&session, Some("investigate"), "provider.failure", &serde_json::json!({"call_id":"original-call","purpose":"coding","failure":failure}).to_string()).unwrap();
+        let mut app = App::new(Some(&session.id));
+        app.refresh(&store).unwrap();
+        app.open_run_details(Page::Provider, &store);
+        assert!(app.details.text.contains("Model busy"));
+        assert!(app.details.text.contains("support-id-123"));
+        assert!(app.details.text.contains("original-call"));
+        assert!(app.details.actions().contains(&shell::Action::Copy));
     }
 }
