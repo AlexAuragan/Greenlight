@@ -100,3 +100,8 @@ Provider support identified the reported 429s as shared model-pool Model busy re
 ## 2026-11-20 — GL-002 recovery review
 
 Revalidate saved requests after waiting, not just before cooldown: project files or session state can change during a pause. Apply the same guard to manual and automatic retries, retain the old checkpoint on refusal, and show a saved-cooldown waiting card. Re-read persisted session identity/step/goal during validation. Report malformed checkpoint metadata without terminating the TUI or hiding raw history; validate workflow and manager slots independently. A child-process regression exercises dotenv credential reload, exact messages, unchanged attempt identity and no repeated tools.
+
+
+## 2026-11-21 — Recovery branch pre-merge validation
+
+Review GL-001/002, stop controls and provider capacity/diagnostic changes together. A native TUI smoke fixture caught diagnostics appended after the decision-help delimiter, which the popup intentionally trims. Keep diagnostics before that final delimiter and test that provider-supplied decision-like text remains evidence rather than a control. Retain stable backlog IDs; GL-004 approval-save serialization was already completed.

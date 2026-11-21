@@ -98,10 +98,13 @@ impl fmt::Display for Failure {
 impl Failure {
     pub fn retry_prompt(&self, model: &str) -> String {
         let failure = self;
-        let mut text = format!("{failure}\n\nRetry sends the same request to {model}. Earlier tools will not run again.\nWait or fix the provider issue, then retry. Any remaining Retry-After cooldown is respected.\nLocal credential/config changes may require restarting Greenlight; this request retains its original settings.\n[y] Retry request / [n] Stop for now. Esc hides this popup and keeps waiting.");
+        let mut text = format!("{failure}\n\nRetry sends the same request to {model}. Earlier tools will not run again.\nWait or fix the provider issue, then retry. Any remaining Retry-After cooldown is respected.\nLocal credential/config changes may require restarting Greenlight; this request retains its original settings.");
         if let Some(diagnostic) = &self.diagnostic {
             text.push_str(&format!("\n\n{}\nEsc hides this popup; Provider details and recorded activity retain this diagnostic for copying.", diagnostic.text()));
         }
+        text.push_str(
+            "\n[y] Retry request / [n] Stop for now. Esc hides this popup and keeps waiting.",
+        );
         text
     }
     pub fn local(kind: Kind) -> Self {

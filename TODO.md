@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 2026-11-20. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
+Updated 2026-11-21. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
 
 P0/P1 feature work, installer, TUI redesign and recovery improvements merged into master on 2026-11-19. This does not mean no defects remain. Implement one feature at a time, preserve audit evidence and distinguish model claims from recorded verification.
 
@@ -45,9 +45,9 @@ GL-007 precedes parallel orchestration. Command-level grants require joint desig
 
 ## Completed recovery and code improvements
 
-- [x] **GL-002** — Implemented on `feat/stop-execution-key` (awaiting merge): durable exact-message provider continuations for coding, verification, detectors and manager side questions; original attempt/check progress, credential reload, cooldown and ownership recovery, immutable checkpoints, and workspace/config/input validation. See [saved provider requests](docs/38-provider-continuations.md).
+- [x] **GL-002** — Completed: durable exact-message provider continuations for coding, verification, detectors and manager side questions; original attempt/check progress, credential reload, cooldown and ownership recovery, immutable checkpoints, and workspace/config/input validation. See [saved provider requests](docs/38-provider-continuations.md).
 
-- [x] **GL-001** — Implemented on `feat/stop-execution-key` (awaiting merge): user-requested historical tool reruns: exact arguments, explicit one-call authorization, linked new history/results, existing project/tool boundaries and write journal, execution ownership/recovery, and bounded evidence in the next attempt. No automatic replay. See [tool reruns](docs/37-tool-reruns.md).
+- [x] **GL-001** — Completed: user-requested historical tool reruns: exact arguments, explicit one-call authorization, linked new history/results, existing project/tool boundaries and write journal, execution ownership/recovery, and bounded evidence in the next attempt. No automatic replay. See [tool reruns](docs/37-tool-reruns.md).
 
 - [x] **GL-004** — Serialize approval reload–merge–save with a stable per-scope OS lock; sync atomic replacements. Concurrent project/global process tests cover preservation of all grants.
 - [x] **GL-006** — Share typed action definitions, shortcut labels and the Help reference; dispatch buttons directly without synthetic keys. Keep contextual navigation/text editing explicit and guard decision-layer ownership. Keyboard/button parity, literal input and stale-mouse regressions pass.
