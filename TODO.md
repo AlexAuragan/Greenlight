@@ -45,9 +45,9 @@ GL-007 defines the coordination proposal; GL-028 must implement and validate it 
 
 - [x] **GL-007** — Defined the [project execution coordination proposal](docs/41-project-execution-coordination.md): operation scope, waiting/stop semantics, lock order, interrupted/legacy owners, read-only exceptions, UI feedback and acceptance scenarios. Design only; runtime implementation remains GL-028.
 
-- [x] **GL-005** — Implemented on `perf/bounded-reads-and-refresh` (awaiting merge, includes GL-003): configurable source/include, blob, history/usage and dump budgets; labelled recent-history fallback with exact selected bodies; immutable history/selected-artifact caches and revision-based UI reuse. No schema changes or evidence pruning. See [resource budgets and refresh profile](docs/40-resource-budgets.md).
+- [x] **GL-005** — Merged into `master`: configurable source/include, blob, history/usage and dump budgets; labelled recent-history fallback with exact selected bodies; immutable history/selected-artifact caches and revision-based UI reuse. No schema changes or evidence pruning. See [resource budgets and refresh profile](docs/40-resource-budgets.md).
 
-- [x] **GL-003** — Implemented on `fix/descriptor-anchored-file-access` (awaiting merge): descriptor-relative reads, includes, discovery, snapshots/writes/restore, private blobs/exports/locks, anchored SQLite/WAL paths and sandbox bind sources. Path-swap regressions and limits are documented in [anchored file access](docs/39-anchored-file-access.md).
+- [x] **GL-003** — Merged into `master`: descriptor-relative reads, includes, discovery, snapshots/writes/restore, private blobs/exports/locks, anchored SQLite/WAL paths and sandbox bind sources. Path-swap regressions and limits are documented in [anchored file access](docs/39-anchored-file-access.md).
 
 - [x] **GL-002** — Completed: durable exact-message provider continuations for coding, verification, detectors and manager side questions; original attempt/check progress, credential reload, cooldown and ownership recovery, immutable checkpoints, and workspace/config/input validation. See [saved provider requests](docs/38-provider-continuations.md).
 
