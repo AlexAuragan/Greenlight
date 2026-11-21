@@ -38,6 +38,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 ## Decisions, future work and validation
 
 - [Settled decisions](16-decision-log.md): rationale and current boundaries, including explicit deferred work.
+- [Project execution coordination proposal](41-project-execution-coordination.md): GL-007 design and GL-028 implementation criteria; the current binary still owns execution per session.
 - [Conversational coordinator contract](20-conversational-coordinator.md): retains unimplemented targeted delivery, guarded routing and live-owner inbox requirements. Only its read-only Q&A stage is currently implemented.
 - [Code review](code-review.md): readability changes, corrected oversights and deferred findings.
 - [Validation](06-validation.md): current evidence and reproducible checks.
