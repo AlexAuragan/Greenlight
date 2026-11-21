@@ -81,6 +81,13 @@ enum View {
     Edits,
 }
 
+#[derive(PartialEq, Eq)]
+struct ActivityGeneration {
+    session: String,
+    branch: String,
+    revision: (u64, i64),
+    show_all: bool,
+}
 struct App {
     shell: shell::Shell,
     inspector_open: bool,
@@ -99,7 +106,14 @@ struct App {
     activity_rows: Vec<std::sync::Arc<EventRow>>,
     event_index: usize,
     rerun_output: Option<(String, String)>,
-    artifacts: Vec<Artifact>,
+    artifacts: Vec<crate::store::ArtifactMetadata>,
+    artifact_generation: Option<(String, String, (u64, i64))>,
+    artifact_body: Option<Artifact>,
+    artifact_body_key: Option<(String, String, i64)>,
+    artifact_error: Option<String>,
+    partial_history: bool,
+    exact_event: Option<std::sync::Arc<EventRow>>,
+    preview_generation: Option<(String, String, (u64, i64))>,
     artifact_index: usize,
     view: View,
     render_markdown: bool,
@@ -155,7 +169,7 @@ struct App {
     artifact_browser: Option<crate::artifact_history::Browser>,
     reader: reader::Reader,
     activity_cards: crate::activity_cards::Projection,
-    activity_generation: Option<(String, String, Option<i64>)>,
+    activity_generation: Option<ActivityGeneration>,
     reading: reading::Reading,
     activity_query: String,
     activity_filtering: bool,
@@ -186,6 +200,13 @@ impl App {
             event_index: 0,
             rerun_output: None,
             artifacts: Vec::new(),
+            artifact_generation: None,
+            artifact_body: None,
+            artifact_body_key: None,
+            artifact_error: None,
+            partial_history: false,
+            exact_event: None,
+            preview_generation: None,
             artifact_index: 0,
             view: View::Conversation,
             render_markdown: true,
@@ -272,15 +293,61 @@ impl App {
     }
 
     fn event(&self) -> Option<&EventRow> {
-        self.events
-            .get(self.event_index)
-            .map(std::sync::Arc::as_ref)
+        let selected = self.events.get(self.event_index)?;
+        Some(
+            self.exact_event
+                .as_ref()
+                .filter(|e| self.partial_history && e.id == selected.id)
+                .unwrap_or(selected)
+                .as_ref(),
+        )
     }
 
     fn artifact(&self) -> Option<&Artifact> {
-        self.artifacts.get(self.artifact_index)
+        self.artifact_body.as_ref().filter(|body| {
+            self.artifacts
+                .get(self.artifact_index)
+                .is_some_and(|m| m.event_id == body.event_id)
+        })
+    }
+    fn load_selected_artifact(&mut self, store: &Store) {
+        let selected = self.artifacts.get(self.artifact_index).cloned();
+        let key = self
+            .session()
+            .zip(selected.as_ref())
+            .map(|(s, m)| (s.id.clone(), s.active_branch.clone(), m.event_id));
+        if key == self.artifact_body_key {
+            return;
+        }
+        self.artifact_body_key = key;
+        self.artifact_body = None;
+        self.artifact_error = None;
+        if let Some(meta) = selected {
+            match store.read_blob(&meta.blob) {
+                Ok(content) => self.artifact_body = Some(Artifact {name:meta.name.clone(),step:meta.step.clone(),event_id:meta.event_id,content}),
+                Err(error) => self.artifact_error = Some(format!("Artifact body unavailable: {error:#}. The saved body was not truncated. Check limits.blob_bytes and restart after changing it.")),
+            }
+        }
     }
 
+    fn load_selected_event(&mut self, store: &Store) -> Result<()> {
+        if !self.partial_history {
+            return Ok(());
+        }
+        if self
+            .event()
+            .zip(self.exact_event.as_ref())
+            .is_some_and(|(a, b)| a.id == b.id)
+        {
+            return Ok(());
+        }
+        if let Some(event) = self.event().cloned() {
+            let session = self.session().context("No session selected")?;
+            let data = store.event_body(session, event.id)?;
+            self.exact_event = Some(std::sync::Arc::new(EventRow { data, ..event }));
+        }
+        Ok(())
+    }
     fn refresh(&mut self, store: &Store) -> Result<()> {
         self.saved_workflow_request = false;
         self.saved_manager_request = false;
@@ -360,9 +427,63 @@ impl App {
         let old_artifact_version = self.artifact().map(|a| a.event_id);
         let changed_session = old_session.as_deref() != self.session().map(|s| s.id.as_str());
         if let Some(session) = self.session().cloned() {
+            let preview_generation = (
+                session.id.clone(),
+                session.active_branch.clone(),
+                store.data_revision()?,
+            );
+            if self.partial_history && self.preview_generation.as_ref() == Some(&preview_generation)
+            {
+                self.load_selected_artifact(store);
+                return Ok(());
+            }
             let history = match store.history(&session) {
                 Ok(h) => h,
                 Err(e) => {
+                    if e.downcast_ref::<crate::resource_limits::Exceeded>()
+                        .is_some()
+                    {
+                        self.exact_event = None;
+                        self.partial_history = true;
+                        self.preview_generation = Some(preview_generation);
+                        self.notice = format!("{e:#} Showing recent previews only.");
+                        self.workspace = None;
+                        self.workspace_session = Some(session.id.clone());
+                        self.blocker_card = false;
+                        self.attention = None;
+                        self.workspace_error = Some(self.notice.clone());
+                        self.result_open = false;
+                        self.details.close();
+                        self.artifact_browser = None;
+                        self.context_detail = None;
+                        self.activity_cards = crate::activity_cards::Projection::default();
+                        self.activity_generation = None;
+                        self.activity_rows = store
+                            .history_previews(&session)?
+                            .into_iter()
+                            .map(|(id, step, kind, data)| {
+                                std::sync::Arc::new(EventRow {
+                                    id,
+                                    step,
+                                    kind,
+                                    data,
+                                })
+                            })
+                            .collect();
+                        self.filter_activity();
+                        self.event_index =
+                            self.event_index.min(self.events.len().saturating_sub(1));
+                        self.artifacts = store.artifact_metadata(&session, "session")?;
+                        self.artifact_index = self
+                            .artifact_index
+                            .min(self.artifacts.len().saturating_sub(1));
+                        self.load_selected_artifact(store);
+                        self.usage_line =
+                            "Full history exceeds budget · recent previews only".into();
+                        self.details.report = None;
+                        self.edits = edits::Edits::default();
+                        return Ok(());
+                    }
                     self.navigation.load_error =
                         Some(format!("Opened session history unavailable: {e:#}"));
                     self.clear_diagnostic();
@@ -378,6 +499,9 @@ impl App {
                     return Ok(());
                 }
             };
+            self.partial_history = false;
+            self.exact_event = None;
+            self.preview_generation = None;
             for (manager, pending) in [
                 (
                     false,
@@ -429,7 +553,17 @@ impl App {
                         Some(format!("Workspace projection unavailable: {error:#}"));
                 }
             }
-            let usage = store.usage_report(&session, crate::usage::Scope::Session);
+            let revision = store.data_revision()?;
+            let unchanged = self.activity_generation.as_ref().is_some_and(|g| {
+                g.session == session.id
+                    && g.branch == session.active_branch
+                    && g.revision == revision
+            });
+            let usage = if unchanged && self.details.report.is_some() {
+                Ok(self.details.report.take().unwrap())
+            } else {
+                store.usage_report(&session, crate::usage::Scope::Session)
+            };
             self.attention = self.workspace.as_ref().and_then(|workspace| {
                 attention::project(
                     &session,
@@ -468,54 +602,62 @@ impl App {
                     }
                     self.result_key = Some(key);
                 }
-                self.result_text = result::summary(store, &session, &history);
-                self.result_overview = Some(result::overview(&session, &history));
+                let revision = store.data_revision()?;
+                if self.activity_generation.as_ref().is_none_or(|g| {
+                    g.session != session.id
+                        || g.branch != session.active_branch
+                        || g.revision != revision
+                }) {
+                    self.result_text = result::summary(store, &session, &history);
+                    self.result_overview = Some(result::overview(&session, &history));
+                }
             } else {
                 self.result_open = false;
                 self.result_key = None;
                 self.result_overview = None;
             }
             let show_all = self.show_all;
-            let generation = (
-                session.id.clone(),
-                session.active_branch.clone(),
-                history.last().map(|event| event.0),
-            );
+            let generation = ActivityGeneration {
+                session: session.id.clone(),
+                branch: session.active_branch.clone(),
+                revision: store.data_revision()?,
+                show_all: self.show_all,
+            };
             if self.activity_generation.as_ref() != Some(&generation) {
                 self.activity_cards = crate::activity_cards::Projection::build(&history);
                 self.activity_generation = Some(generation);
-            }
-            self.activity_rows = history
-                .into_iter()
-                .map(|(id, step, kind, data)| {
-                    if let Some(error) = self
-                        .activity_cards
-                        .malformed
-                        .get(&id)
-                        .cloned()
-                        .or_else(|| invalid_event_payload(&kind, &data))
-                    {
-                        EventRow {
-                            id,
-                            step,
-                            kind: "event.invalid".into(),
-                            data: format!(
+                self.activity_rows = history
+                    .into_iter()
+                    .map(|(id, step, kind, data)| {
+                        if let Some(error) = self
+                            .activity_cards
+                            .malformed
+                            .get(&id)
+                            .cloned()
+                            .or_else(|| invalid_event_payload(&kind, &data))
+                        {
+                            EventRow {
+                                id,
+                                step,
+                                kind: "event.invalid".into(),
+                                data: format!(
                                 "Malformed {kind} event #{id}: {error}\n\nRaw evidence:\n{data}"
                             ),
+                            }
+                        } else {
+                            EventRow {
+                                id,
+                                step,
+                                kind,
+                                data,
+                            }
                         }
-                    } else {
-                        EventRow {
-                            id,
-                            step,
-                            kind,
-                            data,
-                        }
-                    }
-                })
-                .filter(|event| show_all || !is_chatter(&event.kind))
-                .map(std::sync::Arc::new)
-                .collect();
-            self.filter_activity();
+                    })
+                    .filter(|event| show_all || !is_chatter(&event.kind))
+                    .map(std::sync::Arc::new)
+                    .collect();
+                self.filter_activity();
+            }
             if session_changed {
                 self.diagnostic = None;
                 self.details.close();
@@ -578,18 +720,22 @@ impl App {
                     }
                 }
             }
-            self.artifacts = match store.artifacts(&session, "session") {
-                Ok(artifacts) => artifacts,
-                Err(error) => {
-                    let message = format!("Artifact loading failed: {error:#}\nHistory remains available. Inspect the state directory before retrying.");
-                    let key = (session.id.clone(), message.clone());
-                    if self.artifact_diagnostic_key.as_ref() != Some(&key) {
-                        self.artifact_diagnostic_key = Some(key);
-                        self.raise_diagnostic(message);
+            let artifact_generation = (session.id.clone(), session.active_branch.clone(), revision);
+            if self.artifact_generation.as_ref() != Some(&artifact_generation) {
+                self.artifacts = match store.artifact_metadata(&session, "session") {
+                    Ok(artifacts) => artifacts,
+                    Err(error) => {
+                        let message = format!("Artifact loading failed: {error:#}\nHistory remains available. Inspect the state directory before retrying.");
+                        let key = (session.id.clone(), message.clone());
+                        if self.artifact_diagnostic_key.as_ref() != Some(&key) {
+                            self.artifact_diagnostic_key = Some(key);
+                            self.raise_diagnostic(message);
+                        }
+                        Vec::new()
                     }
-                    Vec::new()
-                }
-            };
+                };
+                self.artifact_generation = Some(artifact_generation);
+            }
         } else {
             self.attention = None;
             self.events.clear();
@@ -597,6 +743,9 @@ impl App {
             self.activity_cards = crate::activity_cards::Projection::default();
             self.activity_generation = None;
             self.artifacts.clear();
+            self.artifact_generation = None;
+            self.artifact_body_key = None;
+            self.artifact_body = None;
             self.diagnostic = None;
             self.usage_error = None;
             self.usage_line = "Usage: no session selected".into();
@@ -663,6 +812,7 @@ impl App {
                 }
             }
         }
+        self.load_selected_artifact(store);
         let event_changed = old_event != self.event().map(|e| e.id);
         if (changed_session || event_changed)
             && self.view == View::Conversation
@@ -703,6 +853,7 @@ impl App {
         {
             self.detail_scroll = 0;
         }
+        self.load_selected_artifact(store);
         Ok(())
     }
 

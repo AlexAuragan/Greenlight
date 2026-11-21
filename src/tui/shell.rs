@@ -605,6 +605,17 @@ impl App {
     pub(super) fn activate(&mut self, action: Action, root: &Path, store: &Store) -> Result<bool> {
         use super::actions::DecisionLayer;
         use Action::*;
+        if self.partial_history
+            && self.view == View::Conversation
+            && self.decision_layer() == DecisionLayer::Workspace
+            && !self.reading_overlay()
+            && matches!(action, Open | Copy | Editor)
+        {
+            if let Err(error) = self.load_selected_event(store) {
+                self.raise_diagnostic(format!("Exact event unavailable: {error:#}"));
+                return Ok(false);
+            }
+        }
         let allowed = match self.decision_layer() {
             DecisionLayer::Help => matches!(action, Close | Mouse | Copy),
             DecisionLayer::Permission => matches!(action, Close | Decision(_)),
@@ -1123,6 +1134,9 @@ impl App {
                     self.inspector_open = true;
                     self.follow_activity = false;
                     self.detail_scroll = 0;
+                    if let Err(error) = self.load_selected_event(store) {
+                        self.raise_diagnostic(format!("Exact event unavailable: {error:#}"));
+                    }
                 }
             }
             Artifact(id) => {
@@ -1155,6 +1169,11 @@ impl App {
         Ok(false)
     }
     pub(super) fn on_event(&mut self, event: Event, root: &Path, store: &Store) -> Result<bool> {
+        let result = self.route_event(event, root, store);
+        self.load_selected_artifact(store);
+        result
+    }
+    fn route_event(&mut self, event: Event, root: &Path, store: &Store) -> Result<bool> {
         match event {
             Event::Key(key) => {
                 self.shell.pressed = None;

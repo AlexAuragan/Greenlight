@@ -27,6 +27,7 @@ mod project;
 mod provider;
 mod provider_diagnostic;
 mod provider_failure;
+mod resource_limits;
 mod restore;
 mod sandbox;
 mod session_execution;
@@ -429,19 +430,20 @@ async fn main() -> Result<()> {
                 dump.save(&path, json)?;
                 println!("Saved conversation dump: {}", path.display());
             } else if json {
-                println!("{}", serde_json::to_string_pretty(&dump)?);
+                println!("{}", dump.json()?);
             } else {
-                println!(
-                    "{}",
-                    dump.markdown()
-                        .chars()
-                        .flat_map(|c| if c.is_control() && c != '\n' && c != '\t' {
-                            c.escape_default().collect::<Vec<_>>()
-                        } else {
-                            vec![c]
-                        })
-                        .collect::<String>()
-                );
+                use std::io::Write;
+                let stdout = std::io::stdout();
+                let mut output = stdout.lock();
+                // Escape directly to stdout; do not allocate another expanded copy.
+                for c in dump.markdown()?.chars() {
+                    if c.is_control() && c != '\n' && c != '\t' {
+                        write!(output, "{}", c.escape_default())?;
+                    } else {
+                        write!(output, "{c}")?;
+                    }
+                }
+                writeln!(output)?;
             }
         }
         Commands::History { session } => {

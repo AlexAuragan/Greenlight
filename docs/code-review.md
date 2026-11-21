@@ -14,7 +14,7 @@ This review prioritizes readable control flow, shared safety policies and concre
 
 ## Deferred findings
 
-[GL-003, GL-005 and GL-007](../TODO.md) track concurrent path swaps, large-history/body memory use and project-level coordination. GL-004 (approval-store locking) and GL-006 (typed action registry/direct dispatch) were completed in the subsequent pattern pass; session/branch publication is now transactional. Nearby code comments reference the backlog. Exact tool retry and durable provider continuation remain GL-001/GL-002; they require explicit side-effect and recovery semantics.
+[GL-007](../TODO.md) retains project-level execution coordination. GL-003 descriptor anchoring and GL-005 read budgets/caching are implemented on their review branches; see [anchored file access](39-anchored-file-access.md) and [resource budgets](40-resource-budgets.md). GL-001/GL-002 reruns and durable continuations, GL-004 approval-store locking and GL-006 typed actions are implemented. These changes preserve explicit side-effect and recovery semantics.
 
 ## Readability conventions
 

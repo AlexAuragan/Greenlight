@@ -91,7 +91,10 @@ impl ApprovalStore {
         )
     }
     fn read_at(directory: &crate::anchored_fs::Dir, name: &std::ffi::OsStr) -> Result<Grants> {
-        let text = match directory.read_string(Path::new(name), u64::MAX) {
+        let text = match directory.read_string(
+            Path::new(name),
+            crate::resource_limits::Limits::default().source_bytes as u64,
+        ) {
             Ok(text) => text,
             Err(error)
                 if error

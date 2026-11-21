@@ -233,7 +233,7 @@ impl App {
             let path = directory.join(&name);
             anchored
                 .target(Path::new(&name))?
-                .publish_new(dump.markdown().as_bytes())?;
+                .publish_new(dump.markdown()?.as_bytes())?;
             Ok(path)
         })();
         match result {
@@ -1001,6 +1001,7 @@ mod tests {
         assert!(dump.live_preview.as_ref().unwrap().contains("truncated"));
         assert!(dump
             .markdown()
+            .unwrap()
             .contains("not validated or executed evidence"));
         assert!(
             crate::conversation_dump::Dump::load(&store, &session.id, None, false)

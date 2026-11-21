@@ -21,6 +21,8 @@ pub struct Event {
 }
 #[derive(Clone, Serialize)]
 pub struct Dump {
+    #[serde(skip)]
+    output_limit: usize,
     pub schema_version: u32,
     pub captured_at: String,
     pub session: Session,
@@ -35,7 +37,7 @@ fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 pub(crate) fn save_message(store: &Store, message: &Value) -> Result<String> {
-    let bytes = serde_json::to_vec(message)?;
+    let bytes = crate::resource_limits::json_bytes(message, store.limits.blob_bytes)?;
     let id = hash(&bytes);
     let name = format!("trace-{id}.json");
     let directory = store.directory_fd.create_dirs(Path::new("blobs"))?;
@@ -49,7 +51,7 @@ pub(crate) fn save_message(store: &Store, message: &Value) -> Result<String> {
                 .downcast_ref::<std::io::Error>()
                 .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
         {
-            if directory.read(Path::new(&name), u64::MAX)? != bytes {
+            if directory.read(Path::new(&name), store.limits.blob_bytes as u64)? != bytes {
                 bail!("invalid existing trace blob");
             }
         }
@@ -66,10 +68,10 @@ pub(crate) fn load_message(store: &Store, id: &str) -> Result<Value> {
     {
         bail!("invalid message reference");
     }
-    let bytes = store
-        .directory_fd
-        .open_dir(Path::new("blobs"))?
-        .read(Path::new(&format!("trace-{id}.json")), u64::MAX)?;
+    let bytes = store.directory_fd.open_dir(Path::new("blobs"))?.read(
+        Path::new(&format!("trace-{id}.json")),
+        store.limits.blob_bytes as u64,
+    )?;
     if hash(&bytes) != id {
         bail!("trace blob checksum mismatch");
     }
@@ -134,7 +136,17 @@ impl Dump {
             store.lineage(selected)?
         };
         let mut events = Vec::new();
+        let mut budget = crate::resource_limits::Budget::new(store.limits.export_bytes);
         for (b, cutoff) in branches {
+            let (count, bytes, largest): (usize, usize, usize) = store.db.query_row(
+                "SELECT count(*),coalesce(sum(octet_length(data)+coalesce(octet_length(step),0)+octet_length(kind)+octet_length(branch)+128),0),coalesce(max(octet_length(data)),0) FROM events WHERE session=?1 AND branch=?2 AND id<=?3",
+                rusqlite::params![s.id,b,cutoff], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+            if count > store.limits.export_events.saturating_sub(events.len())
+                || largest > store.limits.blob_bytes
+            {
+                bail!("Conversation exceeds limits.export_events/blob_bytes; recorded data is unchanged");
+            }
+            budget.charge(bytes)?;
             let mut query=store.db.prepare("SELECT id,branch,coalesce(step,''),kind,timestamp,data FROM events WHERE session=?1 AND branch=?2 AND id<=?3 ORDER BY id")?;
             events.extend(
                 query
@@ -177,8 +189,30 @@ impl Dump {
                         };
                         for id in refs {
                             if !messages.contains_key(id) {
+                                // Size-check before loading so an oversized trace is not misreported
+                                // as a missing blob in an otherwise "full" export.
+                                if id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()) {
+                                    if let Ok(file) =
+                                        store.directory_fd.open_dir(Path::new("blobs")).and_then(
+                                            |d| d.open_file(Path::new(&format!("trace-{id}.json"))),
+                                        )
+                                    {
+                                        let bytes = usize::try_from(file.metadata()?.len())?;
+                                        if bytes > store.limits.blob_bytes {
+                                            bail!("Trace exceeds limits.blob_bytes; full dump refused, saved evidence is unchanged");
+                                        }
+                                        if bytes > budget.remaining() {
+                                            bail!("Trace dictionary exceeds limits.export_bytes; full dump refused");
+                                        }
+                                    }
+                                }
                                 match load_message(store, id) {
                                     Ok(m) => {
+                                        let bytes = crate::resource_limits::json_bytes(
+                                            &m,
+                                            budget.remaining(),
+                                        )?;
+                                        budget.charge(bytes.len())?;
                                         messages.insert(id.into(), m);
                                     }
                                     Err(e) => diagnostics.push(format!(
@@ -247,6 +281,7 @@ impl Dump {
         }
         tx.commit()?;
         Ok(Self {
+            output_limit: store.limits.export_bytes,
             schema_version: 1,
             captured_at: chrono::Utc::now().to_rfc3339(),
             session: s.clone(),
@@ -263,13 +298,16 @@ impl Dump {
     }
     /// A bounded reader preview; the Markdown/JSON export retains complete bodies.
     pub fn preview(&self) -> String {
-        self.render(true)
+        self.render(true).unwrap_or_else(|e| {
+            format!("Conversation preview unavailable: {e:#}. No evidence was deleted.")
+        })
     }
-    pub fn markdown(&self) -> String {
+    pub fn markdown(&self) -> Result<String> {
         self.render(false)
     }
-    fn render(&self, preview: bool) -> String {
-        let mut out=format!("# Conversation dump\n\nSession: {}\nWorkflow: {}\nGoal: {}\nScope: {}\nCaptured: {}\n\n",self.session.id,self.session.workflow,self.session.goal,self.scope,self.captured_at);
+    fn render(&self, preview: bool) -> Result<String> {
+        let mut out = crate::resource_limits::Text::new(self.output_limit);
+        out.push_str(&format!("# Conversation dump\n\nSession: {}\nWorkflow: {}\nGoal: {}\nScope: {}\nCaptured: {}\n\n",self.session.id,self.session.workflow,self.session.goal,self.scope,self.captured_at));
         out.push_str("## Diagnostics and limitations\n\n");
         for d in &self.diagnostics {
             out.push_str(&format!("- {d}\n"));
@@ -307,14 +345,16 @@ impl Dump {
                 preview,
             );
         }
-        out
+        out.finish()
+    }
+    pub fn json(&self) -> Result<String> {
+        Ok(String::from_utf8(crate::resource_limits::json_bytes(
+            self,
+            self.output_limit,
+        )?)?)
     }
     pub fn save(&self, path: &Path, json: bool) -> Result<()> {
-        let text = if json {
-            serde_json::to_string_pretty(self)?
-        } else {
-            self.markdown()
-        };
+        let text = if json { self.json()? } else { self.markdown()? };
         let absolute = if path.is_absolute() {
             path.to_path_buf()
         } else {
@@ -329,7 +369,7 @@ impl Dump {
             .publish_new(text.as_bytes())
     }
 }
-fn body(out: &mut String, text: &str, preview: bool) {
+fn body(out: &mut crate::resource_limits::Text, text: &str, preview: bool) {
     let excerpt = text.chars().take(800).collect::<String>();
     let long = excerpt.len() < text.len();
     if preview {
@@ -404,7 +444,7 @@ mod tests {
             .unwrap();
         let before = store.history(&s).unwrap();
         let dump = Dump::load(&store, &s.id, None, false).unwrap();
-        assert!(dump.markdown().contains(&raw));
+        assert!(dump.markdown().unwrap().contains(&raw));
         assert!(!dump.preview().contains("LAST_RAW_LINE"));
         assert!(dump.diagnostics.iter().any(|d| d.contains("Legacy run")));
         assert!(dump
@@ -550,5 +590,43 @@ mod tests {
             record_request(&store, &s, "work", "bad", "coding", "fixture", &[message]).is_err()
         );
         assert!(!root.path().join("absent").exists());
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+    #[test]
+    fn oversized_trace_is_refused_instead_of_becoming_a_missing_message_diagnostic() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        let message = json!({"role":"user","content":"x".repeat(4096)});
+        let id = save_message(&store, &message).unwrap();
+        record_request(
+            &store,
+            &session,
+            "step",
+            "call",
+            "coding",
+            "fixture",
+            &[message],
+        )
+        .unwrap();
+        store.limits.blob_bytes = 1024;
+        assert!(load_message(&store, &id).is_err());
+        assert!(Dump::load(&store, &session.id, None, false)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Trace exceeds"));
+        store.limits.blob_bytes = 8192;
+        store.limits.export_bytes = 4096;
+        assert!(Dump::load(&store, &session.id, None, false).is_err());
+        assert!(store
+            .directory
+            .join("blobs")
+            .join(format!("trace-{id}.json"))
+            .exists());
     }
 }

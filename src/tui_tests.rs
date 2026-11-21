@@ -380,6 +380,7 @@ fn artifact_tab_displays_latest_branch_artifacts() {
         .position(|a| a.name == "plan.md")
         .unwrap();
     app.artifact_index = plan_index;
+    app.load_selected_artifact(&store);
     assert_eq!(app.artifact().unwrap().content, "revised version");
     store
         .add_artifact(&session, "plan", "plan.md", "third version")
@@ -525,4 +526,122 @@ fn diff_reads_original_journal_snapshots() {
     assert!(detail.contains("+new"));
     app.toggle_diff(&store).unwrap();
     assert!(!app.detail().contains("--- a/file.txt"));
+}
+
+#[test]
+fn idle_refresh_shares_activity_rows_and_reads_no_unchanged_artifact_bodies() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    store
+        .add_artifact(&session, "step", "a.md", "first")
+        .unwrap();
+    store
+        .add_artifact(&session, "step", "b.md", "second")
+        .unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    let rows = app.activity_rows.clone();
+    let reads = store.blob_reads.get();
+    assert_eq!(reads, 1);
+    for _ in 0..10 {
+        app.refresh(&store).unwrap();
+    }
+    assert_eq!(store.blob_reads.get(), reads);
+    assert!(rows
+        .iter()
+        .zip(&app.activity_rows)
+        .all(|(a, b)| std::sync::Arc::ptr_eq(a, b)));
+    app.on_key(
+        KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    app.on_key(
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        root.path(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(app.artifact().unwrap().content, "second");
+    assert_eq!(store.blob_reads.get(), reads + 1);
+}
+
+#[test]
+fn oversized_history_is_labelled_and_only_selected_exact_body_is_materialized() {
+    let root = tempfile::tempdir().unwrap();
+    let mut store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    let id = store
+        .event(&session, None, "test", &"evidence".repeat(200))
+        .unwrap();
+    store.limits.materialized_bytes = 1024;
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    assert!(app.partial_history);
+    assert!(app.workspace.is_none());
+    app.event_index = app.events.iter().position(|e| e.id == id).unwrap();
+    assert!(app.event().unwrap().data.contains("Preview only"));
+    assert!(app.export_snapshot().is_err());
+    app.load_selected_event(&store).unwrap();
+    assert_eq!(app.event().unwrap().data, "evidence".repeat(200));
+    app.refresh(&store).unwrap();
+    assert_eq!(app.event().unwrap().data, "evidence".repeat(200));
+    assert!(app
+        .activity_rows
+        .iter()
+        .find(|e| e.id == id)
+        .unwrap()
+        .data
+        .contains("Preview only"));
+    assert!(app
+        .export_snapshot()
+        .unwrap()
+        .text
+        .contains(&"evidence".repeat(200)));
+}
+
+#[test]
+#[ignore = "manual refresh/diff profiling; deterministic read-count coverage runs normally"]
+fn profile_large_history_refresh_and_diff() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    let tx = store.db.unchecked_transaction().unwrap();
+    for _ in 0..5000 {
+        store
+            .event(&session, None, "test", &"x".repeat(512))
+            .unwrap();
+    }
+    tx.commit().unwrap();
+    for i in 0..20 {
+        store
+            .add_artifact(
+                &session,
+                "step",
+                &format!("{i:02}.md"),
+                &"x".repeat(16 * 1024),
+            )
+            .unwrap();
+    }
+    let mut app = App::new(Some(&session.id));
+    let start = std::time::Instant::now();
+    app.refresh(&store).unwrap();
+    let cold = start.elapsed();
+    let reads = store.blob_reads.get();
+    let start = std::time::Instant::now();
+    for _ in 0..100 {
+        app.refresh(&store).unwrap();
+    }
+    let idle = start.elapsed() / 100;
+    assert_eq!(store.blob_reads.get(), reads);
+    let old = (0..10000)
+        .map(|n| format!("line {n}\n"))
+        .collect::<String>();
+    let new = old.replace("line 5000\n", "updated line\n");
+    let start = std::time::Instant::now();
+    let diff = crate::changes::unified("fixture.txt", Some(&old), &new);
+    assert!(diff.contains("+updated line"));
+    eprintln!("GL-005 profile (debug): cold={cold:?}, mean idle={idle:?}, artifact reads on 100 idle refreshes=0, 10k-line one-edit diff={:?}",start.elapsed());
 }

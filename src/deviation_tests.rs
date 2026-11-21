@@ -521,7 +521,7 @@ async fn correcting_request_syntax_never_bypasses_host_denial_or_workflow_tool_s
             })
             .collect::<Vec<_>>();
         assert_eq!(recorded, script.requests);
-        assert!(dump.markdown().contains(if denied_by_host {
+        assert!(dump.markdown().unwrap().contains(if denied_by_host {
             "read forbidden by policy"
         } else {
             "not enabled for this step"

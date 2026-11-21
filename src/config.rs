@@ -103,6 +103,8 @@ pub struct Notifications {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub limits: crate::resource_limits::Limits,
     pub provider: ProviderConfig,
     #[serde(default)]
     pub session: SessionConfig,
@@ -238,9 +240,13 @@ pub struct LoadedWorkflow {
 pub fn load_config(root: &Path) -> Result<Config> {
     let path = crate::paths::config_path(root)?;
     let text = crate::anchored_fs::Dir::open(root)?
-        .read_string(path.strip_prefix(root)?, u64::MAX)
+        .read_string(
+            path.strip_prefix(root)?,
+            crate::resource_limits::Limits::default().source_bytes as u64,
+        )
         .with_context(|| format!("reading {}", path.display()))?;
     let cfg: Config = serde_yaml::from_str(&text)?;
+    cfg.limits.validate()?;
     for value in [
         &cfg.permissions.shell,
         &cfg.permissions.write,
@@ -283,14 +289,22 @@ pub fn load_config(root: &Path) -> Result<Config> {
 /// Existing variables are never overridden, so shell exports and real
 /// environment settings keep precedence over the file.
 pub fn load_dotenv(path: &Path) -> Result<()> {
-    let Ok(text) = (|| -> Result<String> {
+    let text = match (|| -> Result<String> {
         let parent = path.parent().context("dotenv lacks parent")?;
         crate::anchored_fs::Dir::open(parent)?.read_string(
             Path::new(path.file_name().context("dotenv lacks name")?),
-            u64::MAX,
+            crate::resource_limits::Limits::default().source_bytes as u64,
         )
-    })() else {
-        return Ok(());
+    })() {
+        Ok(text) => text,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(())
+        }
+        Err(error) => return Err(error.context("reading dotenv (fixed 1 MiB bootstrap limit)")),
     };
     for (index, raw) in text.lines().enumerate() {
         let line = raw.trim();
@@ -432,7 +446,12 @@ pub fn frontmatter(src: &str) -> Result<(&str, &str)> {
 }
 
 pub fn render_includes(text: &str, root: &Path, folder: &Path) -> Result<String> {
-    // TODO(GL-005): bound expanded template bytes, not only recursion depth.
+    let limits = load_config(root)
+        .map(|config| config.limits)
+        .unwrap_or_default();
+    if text.len() > limits.expanded_prompt_bytes {
+        bail!("Prompt exceeds limits.expanded_prompt_bytes; it was not truncated");
+    }
     // Intentional restricted template syntax: includes only; no template expressions.
     let mut result = text.to_owned();
     for _ in 0..12 {
@@ -442,8 +461,16 @@ pub fn render_includes(text: &str, root: &Path, folder: &Path) -> Result<String>
         let at = start + "{{ include \"".len();
         let end = result[at..].find("\" }}").context("unterminated include")? + at;
         let name = &result[at..end];
-        let content = crate::paths::read_project_file(root, &folder.join(name))
-            .with_context(|| format!("missing include {name} or inaccessible project file"))?;
+        let content = crate::paths::read_project_file_limit(
+            root,
+            &folder.join(name),
+            limits.source_bytes.min(limits.expanded_prompt_bytes),
+        )
+        .with_context(|| format!("missing include {name} or inaccessible project file"))?;
+        let removed = end + "\" }}".len() - start;
+        if result.len() - removed > limits.expanded_prompt_bytes.saturating_sub(content.len()) {
+            bail!("Expanded prompt exceeds limits.expanded_prompt_bytes; it was not truncated");
+        }
         result.replace_range(start..end + "\" }}".len(), &content);
     }
     if result.contains("{{ include \"") {
@@ -573,5 +600,40 @@ mod tests {
             .unwrap()
             .chain()
             .any(|cause| cause.to_string().contains("private")));
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+    #[test]
+    fn configured_source_and_expanded_include_limits_are_enforced_before_growth() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: fixture\nlimits:\n  source_bytes: 100\n  expanded_prompt_bytes: 110\n").unwrap();
+        let path = root.path().join("part.md");
+        std::fs::write(&path, "x".repeat(100)).unwrap();
+        assert_eq!(
+            crate::paths::read_project_file(root.path(), &path)
+                .unwrap()
+                .len(),
+            100
+        );
+        assert!(render_includes(
+            "{{ include \"part.md\" }}{{ include \"part.md\" }}",
+            root.path(),
+            root.path()
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("Expanded prompt"));
+        std::fs::write(&path, "x".repeat(101)).unwrap();
+        assert!(crate::paths::read_project_file(root.path(), &path).is_err());
+        assert!(render_includes(&"é".repeat(56), root.path(), root.path()).is_err());
+        std::fs::write(
+            root.path().join("greenlight.yaml"),
+            "provider:\n  model: fixture\nlimits:\n  blob_bytes: 0\n",
+        )
+        .unwrap();
+        assert!(load_config(root.path()).is_err());
     }
 }

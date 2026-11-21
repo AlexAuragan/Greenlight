@@ -523,7 +523,10 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                     format!(
                         "  {:16} {:>9}",
                         fit(&artifact.step, 16),
-                        format!("{} B", artifact.content.len())
+                        artifact
+                            .bytes
+                            .map(|n| format!("{n} B"))
+                            .unwrap_or_else(|| "? B".into())
                     ),
                     Style::default().fg(theme::MUTED),
                 ));
@@ -562,7 +565,16 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         } else {
             " Document · Raw text "
         };
-        if let Some(artifact) = app.artifact() {
+        if let Some(error) = &app.artifact_error {
+            draw_scrolled(
+                frame,
+                app,
+                Paragraph::new(error.as_str())
+                    .style(Style::default().fg(theme::ERROR))
+                    .wrap(Wrap { trim: false }),
+                panes[1],
+            );
+        } else if let Some(artifact) = app.artifact() {
             let headers = vec![
                 Line::styled(
                     inline_display(&artifact.name),

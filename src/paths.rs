@@ -25,6 +25,12 @@ pub fn is_private_path(relative: &Path) -> bool {
 
 /// Read model-visible project files under the same privacy boundary as tools.
 pub(crate) fn read_project_file(root: &Path, path: &Path) -> Result<String> {
+    let limit = crate::config::load_config(root)
+        .map(|c| c.limits.source_bytes)
+        .unwrap_or(crate::resource_limits::Limits::default().source_bytes);
+    read_project_file_limit(root, path, limit)
+}
+pub(crate) fn read_project_file_limit(root: &Path, path: &Path, limit: usize) -> Result<String> {
     let directory = crate::anchored_fs::Dir::open(root)?;
     let root = root.canonicalize()?;
     if let Ok(relative) = path.strip_prefix(&root) {
@@ -42,7 +48,7 @@ pub(crate) fn read_project_file(root: &Path, path: &Path) -> Result<String> {
     if !resolved.is_file() {
         bail!("project file is not a regular file: {}", path.display());
     }
-    directory.read_string(relative, u64::MAX)
+    directory.read_string(relative, limit as u64)
 }
 
 pub fn config_path(root: &Path) -> Result<PathBuf> {

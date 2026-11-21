@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Next: recovery and correctness
 
-- [ ] **GL-005** — Bound expanded includes, artifact/trace reads and history/export memory. Profile refresh/diff work, load lightweight event metadata and selected immutable bodies on demand, and avoid full-history scans on interactive paths. Define configurable limits and legacy-file behavior before changing schemas.
 - [ ] **GL-007** — Define project-level execution coordination before parallel workflows: session ownership and per-write locking do not prevent concurrent sessions reasoning over stale project state. Session creation, branch switching and fork publication are now transactional; project-level execution coordination remains open.
 
 ## Supervised workflows and review
@@ -43,6 +42,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 precedes parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-005** — Implemented on `perf/bounded-reads-and-refresh` (awaiting merge, includes GL-003): configurable source/include, blob, history/usage and dump budgets; labelled recent-history fallback with exact selected bodies; immutable history/selected-artifact caches and revision-based UI reuse. No schema changes or evidence pruning. See [resource budgets and refresh profile](docs/40-resource-budgets.md).
 
 - [x] **GL-003** — Implemented on `fix/descriptor-anchored-file-access` (awaiting merge): descriptor-relative reads, includes, discovery, snapshots/writes/restore, private blobs/exports/locks, anchored SQLite/WAL paths and sandbox bind sources. Path-swap regressions and limits are documented in [anchored file access](docs/39-anchored-file-access.md).
 

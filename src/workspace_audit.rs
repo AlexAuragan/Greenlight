@@ -159,7 +159,7 @@ fn journal(
                         &store
                             .directory_fd
                             .open_dir(Path::new("blobs"))?
-                            .read(p, u64::MAX)
+                            .read(p, store.limits.blob_bytes as u64)
                             .with_context(|| format!("Missing journal evidence at #{id}"))?,
                     ))
                 })

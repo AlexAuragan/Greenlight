@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::fs;
@@ -48,6 +48,14 @@ pub struct Artifact {
 }
 
 #[derive(Debug, Clone)]
+pub struct ArtifactMetadata {
+    pub name: String,
+    pub step: String,
+    pub event_id: i64,
+    pub bytes: Option<u64>,
+    pub(crate) blob: String,
+}
+#[derive(Debug, Clone)]
 pub struct AttemptInfo {
     pub id: String,
     pub step: String,
@@ -57,7 +65,48 @@ pub struct AttemptInfo {
     pub status: String,
 }
 
+type Event = (i64, String, String, String);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct History(std::sync::Arc<Vec<Event>>);
+impl std::ops::Deref for History {
+    type Target = Vec<Event>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for History {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
+impl Serialize for History {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(serializer)
+    }
+}
+impl IntoIterator for History {
+    type Item = Event;
+    type IntoIter = std::vec::IntoIter<Event>;
+    fn into_iter(self) -> Self::IntoIter {
+        std::sync::Arc::unwrap_or_clone(self.0).into_iter()
+    }
+}
+impl<'a> IntoIterator for &'a History {
+    type Item = &'a Event;
+    type IntoIter = std::slice::Iter<'a, Event>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+type HistoryCache = (String, String, (u64, i64), History);
 pub struct Store {
+    pub(crate) limits: crate::resource_limits::Limits,
+    #[cfg(test)]
+    pub(crate) blob_reads: std::cell::Cell<usize>,
+    history_cache: std::cell::RefCell<Option<HistoryCache>>,
     pub(crate) db: Connection,
     pub directory: PathBuf,
     pub(crate) directory_fd: crate::anchored_fs::Dir,
@@ -109,15 +158,40 @@ impl Store {
            CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);",
         )?;
         Ok(Self {
+            #[cfg(test)]
+            blob_reads: std::cell::Cell::new(0),
+            limits: crate::config::load_config(root)
+                .map(|c| c.limits)
+                .unwrap_or_default(),
+            history_cache: std::cell::RefCell::new(None),
             db,
             directory,
             directory_fd,
         })
     }
     pub(crate) fn read_blob(&self, name: &str) -> Result<String> {
+        #[cfg(test)]
+        self.blob_reads.set(self.blob_reads.get() + 1);
         self.directory_fd
             .open_dir(Path::new("blobs"))?
-            .read_string(Path::new(name), u64::MAX)
+            .read_string(Path::new(name), self.limits.blob_bytes as u64)
+    }
+    pub(crate) fn read_blob_budget(
+        &self,
+        name: &str,
+        budget: &mut crate::resource_limits::Budget,
+    ) -> Result<String> {
+        #[cfg(test)]
+        self.blob_reads.set(self.blob_reads.get() + 1);
+        let text = self
+            .directory_fd
+            .open_dir(Path::new("blobs"))?
+            .read_string(
+                Path::new(name),
+                self.limits.blob_bytes.min(budget.remaining()) as u64,
+            )?;
+        budget.charge(text.len())?;
+        Ok(text)
     }
     fn write_blob(&self, name: &str, text: &str) -> Result<()> {
         let dir = self.directory_fd.create_dirs(Path::new("blobs"))?;
@@ -306,6 +380,11 @@ impl Store {
             if session != owner {
                 bail!("corrupt branch ancestry: cross-session parent");
             }
+            if line.len() >= self.limits.history_events {
+                bail!(
+                    "Branch ancestry exceeds limits.history_events; increase the limit and restart"
+                );
+            }
             line.push((cursor.clone(), cutoff));
             let b = self.branch(&cursor)?;
             match (b.parent, b.fork_event) {
@@ -320,17 +399,110 @@ impl Store {
         line.reverse();
         Ok(line)
     }
-    // TODO(GL-005): load bounded event windows and immutable bodies on demand.
-    pub fn history(&self, s: &Session) -> Result<Vec<(i64, String, String, String)>> {
+    pub(crate) fn data_revision(&self) -> Result<(u64, i64)> {
+        Ok((
+            self.db.total_changes(),
+            self.db.query_row("PRAGMA data_version", [], |r| r.get(0))?,
+        ))
+    }
+    pub fn history(&self, s: &Session) -> Result<History> {
+        let cacheable = self.db.is_autocommit();
+        let revision = self.data_revision()?;
+        if cacheable {
+            if let Some((session, branch, version, history)) = self.history_cache.borrow().as_ref()
+            {
+                if session == &s.id && branch == &s.active_branch && version == &revision {
+                    return Ok(history.clone());
+                }
+            }
+        }
+        // One read snapshot covers both preflight and payloads. Never cache transaction-local rows.
+        let tx = if cacheable {
+            Some(self.db.unchecked_transaction()?)
+        } else {
+            None
+        };
+        // octet_length(column) reads SQLite's record header, avoiding an oversized
+        // text allocation just to discover that its payload is over budget.
         let mut result = vec![];
+        let mut budget = crate::resource_limits::Budget::new(self.limits.materialized_bytes);
         for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            let (count, bytes, largest): (usize, usize, usize) = self.db.query_row(
+                "SELECT count(*),coalesce(sum(octet_length(data)+coalesce(octet_length(step),0)+octet_length(kind)+96),0),coalesce(max(octet_length(data)),0) FROM events WHERE session=?1 AND branch=?2 AND id<=?3",
+                params![s.id, branch, cutoff], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            if count > self.limits.history_events.saturating_sub(result.len())
+                || largest > self.limits.blob_bytes
+            {
+                return Err(crate::resource_limits::Exceeded("History exceeds limits.history_events/blob_bytes; recorded data is unchanged. Increase the limit and restart to inspect it in full.".into()).into());
+            }
+            budget.charge(bytes)?;
             let mut st = self.db.prepare("SELECT id,coalesce(step,''),kind,data FROM events WHERE session=?1 AND branch=?2 AND id<=?3 ORDER BY id")?;
             let rows = st.query_map(params![s.id, branch, cutoff], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
             })?;
             result.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
         }
-        Ok(result)
+        if let Some(tx) = tx {
+            tx.commit()?;
+        }
+        let history = History(std::sync::Arc::new(result));
+        if cacheable && self.data_revision()? == revision {
+            *self.history_cache.borrow_mut() = Some((
+                s.id.clone(),
+                s.active_branch.clone(),
+                revision,
+                history.clone(),
+            ));
+        }
+        Ok(history)
+    }
+    /// Bounded diagnostic window; these previews never drive workflow state or export as full bodies.
+    pub fn history_previews(&self, s: &Session) -> Result<Vec<Event>> {
+        let mut events = Vec::new();
+        for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            let mut query = self.db.prepare("SELECT id,substr(coalesce(step,''),1,80),substr(kind,1,80),CASE WHEN octet_length(data)>?4 THEN '[Body exceeds limits.blob_bytes; raise the limit and restart]' ELSE substr(data,1,512) END,octet_length(data) FROM events WHERE session=?1 AND branch=?2 AND id<=?3 ORDER BY id DESC LIMIT 2000")?;
+            for row in
+                query.query_map(params![s.id, branch, cutoff, self.limits.blob_bytes], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, u64>(4)?,
+                    ))
+                })?
+            {
+                let (id, step, kind, text, bytes) = row?;
+                events.push((id,step,kind,format!("Preview only · {bytes} recorded bytes · Enter loads the exact body\n\n{text}")));
+            }
+            events.sort_by_key(|e| e.0);
+            if events.len() > 2000 {
+                events.drain(..events.len() - 2000);
+            }
+        }
+        Ok(events)
+    }
+    pub fn event_body(&self, s: &Session, id: i64) -> Result<String> {
+        for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            if id > cutoff {
+                continue;
+            }
+            let bytes: Option<usize> = self.db.query_row("SELECT octet_length(data) FROM events WHERE session=?1 AND branch=?2 AND id=?3",params![s.id,branch,id],|r|r.get(0)).optional()?;
+            if let Some(bytes) = bytes {
+                if bytes > self.limits.blob_bytes {
+                    bail!("Event body exceeds limits.blob_bytes; saved evidence is unchanged. Increase the limit and restart.");
+                }
+                return self
+                    .db
+                    .query_row(
+                        "SELECT data FROM events WHERE session=?1 AND branch=?2 AND id=?3 AND octet_length(data)<=?4",
+                        params![s.id, branch, id, self.limits.blob_bytes],
+                        |r| r.get(0),
+                    )
+                    .map_err(Into::into);
+            }
+        }
+        bail!("Event is not visible on the selected branch")
     }
     pub fn add_artifact(&self, s: &Session, step: &str, name: &str, content: &str) -> Result<()> {
         let path = Path::new(name);
@@ -397,6 +569,7 @@ impl Store {
     }
 
     pub fn changes(&self, s: &Session) -> Result<Vec<FileChange>> {
+        let mut budget = crate::resource_limits::Budget::new(self.limits.materialized_bytes);
         let mut result = Vec::new();
         for (branch, cutoff) in self.lineage(&s.active_branch)? {
             let mut stmt = self.db.prepare(
@@ -413,8 +586,14 @@ impl Store {
             })?;
             for row in rows {
                 let (event_id, step, path, before_blob, after_blob) = row?;
-                let before = before_blob.map(|b| self.read_blob(&b)).transpose()?;
-                let after = self.read_blob(&after_blob)?;
+                if result.len() >= self.limits.history_events {
+                    bail!("Edit collection exceeds limits.history_events");
+                }
+                budget.charge(path.len() + step.len() + 128)?;
+                let before = before_blob
+                    .map(|b| self.read_blob_budget(&b, &mut budget))
+                    .transpose()?;
+                let after = self.read_blob_budget(&after_blob, &mut budget)?;
                 result.push(FileChange {
                     event_id,
                     step,
@@ -439,6 +618,13 @@ impl Store {
                 after: Some(change.after),
             })
             .collect();
+        let mut budget = crate::resource_limits::Budget::new(self.limits.materialized_bytes);
+        for edit in &edits {
+            budget.charge(
+                edit.before.as_ref().map_or(0, String::len)
+                    + edit.after.as_ref().map_or(0, String::len),
+            )?;
+        }
         for (branch, cutoff) in self.lineage(&s.active_branch)? {
             let mut stmt = self.db.prepare(
                 "SELECT event_id,path,before_blob,after_blob
@@ -454,8 +640,16 @@ impl Store {
             })?;
             for row in rows {
                 let (event_id, path, before_blob, after_blob) = row?;
-                let before = before_blob.map(|blob| self.read_blob(&blob)).transpose()?;
-                let after = after_blob.map(|blob| self.read_blob(&blob)).transpose()?;
+                if edits.len() >= self.limits.history_events {
+                    bail!("Restore collection exceeds limits.history_events");
+                }
+                budget.charge(path.len() + 128)?;
+                let before = before_blob
+                    .map(|blob| self.read_blob_budget(&blob, &mut budget))
+                    .transpose()?;
+                let after = after_blob
+                    .map(|blob| self.read_blob_budget(&blob, &mut budget))
+                    .transpose()?;
                 edits.push(WorkspaceEdit {
                     event_id,
                     path,
@@ -544,6 +738,7 @@ impl Store {
             params![s.id,s.active_branch,step], |r| Ok((r.get(0)?,r.get(1)?))).map_err(Into::into)
     }
     pub fn attempt_artifacts(&self, s: &Session, step: &str) -> Result<Vec<Artifact>> {
+        let mut budget = crate::resource_limits::Budget::new(self.limits.materialized_bytes);
         let (_, start) = self.active_attempt(s, step)?;
         let mut query = self.db.prepare("SELECT name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND step=?3 AND event_id>?4 ORDER BY event_id")?;
         let rows = query.query_map(params![s.id, s.active_branch, step, start], |r| {
@@ -556,11 +751,15 @@ impl Store {
         let mut versions = std::collections::BTreeMap::new();
         for row in rows {
             let (name, blob, event_id) = row?;
+            if versions.len() >= self.limits.history_events && !versions.contains_key(&name) {
+                bail!("Artifact collection exceeds limits.history_events");
+            }
+            budget.charge(name.len() + blob.len() + 128)?;
             versions.insert(
                 name.clone(),
                 Artifact {
                     name,
-                    content: self.read_blob(&blob)?,
+                    content: self.read_blob_budget(&blob, &mut budget)?,
                     step: step.into(),
                     event_id,
                 },
@@ -584,6 +783,9 @@ impl Store {
             })?;
             for row in rows {
                 let mut attempt = row?;
+                if result.len() >= self.limits.history_events {
+                    bail!("Attempt count exceeds limits.history_events");
+                }
                 if attempt.end_event.is_none_or(|end| end > cutoff) && cutoff != i64::MAX {
                     attempt.status = "inherited-partial".into();
                 }
@@ -611,11 +813,20 @@ impl Store {
             })
             .collect())
     }
-    pub fn artifacts(&self, s: &Session, source: &str) -> Result<Vec<Artifact>> {
+    pub fn artifact_metadata(&self, s: &Session, source: &str) -> Result<Vec<ArtifactMetadata>> {
         // Choose visible versions before opening blobs: a missing historical body
         // must not prevent inspection of a healthy latest version.
+        let mut metadata_budget =
+            crate::resource_limits::Budget::new(self.limits.materialized_bytes);
+        let mut count = 0;
         let mut versions = std::collections::BTreeMap::new();
         for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            let (records, bytes): (usize,usize) = self.db.query_row("SELECT count(*),coalesce(sum(octet_length(step)+octet_length(name)+octet_length(blob_path)+128),0) FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3",params![s.id,branch,cutoff],|r|Ok((r.get(0)?,r.get(1)?)))?;
+            if records > self.limits.history_events.saturating_sub(count) {
+                bail!("Artifact metadata exceeds limits.history_events");
+            }
+            count += records;
+            metadata_budget.charge(bytes)?;
             let mut st=self.db.prepare("SELECT step,name,blob_path,event_id FROM artifacts WHERE session=?1 AND branch=?2 AND event_id<=?3 ORDER BY event_id")?;
             let rows = st.query_map(params![s.id, branch, cutoff], |r| {
                 Ok((
@@ -632,14 +843,39 @@ impl Store {
                 }
             }
         }
+        if versions.len() > self.limits.history_events {
+            bail!("Artifact count exceeds limits.history_events");
+        }
         versions
             .into_iter()
             .map(|(name, (step, blob, event_id))| {
-                Ok(Artifact {
+                let bytes = self
+                    .directory_fd
+                    .open_dir(Path::new("blobs"))
+                    .and_then(|dir| dir.open_file(Path::new(&blob)))
+                    .and_then(|file| Ok(file.metadata()?.len()))
+                    .ok();
+                Ok(ArtifactMetadata {
                     name,
                     step,
                     event_id,
-                    content: self.read_blob(&blob)?,
+                    bytes,
+                    blob,
+                })
+            })
+            .collect()
+    }
+    pub fn artifacts(&self, s: &Session, source: &str) -> Result<Vec<Artifact>> {
+        let mut budget = crate::resource_limits::Budget::new(self.limits.materialized_bytes);
+        self.artifact_metadata(s, source)?
+            .into_iter()
+            .map(|meta| {
+                let content = self.read_blob_budget(&meta.blob, &mut budget)?;
+                Ok(Artifact {
+                    name: meta.name,
+                    step: meta.step,
+                    event_id: meta.event_id,
+                    content,
                 })
             })
             .collect()
@@ -1082,5 +1318,139 @@ mod descriptor_tests {
             fs::read_to_string(outside.path().join("private")).unwrap(),
             "host private"
         );
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+    #[test]
+    fn history_cache_tracks_local_external_and_rolled_back_changes() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        let first = store.history(&session).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            &first.0,
+            &store.history(&session).unwrap().0
+        ));
+        let tx = store.db.unchecked_transaction().unwrap();
+        store.event(&session, None, "test", "rolled back").unwrap();
+        assert!(store
+            .history(&session)
+            .unwrap()
+            .iter()
+            .any(|e| e.3 == "rolled back"));
+        tx.rollback().unwrap();
+        assert!(!store
+            .history(&session)
+            .unwrap()
+            .iter()
+            .any(|e| e.3 == "rolled back"));
+        let external = Store::open(root.path()).unwrap();
+        external
+            .event(&session, None, "test", "external commit")
+            .unwrap();
+        let refreshed = store.history(&session).unwrap();
+        assert!(refreshed.iter().any(|e| e.3 == "external commit"));
+        assert!(!std::sync::Arc::ptr_eq(&first.0, &refreshed.0));
+        store.event(&session, None, "test", "local commit").unwrap();
+        assert!(store
+            .history(&session)
+            .unwrap()
+            .iter()
+            .any(|e| e.3 == "local commit"));
+        let mut edited = store.history(&session).unwrap();
+        edited.clear();
+        assert!(!store.history(&session).unwrap().is_empty());
+    }
+    #[test]
+    fn history_refuses_large_bodies_but_preserves_previews_and_exact_small_records() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        let small = store.event(&session, None, "test", "small").unwrap();
+        let large = store
+            .event(&session, None, "test", &"x".repeat(2048))
+            .unwrap();
+        store.limits.blob_bytes = 1024;
+        assert!(store
+            .history(&session)
+            .unwrap_err()
+            .downcast_ref::<crate::resource_limits::Exceeded>()
+            .is_some());
+        let previews = store.history_previews(&session).unwrap();
+        assert!(previews
+            .iter()
+            .find(|e| e.0 == large)
+            .unwrap()
+            .3
+            .contains("Preview only"));
+        assert_eq!(store.event_body(&session, small).unwrap(), "small");
+        assert!(store.event_body(&session, large).is_err());
+        assert_eq!(
+            store
+                .db
+                .query_row(
+                    "SELECT length(data) FROM events WHERE id=?1",
+                    [large],
+                    |r| r.get::<_, usize>(0)
+                )
+                .unwrap(),
+            2048
+        );
+        store.limits.blob_bytes = 4096;
+        store.limits.materialized_bytes = 1024;
+        assert!(store.history(&session).is_err());
+        store.limits.materialized_bytes = 8192;
+        store.limits.history_events = 1;
+        assert!(store.history(&session).is_err());
+    }
+    #[test]
+    fn artifact_metadata_does_not_materialize_sparse_legacy_body_and_aggregate_is_bounded() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        store
+            .add_artifact(&session, "step", "large.md", "small")
+            .unwrap();
+        let metadata = store.artifact_metadata(&session, "session").unwrap();
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(store.directory.join("blobs").join(&metadata[0].blob))
+            .unwrap();
+        file.set_len(1 << 30).unwrap();
+        assert_eq!(
+            store.artifact_metadata(&session, "session").unwrap()[0].bytes,
+            Some(1 << 30)
+        );
+        assert_eq!(store.blob_reads.get(), 0);
+        assert!(store.artifacts(&session, "session").is_err());
+        assert_eq!(file.metadata().unwrap().len(), 1 << 30);
+        file.set_len(5).unwrap();
+        store
+            .add_artifact(&session, "step", "other.md", "12345")
+            .unwrap();
+        store.limits.materialized_bytes = 9;
+        assert!(store.artifacts(&session, "session").is_err());
+    }
+    #[test]
+    fn dump_refuses_count_aggregate_and_render_budgets_without_creating_export() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        store
+            .event(&session, None, "test", &"x".repeat(500))
+            .unwrap();
+        store.limits.export_events = 1;
+        assert!(crate::conversation_dump::Dump::load(&store, &session.id, None, false).is_err());
+        store.limits.export_events = 100;
+        store.limits.export_bytes = 100;
+        assert!(crate::conversation_dump::Dump::load(&store, &session.id, None, false).is_err());
+        store.limits.export_bytes = 1200;
+        let dump = crate::conversation_dump::Dump::load(&store, &session.id, None, false).unwrap();
+        let path = root.path().join("dump.md");
+        assert!(dump.save(&path, false).is_err());
+        assert!(!path.exists());
     }
 }
