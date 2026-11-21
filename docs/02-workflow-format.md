@@ -89,3 +89,7 @@ transitions:
 ## Validation
 
 Unknown config and step fields are rejected. Workflow graph references and supported tools/deviation actions are checked. Full graph reachability, recursive detector checking, rich template variables, static schema export and quantitative benchmark expressions remain future work.
+
+## Read budgets
+
+The optional root `limits` mapping sets source/include, blob, aggregate history/usage and export budgets. See [resource budgets](40-resource-budgets.md) for defaults, configuration, restart behavior and oversized legacy-record handling. These are materialization limits, not workflow turn limits or retention policies.

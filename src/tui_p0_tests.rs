@@ -371,10 +371,11 @@ fn malformed_events_and_missing_artifacts_remain_inspectable() {
     fs::remove_file(blob).unwrap();
     app.refresh(&store).unwrap();
     assert!(app
-        .diagnostic
+        .artifact_error
         .as_ref()
         .unwrap()
-        .contains("Artifact loading failed"));
+        .contains("Artifact body unavailable"));
+    assert_eq!(app.artifacts.len(), 1);
     assert!(!app.events.is_empty());
 }
 

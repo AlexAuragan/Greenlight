@@ -108,3 +108,5 @@ Malformed detector responses, request failures and unreadable detector prompts b
 ## Known deviations from the full design
 
 No atomic multi-file tool side effects, automatic Git restoration, automatic context compaction or graph-branch visualizer. Live output previews, artifact versions/provenance and guarded native-edit review are implemented; arbitrary project rollback, editable artifact import and durable process-restart continuations remain separate work. See the README roadmap for current scope boundaries.
+
+Current execution ownership remains per session: separate sessions can still execute against the same project. The [GL-007 project coordination proposal](41-project-execution-coordination.md) defines exclusive project execution and recovery; GL-028 tracks its runtime implementation and validation. Existing per-write locks do not make multi-session reasoning current.

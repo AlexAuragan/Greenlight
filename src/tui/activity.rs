@@ -91,6 +91,9 @@ impl App {
         ))
     }
     pub(super) fn detail(&self) -> String {
+        if self.partial_history {
+            return self.event().map(|e| format!("Limited history view · no workflow conclusion inferred\nEvent #{} · {} · {}\n\n{}",e.id,e.step,e.kind,e.data)).unwrap_or_default();
+        }
         if let Some((id, diff)) = &self.diff {
             if self.event().is_some_and(|event| event.id == *id) {
                 return diff.clone();

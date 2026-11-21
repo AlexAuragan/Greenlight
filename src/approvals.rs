@@ -2,13 +2,13 @@
 //! the local state directory; global grants live in the user's config directory.
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::fs;
 use std::{
     collections::BTreeSet,
-    env, fs,
-    io::{self, Write},
+    env, io,
     path::{Path, PathBuf},
 };
-use uuid::Uuid;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -73,15 +73,39 @@ impl ApprovalStore {
     }
 
     fn read(path: &Path) -> Result<Grants> {
-        let text = match fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                return Ok(Grants::default());
+        let parent = path.parent().context("invalid approval path")?;
+        let directory = match crate::anchored_fs::Dir::open(parent) {
+            Ok(dir) => dir,
+            Err(error)
+                if error
+                    .downcast_ref::<io::Error>()
+                    .is_some_and(|error| error.kind() == io::ErrorKind::NotFound) =>
+            {
+                return Ok(Grants::default())
             }
-            Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+            Err(error) => return Err(error),
         };
-        serde_yaml::from_str(&text)
-            .with_context(|| format!("invalid approvals file {}", path.display()))
+        Self::read_at(
+            &directory,
+            path.file_name().context("approval path lacks filename")?,
+        )
+    }
+    fn read_at(directory: &crate::anchored_fs::Dir, name: &std::ffi::OsStr) -> Result<Grants> {
+        let text = match directory.read_string(
+            Path::new(name),
+            crate::resource_limits::Limits::default().source_bytes as u64,
+        ) {
+            Ok(text) => text,
+            Err(error)
+                if error
+                    .downcast_ref::<io::Error>()
+                    .is_some_and(|error| error.kind() == io::ErrorKind::NotFound) =>
+            {
+                return Ok(Grants::default())
+            }
+            Err(error) => return Err(error),
+        };
+        serde_yaml::from_str(&text).context("invalid approvals file")
     }
 
     /// An allowed command is only the *exact* original shell string.
@@ -113,17 +137,18 @@ impl ApprovalStore {
         // Lock a stable sibling, not the replaced YAML inode. Only the selected
         // scope is locked, so different projects/scopes cannot deadlock each other.
         let parent = path.parent().context("invalid approvals path")?;
-        fs::create_dir_all(parent)?;
-        let mut options = fs::OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let _lock = crate::locks::LockGuard::wait(options.open(path.with_extension("lock"))?)
-            .context("locking approval store")?;
-        let mut updated = Self::read(path)?;
+        let directory = crate::anchored_fs::Dir::open(Path::new("/"))?
+            .create_dirs(parent.strip_prefix("/")?)?;
+        let _lock = crate::locks::LockGuard::wait(
+            directory.lock_file(Path::new(
+                path.with_extension("lock")
+                    .file_name()
+                    .context("approval lock lacks name")?,
+            ))?,
+        )
+        .context("locking approval store")?;
+        let name = path.file_name().context("approval file lacks name")?;
+        let mut updated = Self::read_at(&directory, name)?;
         match kind {
             "shell" => {
                 if detail.is_empty() {
@@ -134,39 +159,14 @@ impl ApprovalStore {
             "write" => updated.write = true,
             _ => bail!("persistent approval is supported only for shell and write"),
         };
-        Self::save(path, &updated)?;
+        directory
+            .target(Path::new(name))?
+            .atomic_write(serde_yaml::to_string(&updated)?.as_bytes())?;
         match scope {
             Scope::Project => self.project = updated,
             Scope::Global => self.global = updated,
         }
         Ok(())
-    }
-
-    fn save(path: &Path, grants: &Grants) -> Result<()> {
-        let parent = path.parent().context("invalid approvals path")?;
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating approval directory {}", parent.display()))?;
-        let temporary = parent.join(format!(".approvals-{}.tmp", Uuid::new_v4()));
-        let text = serde_yaml::to_string(grants)?;
-        let result: Result<()> = (|| {
-            let mut options = fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options.open(&temporary)?;
-            file.write_all(text.as_bytes())?;
-            file.sync_all()?;
-            fs::rename(&temporary, path)?;
-            fs::File::open(parent)?.sync_all()?;
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        result.with_context(|| format!("saving approvals to {}", path.display()))
     }
 
     pub fn describe(&self) -> Result<String> {

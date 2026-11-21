@@ -3,6 +3,7 @@ use crate::store::Store;
 use anyhow::{bail, Context, Result};
 use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use std::fs;
 use uuid::Uuid;
 
@@ -44,16 +45,11 @@ impl Store {
     }
     fn session_lock(&self, id: &str) -> Result<crate::locks::LockGuard> {
         self.session(id)?;
-        let directory = self.directory.join("session-locks");
-        fs::create_dir_all(&directory)?;
-        // Never turn a user-supplied session ID into a filesystem path.
+        let directory = self
+            .directory_fd
+            .create_dirs(std::path::Path::new("session-locks"))?;
         let name = format!("{:x}.lock", Sha256::digest(id.as_bytes()));
-        let lock = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(directory.join(name))?;
+        let lock = directory.lock_file(std::path::Path::new(&name))?;
         let lock = crate::locks::LockGuard::acquire(lock)
             .context("session already has a live execution owner or control operation")?;
         Ok(lock)

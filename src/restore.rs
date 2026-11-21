@@ -11,7 +11,6 @@ use std::{
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
 };
-use uuid::Uuid;
 
 pub struct RestorePlan {
     event: i64,
@@ -27,7 +26,6 @@ struct RestoreItem {
 
 /// Reject traversal and all symlinks, including inside the project.
 /// These checks are deliberately stricter than ordinary file reads/writes.
-// TODO(GL-003): descriptor-anchored IO must also protect concurrent parent swaps.
 pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let p = Path::new(relative);
     if p.as_os_str().is_empty()
@@ -71,11 +69,24 @@ pub(crate) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
 
 /// Exact preimages are bounded; oversized files require manual handling.
 pub(crate) fn snapshot(root: &Path, relative: &str) -> Result<Option<String>> {
+    checked_path(root, relative)?;
+    let target = crate::anchored_fs::Dir::open(root)?.target(Path::new(relative))?;
+    snapshot_target(&target, relative)
+}
+pub(crate) fn snapshot_target(
+    target: &crate::anchored_fs::Target,
+    relative: &str,
+) -> Result<Option<String>> {
     const LIMIT: u64 = 20 * 1024 * 1024;
-    let path = checked_path(root, relative)?;
-    let file = match fs::File::open(path) {
+    let file = match target.open() {
         Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error)
+            if error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::NotFound) =>
+        {
+            return Ok(None)
+        }
         Err(error) => {
             return Err(error).with_context(|| format!("reading restore target {relative}"))
         }
@@ -239,6 +250,7 @@ impl RestorePlan {
             }
         }
 
+        let directory = crate::anchored_fs::Dir::open(root)?;
         let mut applied = 0;
         for item in self.items {
             let mut changed = false;
@@ -246,13 +258,18 @@ impl RestorePlan {
                 if snapshot(root, &item.relative)? != item.current {
                     bail!("{} changed during restore", item.relative);
                 }
-                let path = checked_path(root, &item.relative)?;
+                checked_path(root, &item.relative)?;
+                let target = directory.target(Path::new(&item.relative))?;
+                if snapshot_target(&target, &item.relative)? != item.current {
+                    bail!("{} changed during restore", item.relative);
+                }
+                target.check_parent(&directory, Path::new(&item.relative))?;
                 match &item.desired {
-                    Some(content) => atomic_write(&path, content)?,
-                    None => fs::remove_file(&path)
-                        .with_context(|| format!("deleting {}", item.relative))?,
+                    Some(content) => target.atomic_write(content.as_bytes())?,
+                    None => target.unlink()?,
                 }
                 changed = true;
+                target.check_parent(&directory, Path::new(&item.relative))?;
                 store.add_restoration(
                     session,
                     &item.relative,
@@ -284,32 +301,6 @@ impl RestorePlan {
         }
         Ok(())
     }
-}
-
-fn atomic_write(path: &Path, content: &str) -> Result<()> {
-    let parent = path.parent().context("restore path lacks parent")?;
-    let temp = parent.join(format!(".greenlight-restore-{}.tmp", Uuid::new_v4()));
-    let outcome: Result<()> = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
-        file.write_all(content.as_bytes())?;
-        if let Ok(meta) = fs::metadata(path) {
-            file.set_permissions(meta.permissions())?;
-        }
-        file.sync_all()?;
-        fs::rename(&temp, path)?;
-        Ok(())
-    })();
-    if outcome.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    outcome.with_context(|| format!("writing {}", path.display()))
 }
 
 pub fn confirm(message: &str) -> Result<bool> {

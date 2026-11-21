@@ -44,6 +44,7 @@ impl App {
                         .dump
                         .as_ref()
                         .map(|d| d.markdown())
+                        .transpose()?
                         .unwrap_or_else(|| self.details.text.clone())
                 } else {
                     self.details.text.clone()
@@ -79,6 +80,9 @@ impl App {
         } else if !self.restart_choices.is_empty() {
             bail!("Choose a restore preview before exporting")
         } else if self.view == View::Artifacts {
+            if let Some(error) = &self.artifact_error {
+                bail!("{error}");
+            }
             let artifact = self.artifact().context("No artifact selected")?;
             (
                 format!("artifact {} event #{}", artifact.name, artifact.event_id),
@@ -92,6 +96,9 @@ impl App {
             )
         } else {
             let event = self.event().context("No activity selected")?;
+            if self.partial_history && self.exact_event.as_ref().is_none_or(|e| e.id != event.id) {
+                bail!("Open the exact event body before exporting; the current row is a labelled preview");
+            }
             (format!("activity event #{}", event.id), self.detail())
         };
         Ok(Snapshot { label, text })

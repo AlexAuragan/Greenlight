@@ -223,12 +223,17 @@ impl App {
                 .parent()
                 .context("Missing project state directory")?
                 .join("exports");
-            std::fs::create_dir_all(&directory)?;
-            if !std::fs::symlink_metadata(&directory)?.file_type().is_dir() {
-                bail!("Export directory must be a real directory");
-            }
-            let path = directory.join(format!("conversation-{}.md", uuid::Uuid::new_v4()));
-            dump.save(&path, false)?;
+            let parent = crate::anchored_fs::Dir::open(
+                directory
+                    .parent()
+                    .context("export directory lacks parent")?,
+            )?;
+            let anchored = parent.create_dirs(Path::new("exports"))?;
+            let name = format!("conversation-{}.md", uuid::Uuid::new_v4());
+            let path = directory.join(&name);
+            anchored
+                .target(Path::new(&name))?
+                .publish_new(dump.markdown()?.as_bytes())?;
             Ok(path)
         })();
         match result {
@@ -996,6 +1001,7 @@ mod tests {
         assert!(dump.live_preview.as_ref().unwrap().contains("truncated"));
         assert!(dump
             .markdown()
+            .unwrap()
             .contains("not validated or executed evidence"));
         assert!(
             crate::conversation_dump::Dump::load(&store, &session.id, None, false)

@@ -1579,7 +1579,7 @@ fn project_instructions(root: &Path) -> Result<String> {
         let path = root.join(directory).join("instructions.md");
         match std::fs::symlink_metadata(&path) {
             Ok(_) => {
-                return std::fs::read_to_string(crate::paths::project_file(root, &path)?)
+                return crate::paths::read_project_file(root, &path)
                     .with_context(|| format!("reading {}", path.display()))
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,

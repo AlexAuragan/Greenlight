@@ -688,6 +688,15 @@ impl Store {
         } else {
             None
         };
+        let (count, bytes, largest): (usize, usize, usize) = self.db.query_row(
+            "SELECT count(*),coalesce(sum(octet_length(payload)+96),0),coalesce(max(octet_length(payload)),0) FROM model_calls WHERE session=?1", [&s.id],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+        if count > self.limits.history_events || largest > self.limits.blob_bytes {
+            bail!(
+                "Usage exceeds limits.history_events/blob_bytes; no partial totals were computed"
+            );
+        }
+        crate::resource_limits::Budget::new(self.limits.materialized_bytes).charge(bytes)?;
         let mut query=self.db.prepare("SELECT branch,created_event,payload FROM model_calls WHERE session=?1 ORDER BY created_event")?;
         let rows = query.query_map([&s.id], |r| {
             Ok((

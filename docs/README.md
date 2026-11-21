@@ -25,6 +25,8 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Workflow definitions and configuration precedence | [Workflow format](02-workflow-format.md) |
 | Events, branches and immutable artifacts | [Persistence](03-persistence.md) |
 | Modules and trust boundaries | [Architecture](04-architecture.md) |
+| Read budgets, oversized legacy evidence and refresh caching | [Resource budgets](40-resource-budgets.md) |
+| Descriptor-relative project/state IO and race tests | [Anchored file access](39-anchored-file-access.md) |
 | Native write journal and interrupted-write recovery | [Edit history](07-edit-history.md) |
 | One-time/process/project/global grants | [Approvals](08-persistent-approvals.md) |
 | Guarded restoration, forks and scope limits | [Workspace restore](09-workspace-restore.md) |
@@ -36,6 +38,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 ## Decisions, future work and validation
 
 - [Settled decisions](16-decision-log.md): rationale and current boundaries, including explicit deferred work.
+- [Project execution coordination proposal](41-project-execution-coordination.md): GL-007 design and GL-028 implementation criteria; the current binary still owns execution per session.
 - [Conversational coordinator contract](20-conversational-coordinator.md): retains unimplemented targeted delivery, guarded routing and live-owner inbox requirements. Only its read-only Q&A stage is currently implemented.
 - [Code review](code-review.md): readability changes, corrected oversights and deferred findings.
 - [Validation](06-validation.md): current evidence and reproducible checks.

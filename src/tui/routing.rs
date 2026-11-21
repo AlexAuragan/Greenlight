@@ -11,6 +11,16 @@ impl App {
         if overlay && !self.reading_overlay() {
             self.restore_reading();
         }
+        if self.partial_history
+            && self.inspector_open
+            && self.view == View::Conversation
+            && !self.reading_overlay()
+        {
+            if let Err(error) = self.load_selected_event(store) {
+                self.raise_diagnostic(format!("Exact event unavailable: {error:#}"));
+            }
+        }
+        self.load_selected_artifact(store);
         self.remember_reading();
         result
     }

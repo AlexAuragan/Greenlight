@@ -1,8 +1,8 @@
 //! Bounded directory reads. No shell, file bodies, symlink traversal or hashing.
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde::Serialize;
 use std::path::{Component, Path};
-use walkdir::WalkDir;
+
 const MAX_VISITED: usize = 10_000;
 const MAX_ENTRIES: usize = 500;
 const MAX_BYTES: usize = 24_000;
@@ -39,96 +39,87 @@ fn included(root: &Path, path: &Path) -> bool {
     crate::workspace::path_in_scope(relative) && !crate::paths::is_private_path(relative)
         && !relative.components().any(|c|matches!(c,Component::Normal(name) if name==crate::paths::PROJECT_DIR || name==crate::paths::LEGACY_PROJECT_DIR))
 }
+#[cfg(test)]
 pub fn list(root: &Path, directory: &Path, filter: Option<&str>) -> Result<String> {
     let root = root.canonicalize()?;
     let directory = directory.canonicalize()?;
-    if !included(&root, &directory) {
-        bail!("directory is outside discovery scope (private state, secrets and build/cache directories are excluded)");
+    list_anchored(
+        &crate::anchored_fs::Dir::open(&root)?,
+        directory.strip_prefix(&root)?,
+        filter,
+    )
+}
+pub fn list_anchored(
+    root: &crate::anchored_fs::Dir,
+    directory: &Path,
+    filter: Option<&str>,
+) -> Result<String> {
+    if !included(Path::new(""), directory) {
+        bail!("directory is outside discovery scope");
     }
-    if !directory.is_dir() {
-        bail!("directory discovery requires a directory");
-    }
+    root.open_dir(directory)?;
     if filter.is_some_and(|f| f.len() > 256 || f.chars().any(char::is_control)) {
         bail!("directory input filter must be at most 256 UTF-8 bytes without control characters");
     }
     let mut entries = Vec::new();
-    let mut visited = 0;
+    let mut visited = 1;
     let mut bytes = 0;
     let mut truncated = false;
     let mut unreadable = 0;
-    let mut walker = WalkDir::new(&directory)
-        .follow_links(false)
-        .max_depth(MAX_DEPTH)
-        .max_open(MAX_DEPTH + 1)
-        .into_iter();
-    while let Some(entry) = walker.next() {
-        if visited >= MAX_VISITED {
-            truncated = true;
-            break;
-        }
-        visited += 1;
-        let entry = match entry {
-            Ok(e) => e,
+    let mut pending = vec![(directory.to_path_buf(), 0usize)];
+    'directories: while let Some((relative, depth)) = pending.pop() {
+        let items = match root.open_dir(&relative).and_then(|dir| dir.entries()) {
+            Ok(items) => items,
             Err(_) => {
                 unreadable += 1;
                 continue;
             }
         };
-        if entry.depth() == 0 {
-            continue;
-        }
-        if entry.file_type().is_symlink() || !included(&root, entry.path()) {
-            if entry.file_type().is_dir() {
-                walker.skip_current_dir();
+        for item in items {
+            let item = match item {
+                Ok(item) => item,
+                Err(_) => {
+                    unreadable += 1;
+                    continue;
+                }
+            };
+            if visited >= MAX_VISITED {
+                truncated = true;
+                break 'directories;
             }
-            continue;
-        }
-        if entry.depth() == MAX_DEPTH && entry.file_type().is_dir() {
-            truncated = true;
-        }
-        // Recheck before exposing a path if a directory was replaced while walking.
-        if !entry
-            .path()
-            .canonicalize()
-            .is_ok_and(|p| included(&root, &p))
-        {
-            unreadable += 1;
-            if entry.file_type().is_dir() {
-                walker.skip_current_dir();
+            visited += 1;
+            let path = relative.join(&item.name);
+            if !included(Path::new(""), &path) || (!item.directory && !item.regular) {
+                continue;
             }
-            continue;
+            if item.directory {
+                if depth + 1 >= MAX_DEPTH {
+                    truncated = true;
+                } else {
+                    pending.push((path.clone(), depth + 1));
+                }
+            }
+            let Some(path) = path.to_str() else {
+                unreadable += 1;
+                continue;
+            };
+            if filter.is_some_and(|filter| !path.contains(filter)) {
+                continue;
+            }
+            let item = Entry {
+                path: path.into(),
+                kind: if item.directory { "directory" } else { "file" },
+            };
+            let size = serde_json::to_vec(&item)?.len() + 1;
+            if entries.len() >= MAX_ENTRIES || bytes + size > MAX_BYTES - 1024 {
+                truncated = true;
+                break 'directories;
+            }
+            bytes += size;
+            entries.push(item);
         }
-        let relative = entry
-            .path()
-            .strip_prefix(&root)
-            .context("discovery path escaped root")?;
-        let Some(path) = relative.to_str() else {
-            unreadable += 1;
-            continue;
-        };
-        if filter.is_some_and(|f| !path.contains(f)) {
-            continue;
-        }
-        let kind = if entry.file_type().is_dir() {
-            "directory"
-        } else if entry.file_type().is_file() {
-            "file"
-        } else {
-            continue;
-        };
-        let item = Entry {
-            path: path.replace(std::path::MAIN_SEPARATOR, "/"),
-            kind,
-        };
-        let size = serde_json::to_vec(&item)?.len() + 1;
-        if entries.len() >= MAX_ENTRIES || bytes + size > MAX_BYTES - 1024 {
-            truncated = true;
-            break;
-        }
-        bytes += size;
-        entries.push(item);
     }
-    let relative = directory.strip_prefix(&root)?;
+    let relative = directory;
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     let mut listing = Listing {
         directory: if relative.as_os_str().is_empty() {".".into()} else {relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR,"/")},

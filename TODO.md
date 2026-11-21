@@ -1,14 +1,12 @@
 # Remaining work
 
-Updated 2026-11-21. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
+Updated 2026-11-22. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
 
 P0/P1 feature work, installer, TUI redesign and recovery improvements merged into master on 2026-11-19. This does not mean no defects remain. Implement one feature at a time, preserve audit evidence and distinguish model claims from recorded verification.
 
 ## Next: recovery and correctness
 
-- [ ] **GL-003** — Close concurrent path-swap races with descriptor-anchored file access across tools, include loading, journal snapshots, restore and private blob storage. Current canonicalization/lstat checks reject static escapes but do not make later opens race-free.
-- [ ] **GL-005** — Bound expanded includes, artifact/trace reads and history/export memory. Profile refresh/diff work, load lightweight event metadata and selected immutable bodies on demand, and avoid full-history scans on interactive paths. Define configurable limits and legacy-file behavior before changing schemas.
-- [ ] **GL-007** — Define project-level execution coordination before parallel workflows: session ownership and per-write locking do not prevent concurrent sessions reasoning over stale project state. Session creation, branch switching and fork publication are now transactional; project-level execution coordination remains open.
+- [ ] **GL-028** — Implement and validate the [GL-007 project execution contract](docs/41-project-execution-coordination.md): one executing workflow/control operation per project, durable ownership and explicit crash recovery, common project → session → native-write lock order, guarded restore/fork publication, and contextual busy feedback. Keep read-only browsing/manager questions available and retain approval/retry waits under the owning worker. GL-007 defines the proposal; runtime coordination is not implemented yet.
 
 ## Supervised workflows and review
 
@@ -41,9 +39,15 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Dependencies and design gates
 
-GL-007 precedes parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
+GL-007 defines the coordination proposal; GL-028 must implement and validate it before GL-021 parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-007** — Defined the [project execution coordination proposal](docs/41-project-execution-coordination.md): operation scope, waiting/stop semantics, lock order, interrupted/legacy owners, read-only exceptions, UI feedback and acceptance scenarios. Design only; runtime implementation remains GL-028.
+
+- [x] **GL-005** — Implemented on `perf/bounded-reads-and-refresh` (awaiting merge, includes GL-003): configurable source/include, blob, history/usage and dump budgets; labelled recent-history fallback with exact selected bodies; immutable history/selected-artifact caches and revision-based UI reuse. No schema changes or evidence pruning. See [resource budgets and refresh profile](docs/40-resource-budgets.md).
+
+- [x] **GL-003** — Implemented on `fix/descriptor-anchored-file-access` (awaiting merge): descriptor-relative reads, includes, discovery, snapshots/writes/restore, private blobs/exports/locks, anchored SQLite/WAL paths and sandbox bind sources. Path-swap regressions and limits are documented in [anchored file access](docs/39-anchored-file-access.md).
 
 - [x] **GL-002** — Completed: durable exact-message provider continuations for coding, verification, detectors and manager side questions; original attempt/check progress, credential reload, cooldown and ownership recovery, immutable checkpoints, and workspace/config/input validation. See [saved provider requests](docs/38-provider-continuations.md).
 

@@ -19,7 +19,15 @@ pub struct Version {
 impl Store {
     pub fn artifact_versions(&self, s: &Session, name: &str) -> Result<Vec<Version>> {
         let mut versions = Vec::new();
+        let mut budget = crate::resource_limits::Budget::new(self.limits.materialized_bytes);
         for (branch, cutoff) in self.lineage(&s.active_branch)? {
+            let (count, bytes): (usize, usize) = self.db.query_row("SELECT count(*),coalesce(sum(octet_length(name)+octet_length(step)+octet_length(blob_path)+256),0) FROM artifacts WHERE session=?1 AND branch=?2 AND name=?3 AND event_id<=?4",rusqlite::params![s.id,branch,name,cutoff],|r|Ok((r.get(0)?,r.get(1)?)))?;
+            if count > self.limits.history_events.saturating_sub(versions.len()) {
+                bail!(
+                    "Artifact versions exceed limits.history_events; saved records are unchanged"
+                );
+            }
+            budget.charge(bytes)?;
             let mut query=self.db.prepare("SELECT a.event_id,a.name,a.step,e.timestamp,a.blob_path,
                 (SELECT t.id FROM step_attempts t WHERE t.session=a.session AND t.branch=a.branch AND t.step=a.step AND t.start_event<a.event_id AND (t.end_event IS NULL OR t.end_event>=a.event_id) ORDER BY t.start_event DESC LIMIT 1),
                 (SELECT t.definition_event FROM step_attempts t WHERE t.session=a.session AND t.branch=a.branch AND t.step=a.step AND t.start_event<a.event_id AND (t.end_event IS NULL OR t.end_event>=a.event_id) ORDER BY t.start_event DESC LIMIT 1)
@@ -47,13 +55,12 @@ impl Store {
             .into_iter()
             .find(|v| v.event_id == event)
             .context("artifact version is not visible on this session's active branch")?;
-        let content = std::fs::read_to_string(self.directory.join("blobs").join(&version.blob))
-            .with_context(|| {
-                format!(
-                    "Artifact {} event #{} body unavailable",
-                    version.name, event
-                )
-            })?;
+        let content = self.read_blob(&version.blob).with_context(|| {
+            format!(
+                "Artifact {} event #{} body unavailable",
+                version.name, event
+            )
+        })?;
         Ok(Artifact {
             name: version.name,
             step: version.step,

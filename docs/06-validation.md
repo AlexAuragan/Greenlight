@@ -1,6 +1,12 @@
 # Validation
 
-## Current reviewed branch — 2026-11-19
+## Current follow-up — 2026-11-21
+
+`perf/bounded-reads-and-refresh` implements GL-005 on top of the unmerged GL-003 descriptor-access branch. Local validation passes 437 Rust tests, six installer tests, formatting, an offline build and all-target Clippy with warnings denied. Two default-suite tests are ignored: the environment-dependent Bubblewrap integration and the manual refresh/diff profiler. The profiler was run explicitly and passed; its fixture and timings are in [resource budgets](40-resource-budgets.md).
+
+New regressions exercise source/include byte caps, unchanged row/body reuse, external commits and rollback isolation, sparse oversized artifact metadata, aggregate/count export limits, over-limit trace refusal and labelled history previews with one exact selected body. A native PTY/local HTTP fixture still passes HTTP 429, Escape-without-decision and exact-request retry, with one tool execution, one attempt/branch and three accounted dispatches. These checks make no paid provider requests. No merge is part of this validation.
+
+## Earlier review — 2026-11-19
 
 The P0/P1 feature and UI work is on `feat/install-and-project-layout`; this review does not merge or publish it. The reviewed implementation passed 379 Rust tests with one existing environment-dependent Bubblewrap test ignored, six installer tests, an offline build, and all-target Clippy with warnings treated as errors. The suite also checks running-output column proportions, one-line step/event rows, mouse-to-output selection, narrow/expanded layouts and stream isolation across sessions. It checks credential-source precedence, masking and frozen worker credentials (including actual HTTP Authorization after an environment change), plus OpenAI-compatible HTTP request shape, safe detail-wrapped provider rejection reasons and legacy failure compatibility, plus concurrent project/global grant writers, statement/commit rollback during session/branch publication, keyboard/button parity and decision-layer ownership. It includes project-boundary and private-include regressions, corrupt-ancestry rejection, closed-input authorization handling and bounded native-write/restore snapshots. This is local evidence, not a GitHub CI or live-model quality claim.
 

@@ -155,13 +155,13 @@ fn journal(
                     {
                         bail!("Invalid journal blob name at #{id}");
                     }
-                    let path = store.directory.join("blobs").join(p);
-                    if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
-                        bail!("Symlinked journal blob at #{id}");
-                    }
-                    Ok(digest(&std::fs::read(path).with_context(|| {
-                        format!("Missing journal evidence at #{id}")
-                    })?))
+                    Ok(digest(
+                        &store
+                            .directory_fd
+                            .open_dir(Path::new("blobs"))?
+                            .read(p, store.limits.blob_bytes as u64)
+                            .with_context(|| format!("Missing journal evidence at #{id}"))?,
+                    ))
                 })
                 .transpose()
             };

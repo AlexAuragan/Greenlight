@@ -7,12 +7,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    collections::BTreeMap,
-    io::{Read, Write},
-    path::Path,
-    time::Duration,
-};
+use std::{collections::BTreeMap, io::Read, path::Path, time::Duration};
 
 const SOURCE: &str = "https://api.deepinfra.com/models/list";
 const LIMIT: u64 = 8 * 1024 * 1024;
@@ -155,13 +150,8 @@ async fn fetch(url: &str) -> Result<BTreeMap<String, Pricing>> {
     parse_catalog(text, Utc::now())
 }
 
-fn read_cache(path: &Path) -> Result<Catalog> {
-    let file = std::fs::File::open(path)?;
-    if file.metadata()?.len() > LIMIT {
-        bail!("Pricing cache exceeds size limit");
-    }
-    let mut raw = String::new();
-    file.take(LIMIT + 1).read_to_string(&mut raw)?;
+fn read_cache(directory: &crate::anchored_fs::Dir) -> Result<Catalog> {
+    let raw = directory.read_string(Path::new("deepinfra-pricing.json"), LIMIT)?;
     let c: Catalog = serde_json::from_str(&raw)?;
     if c.source != SOURCE || c.checked_at > Utc::now() + chrono::Duration::minutes(5) {
         bail!("Invalid pricing cache provenance");
@@ -192,8 +182,8 @@ async fn update_catalog(
     if !supported(cfg) {
         bail!("Pricing discovery is unsupported for this provider URL; configure explicit model rates");
     }
-    let path = crate::paths::state_directory(root)?.join("deepinfra-pricing.json");
-    let prior = read_cache(&path).ok();
+    let (_, directory) = crate::paths::state_directory_handle(root)?;
+    let prior = read_cache(&directory).ok();
     if !force
         && prior.as_ref().is_some_and(|c| {
             Utc::now().signed_duration_since(c.checked_at).num_minutes()
@@ -208,14 +198,9 @@ async fn update_catalog(
             note:Some("Public pricing refresh failed; retained cached rates if available. Use refresh-pricing to retry; no inference request was made.".into())},
     };
     // A private atomic cache cannot rewrite already recorded request snapshots.
-    let saved = (|| -> Result<()> {
-        let mut temp = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
-        serde_json::to_writer(temp.as_file_mut(), &c)?;
-        temp.flush()?;
-        temp.as_file().sync_all()?;
-        temp.persist(&path).map_err(|e| e.error)?;
-        Ok(())
-    })();
+    let saved = directory
+        .target(Path::new("deepinfra-pricing.json"))?
+        .atomic_write(&serde_json::to_vec(&c)?);
     if saved.is_err() {
         return Ok(Catalog {
             note: Some(format!(
@@ -256,6 +241,7 @@ pub async fn resolve(root: &Path, cfg: &ProviderConfig, model: &str, force: bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     const FIXTURE: &str = r#"[{"model_name":"fixture/model","type":"text-generation","pricing":{"type":"tokens","cents_per_input_token":0.0002,"cents_per_output_token":0.001,"rate_per_input_token_cached":0.25,"rate_per_input_token_cache_write":1.25}}]"#;
     fn cfg() -> ProviderConfig {
         serde_yaml::from_str("model: fixture/model\n").unwrap()
@@ -369,6 +355,8 @@ mod tests {
             .unwrap()
             .join("deepinfra-pricing.json");
         std::fs::write(&path, "corrupt").unwrap();
-        assert!(read_cache(&path).is_err());
+        assert!(
+            read_cache(&crate::anchored_fs::Dir::open(path.parent().unwrap()).unwrap()).is_err()
+        );
     }
 }
