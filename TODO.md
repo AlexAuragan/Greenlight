@@ -8,6 +8,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 - [ ] **GL-028** — Implement and validate the [GL-007 project execution contract](docs/41-project-execution-coordination.md): one executing workflow/control operation per project, durable ownership and explicit crash recovery, common project → session → native-write lock order, guarded restore/fork publication, and contextual busy feedback. Keep read-only browsing/manager questions available and retain approval/retry waits under the owning worker. GL-007 defines the proposal; runtime coordination is not implemented yet.
 
+- [ ] **GL-029** — Investigate intermittent missing TUI diagnostic in `workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover`: merge validation once reached Blocked/Needs attention with `app.diagnostic == None` at the evidence-missing assertion. Isolated rerun and full-suite rerun passed. Establish the worker/refresh ordering before changing behavior or weakening the assertion.
+
 ## Supervised workflows and review
 
 - [ ] **GL-008** — Implement the remaining [coordinator contract](docs/20-conversational-coordinator.md): targeted idle delivery and guarded retry/goto/restart proposals first, then a durable live-owner inbox. Preserve original message bytes, consistent evidence snapshots, attempt/branch scope, ownership, permissions and verification. Show Queued / Included / Restart proposed delivery states; define side-question history and retention, and keep deterministic commands/approvals separate.

@@ -1,5 +1,9 @@
 # Validation
 
+## Merge validation — 2026-11-22
+
+The GL-003/GL-005 implementation and GL-007 design stack is merged into `master`. Formatting, strict all-target Clippy, offline build and six installer tests pass. The first Rust suite run passed 436 tests and failed one diagnostic-presence assertion in the engine-backed workflow UI test; that test passed in isolation and the subsequent complete suite passed 437 tests (two ignored). GL-029 records the intermittent failure for investigation; no runtime change or assertion weakening was made to obtain the rerun.
+
 ## Current follow-up — 2026-11-21
 
 `perf/bounded-reads-and-refresh` implements GL-005 on top of the unmerged GL-003 descriptor-access branch. Local validation passes 437 Rust tests, six installer tests, formatting, an offline build and all-target Clippy with warnings denied. Two default-suite tests are ignored: the environment-dependent Bubblewrap integration and the manual refresh/diff profiler. The profiler was run explicitly and passed; its fixture and timings are in [resource budgets](40-resource-budgets.md).
