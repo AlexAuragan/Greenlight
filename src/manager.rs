@@ -223,7 +223,8 @@ fn capture_with_config(
         provider,
         model,
         owner_observation: format!("{:?}", store.execution_state(&s.id)?),
-        live_delivery_supported: false,
+        live_delivery_supported: store.steering(&s)?.is_some()
+            && store.execution_state(&s.id)? == crate::session_execution::ExecutionState::Live,
         route_execution_supported: true,
         valid_steps: wf
             .steps
@@ -282,7 +283,7 @@ fn capture_with_config(
         4096,
     )?;
     snapshot.omissions.push("Unanswered approval prompts are UI-local and not persisted; their pending state is unknown to this snapshot.".into());
-    snapshot.add("pipeline:safety".into(),"Read-only control observations; no permission decision is supplied".into(),&json!({"owner_observation":snapshot.owner_observation,"native_recovery_check_clear":store.ensure_no_pending_writes().is_ok(),"if_not_clear":"Pending writes or an unavailable recovery check; inspect deterministic recovery controls before execution","pending_approval":"Not persisted; unknown","route_execution_supported":snapshot.route_execution_supported,"live_delivery_supported":false}).to_string(),2048)?;
+    snapshot.add("pipeline:safety".into(),"Read-only control observations; no permission decision is supplied".into(),&json!({"owner_observation":snapshot.owner_observation,"native_recovery_check_clear":store.ensure_no_pending_writes().is_ok(),"if_not_clear":"Pending writes or an unavailable recovery check; inspect deterministic recovery controls before execution","pending_approval":"Not persisted; unknown","route_execution_supported":snapshot.route_execution_supported,"live_delivery_supported":snapshot.live_delivery_supported}).to_string(),2048)?;
     // A fixed source allowlist; no model-selected paths or provider/approval files.
     for relative in ["README.md", "TODO.md", ".greenlight/instructions.md"] {
         let data = (|| -> Result<(String, bool)> {

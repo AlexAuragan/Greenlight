@@ -21,6 +21,7 @@ mod input_pins;
 mod locks;
 mod manager;
 mod manager_delivery;
+mod manager_inbox;
 mod markdown;
 mod paths;
 mod pricing;
@@ -116,9 +117,20 @@ enum Commands {
         #[arg(long)]
         queue_only: bool,
     },
+    /// Preview and explicitly confirm a manager-proposed restart with its original instruction
+    RestartRoute {
+        session: String,
+        message_id: String,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Explicitly continue a recorded success transition after undelivered guidance review
+    ContinueGuidance { session: String },
     /// Inspect pending/durable guidance for the active branch (no inference)
     Routes { session: String },
-    /// Withdraw queued guidance while idle; included requests cannot be retracted
+    /// Withdraw pending guidance before request inclusion, including during execution
     WithdrawRoute { session: String, message_id: String },
     /// Preview the bounded project/pipeline evidence shared with the manager; no inference
     ManagerContext {
@@ -281,6 +293,41 @@ async fn main() -> Result<()> {
                     .run_manager_route(&session, &route.message_id)
                     .await?;
             }
+        }
+        Commands::RestartRoute {
+            session,
+            message_id,
+            yes,
+            dry_run,
+        } => {
+            let mut engine = engine::Engine::open(&root)?;
+            let review = engine
+                .store
+                .prepare_manager_restart(&root, &session, &message_id)?;
+            println!(
+                "Restart target: {}\n{}",
+                review.route.step,
+                review.route.display()
+            );
+            review.plan.preview();
+            if !dry_run
+                && (yes || restore::confirm(
+                    "Restore, fork and reserve this original instruction for the selected step?",
+                )?)
+            {
+                let mut state = engine.store.session(&session)?;
+                let route = engine
+                    .store
+                    .confirm_manager_restart(&root, &mut state, review, true)?;
+                engine
+                    .run_manager_route(&session, &route.message_id)
+                    .await?;
+            }
+        }
+        Commands::ContinueGuidance { session } => {
+            let store = store::Store::open(&root)?;
+            store.continue_after_guidance(&root, &session)?;
+            println!("Guidance hold resolved. Recorded success transition applied; resume explicitly if another step is ready.");
         }
         Commands::Routes { session } => {
             let store = store::Store::open(&root)?;

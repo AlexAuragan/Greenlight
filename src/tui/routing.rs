@@ -799,6 +799,7 @@ impl App {
                 KeyCode::Char('y') => self.confirm_restart(root, store),
                 KeyCode::Esc | KeyCode::Char('n') => {
                     self.restart_plan = None;
+                    self.restart_route = None;
                     self.restart_choices.clear();
                     self.notice = "Restart cancelled; no files modified.".into();
                 }
@@ -873,7 +874,10 @@ impl App {
                 .filter(|a| {
                     matches!(
                         a,
-                        shell::Action::DeliverRoute | shell::Action::WithdrawRoute
+                        shell::Action::DeliverRoute
+                            | shell::Action::WithdrawRoute
+                            | shell::Action::ContinueGuidance
+                            | shell::Action::ReviewGuidanceRestart
                     )
                 })
                 .collect::<Vec<_>>();

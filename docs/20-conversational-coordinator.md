@@ -1,6 +1,6 @@
 # Conversational coordinator — routing contract v1
 
-**Status: Q&A and explicit idle delivery implemented; the full contract remains incremental.** [Manager Q&A](21-manager-qa.md) supplies cited answers and validated unexecuted proposals. [Explicit idle delivery](42-idle-manager-delivery.md) adds user acceptance, scoped original-message delivery, next-visit reservations, withdrawal and request inclusion evidence. Guarded executing restart binding and the live-owner inbox remain future work. Asking alone still executes nothing, and ordinary-message automatic routing below remains a proposed interface. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
+**Status: Q&A and explicit idle/live delivery implemented; the full contract remains incremental.** [Manager Q&A](21-manager-qa.md) supplies cited answers and validated unexecuted proposals. [Explicit idle delivery](42-idle-manager-delivery.md) adds user acceptance, scoped original-message delivery, next-visit reservations, withdrawal and request inclusion evidence. Guarded restart binding and the owner-advertised live inbox are implemented, including undelivered-instruction review holds. Asking alone still executes nothing, and ordinary-message automatic routing below remains a proposed interface. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
 
 ## Product behavior
 
@@ -112,7 +112,7 @@ Use the central per-dispatch ledger with purpose `manager`, including failures, 
 
 ## Runtime acceptance and implementation order
 
-Q&A and idle delivery have runtime coverage; restart binding and live-delivery cases below remain required future tests. This is not a claim that the whole contract exists today:
+Q&A, idle delivery, restart binding and live inbox boundaries have deterministic coverage; the following remains the full acceptance target. This is not a claim that the whole contract exists today:
 
 1. Store/deserialize the tagged response union and validate limits, unknown/duplicate fields, IDs, target/citation membership, Unicode and hostile source contents. The manager cannot emit agent YAML, grants, restore commands or fabricated destinations.
 2. Capture a consistent database snapshot plus qualified immutable file/artifact evidence. Test TODO-vs-pipeline distinctions, missing sources, mixed intents, stale control state and completed-verification/model-claim distinctions.

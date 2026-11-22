@@ -158,8 +158,12 @@ impl Store {
            CREATE TABLE IF NOT EXISTS manager_routes (
              message_id TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES sessions(id), branch TEXT NOT NULL,
              step TEXT NOT NULL, original TEXT NOT NULL, workflow_digest TEXT NOT NULL,
-             decision_event INTEGER NOT NULL, state TEXT NOT NULL, attempt TEXT, call_id TEXT);
+             decision_event INTEGER NOT NULL, state TEXT NOT NULL, attempt TEXT, call_id TEXT, owner_token TEXT);
            CREATE INDEX IF NOT EXISTS manager_routes_scope ON manager_routes(session,branch,decision_event);
+           CREATE TABLE IF NOT EXISTS execution_steering (
+             token TEXT PRIMARY KEY REFERENCES project_owner(token) ON DELETE CASCADE,
+             session TEXT NOT NULL REFERENCES sessions(id), protocol INTEGER NOT NULL,
+             step TEXT, attempt TEXT, workflow_digest TEXT, accepting INTEGER NOT NULL DEFAULT 0);
            CREATE TABLE IF NOT EXISTS model_calls (
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              created_event INTEGER NOT NULL, payload TEXT NOT NULL);
@@ -170,6 +174,25 @@ impl Store {
            CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);
            COMMIT;",
         )?;
+        // Upgrade existing private stores under a writer transaction so two
+        // starting clients cannot race an ALTER after inspecting old columns.
+        {
+            let tx = rusqlite::Transaction::new_unchecked(
+                &db,
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            let has_owner = {
+                let mut q = db.prepare("PRAGMA table_info(manager_routes)")?;
+                let names = q
+                    .query_map([], |r| r.get::<_, String>(1))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                names.iter().any(|n| n == "owner_token")
+            };
+            if !has_owner {
+                db.execute_batch("ALTER TABLE manager_routes ADD COLUMN owner_token TEXT;")?;
+            }
+            tx.commit()?;
+        }
         Ok(Self {
             active_project: std::cell::RefCell::new(std::sync::Weak::new()),
             #[cfg(test)]
@@ -371,7 +394,11 @@ impl Store {
         if !valid {
             bail!("fork event is not part of current branch ancestry");
         }
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = if self.db.is_autocommit() {
+            Some(self.db.unchecked_transaction()?)
+        } else {
+            None
+        };
         self.invalidate_manager_routes(
             s,
             false,
@@ -393,7 +420,9 @@ impl Store {
             "branch.forked",
             &format!("from_event: {event_id}"),
         )?;
-        transaction.commit()?;
+        if let Some(transaction) = transaction {
+            transaction.commit()?;
+        }
         *s = next;
         Ok(())
     }

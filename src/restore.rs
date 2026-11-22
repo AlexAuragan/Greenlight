@@ -106,6 +106,10 @@ pub(crate) fn snapshot_target(
 }
 
 impl RestorePlan {
+    pub(crate) fn checkpoint(&self) -> i64 {
+        self.event
+    }
+
     pub fn prepare(root: &Path, store: &Store, session: &Session, event: i64) -> Result<Self> {
         Self::prepare_paths(root, store, session, event, None)
     }

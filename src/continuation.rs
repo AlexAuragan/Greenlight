@@ -132,6 +132,8 @@ impl Engine {
                         | "tool.rerun"
                         | "step.completed"
                         | "branch.forked"
+                        | "manager.restart-authorized"
+                        | "manager.progress-resumed"
                 )
             })
             .collect();

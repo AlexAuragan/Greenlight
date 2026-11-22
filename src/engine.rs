@@ -83,7 +83,11 @@ impl Engine {
         model_override: Option<&str>,
         owner: crate::session_execution::ExecutionOwner,
     ) -> Result<()> {
-        let result = self.run_owned(session_id, extra, model_override).await;
+        let result = async {
+            self.store.advertise_steering()?;
+            self.run_owned(session_id, extra, model_override).await
+        }
+        .await;
         let cleanup = self
             .store
             .finish_execution(session_id, &owner, result.as_ref().err());
@@ -149,6 +153,7 @@ impl Engine {
                 )?;
                 self.store
                     .event(&s, Some(&step.id), "attempt.continued", &attempt)?;
+                self.store.open_guidance_boundary(&s, &step.id, &workflow)?;
             } else {
                 *self.frame.borrow_mut() = crate::continuation::Frame::None;
                 self.checks.borrow_mut().clear();
@@ -156,6 +161,7 @@ impl Engine {
                 self.store
                     .begin_attempt(&s, &step.id, &definition, &resolved_model)?;
                 self.store.bind_manager_routes(&s, &step.id)?;
+                self.store.open_guidance_boundary(&s, &step.id, &workflow)?;
                 tx.commit()?;
             }
             s.status = "running".into();
@@ -236,12 +242,18 @@ impl Engine {
                     Err(error.context(format!("workspace recording also failed: {audit_error:#}")))
                 }
             };
+            let pending_guidance = self.store.close_guidance_boundary(&s, &step.id)?;
             let already_detected = matches!(&outcome, Ok(Outcome::DetectedDeviation(..)));
             match outcome {
                 Ok(Outcome::Done(summary)) => {
                     self.store
                         .event(&s, Some(&step.id), "step.completed", &summary)?;
                     console_println!(self, "[complete] {summary}");
+                    if pending_guidance {
+                        self.store
+                            .hold_success_for_guidance(&mut s, &step, &workflow)?;
+                        break;
+                    }
                     if let Some(next) = step.transitions.success {
                         s.current_step = next;
                         s.status = "ready".into();
@@ -271,6 +283,15 @@ impl Engine {
                         )?;
                     }
                     console_println!(self, "[deviation: {id}] {summary}");
+                    if pending_guidance {
+                        self.block(
+                            &mut s,
+                            "Undelivered guidance requires review before configured retry/goto",
+                            &step.id,
+                        )
+                        .await?;
+                        break;
+                    }
                     let rule = step.deviations.iter().find(|d| d.id == id);
                     if !already_detected {
                         if let Some(rule) = rule {
@@ -652,7 +673,10 @@ impl Engine {
                 call.counts.notes.push(format!("Requested service_tier: {tier}. Standard-tier catalog pricing is not verified for this request."));
             }
             let registration = (|| -> Result<()> {
-                let tx = self.store.db.unchecked_transaction()?;
+                let tx = rusqlite::Transaction::new_unchecked(
+                    &self.store.db,
+                    rusqlite::TransactionBehavior::Immediate,
+                )?;
                 self.store.begin_model_call(s, &mut call)?;
                 crate::conversation_dump::record_request(
                     &self.store,
@@ -1106,13 +1130,6 @@ impl Engine {
             json!({"role":"user","content":context}),
         ];
         let mut replay = None;
-        if !matches!(
-            *self.frame.borrow(),
-            crate::continuation::Frame::Coding { .. }
-        ) {
-            self.store
-                .append_manager_guidance(s, &step.id, &mut messages)?;
-        }
         if let crate::continuation::Frame::Coding {
             messages: saved,
             response,
@@ -1134,6 +1151,11 @@ impl Engine {
                     crate::provider_failure::Kind::Cancelled
                 ));
             }
+            let frozen_retry = self.continuation.borrow().is_some();
+            if replay.is_none() && !frozen_retry {
+                self.store
+                    .refresh_guidance_messages(s, &step.id, &mut messages)?;
+            }
             let bytes = serde_json::to_vec(&messages)?.len();
             if bytes > self.cfg.session.max_conversation_bytes {
                 let reason = format!("Prepared conversation is {bytes} bytes, exceeding session.max_conversation_bytes={}. Execution paused before another provider request; saved artifacts and applied edits remain available. Review inputs/drafts or increase the configured byte budget before continuing.", self.cfg.session.max_conversation_bytes);
@@ -1149,9 +1171,28 @@ impl Engine {
                     messages: messages.clone(),
                     response: None,
                 };
-                let raw = self
+                let raw = match self
                     .model_call(s, &step.id, "coding", model, &messages)
-                    .await?;
+                    .await
+                {
+                    Ok(raw) => raw,
+                    Err(error)
+                        if !frozen_retry
+                            && error
+                                .downcast_ref::<crate::manager_inbox::GuidanceWithdrawn>()
+                                .is_some() =>
+                    {
+                        self.store.close_continuation(s, false)?;
+                        self.store
+                            .refresh_guidance_messages(s, &step.id, &mut messages)?;
+                        *self.frame.borrow_mut() = crate::continuation::Frame::Coding {
+                            messages: messages.clone(),
+                            response: None,
+                        };
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 let model_event = self.store.event(s, Some(&step.id), "model.output", &raw)?;
                 (raw, model_event)
             };

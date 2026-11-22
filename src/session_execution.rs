@@ -247,7 +247,7 @@ impl Store {
             "Owner recovery cannot replay undelivered attempt-bound instructions",
         )?;
         tx.execute("DELETE FROM execution_owners WHERE session=?1", [id])?;
-        if session.status != "completed" {
+        if !matches!(session.status.as_str(), "completed" | "instruction_review") {
             session.status = "blocked".into();
         }
         self.save(&session)?;

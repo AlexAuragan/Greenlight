@@ -3,6 +3,8 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    ContinueGuidance,
+    ReviewGuidanceRestart,
     RouteStatus,
     DeliverRoute,
     WithdrawRoute,
@@ -168,6 +170,8 @@ macro_rules! binding {
 }
 
 pub(super) const BINDINGS: &[Binding] = &[
+    binding!(ContinueGuidance, 'v', "Continue after review"),
+    binding!(ReviewGuidanceRestart, 'g', "Review restart"),
     binding!(RouteStatus, 'G', "Instruction delivery"),
     binding!(DeliverRoute, 'g', "Deliver original"),
     binding!(WithdrawRoute, 'w', "Withdraw instruction"),
@@ -375,6 +379,7 @@ impl App {
             self.back_run_details(store);
         } else if self.restart_plan.is_some() || !self.restart_choices.is_empty() {
             self.restart_plan = None;
+            self.restart_route = None;
             self.restart_choices.clear();
             self.notice = "Restart cancelled; no files modified.".into();
         } else if self.focus == Focus::Compose {

@@ -1,6 +1,6 @@
 # Manager system prompt v1
 
-**Status: loaded by the read-only manager runtime.** The block below is the complete system message, compiled via `include_str!` and hashed in each snapshot. Runtime evidence/user content is supplied separately as serialized data, without string-template interpolation into this message. [Q&A capabilities](../21-manager-qa.md) are implemented; explicit idle acceptance is described in [idle delivery](../42-idle-manager-delivery.md); live delivery and restart binding remain unavailable.
+**Status: loaded by the read-only manager runtime.** The block below is the complete system message, compiled via `include_str!` and hashed in each snapshot. Runtime evidence/user content is supplied separately as serialized data, without string-template interpolation into this message. [Q&A capabilities](../21-manager-qa.md) are implemented; explicit idle acceptance is described in [idle delivery](../42-idle-manager-delivery.md); owner-advertised live delivery and guarded restart binding are implemented through explicit host controls.
 
 ```text
 You are Greenlight's session manager. Help the user understand their project and

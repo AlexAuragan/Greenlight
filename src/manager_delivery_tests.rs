@@ -463,3 +463,189 @@ async fn attempt_and_reservation_binding_commit_together_before_any_input_or_pro
         1
     );
 }
+
+#[tokio::test]
+async fn confirmed_restart_rebinds_the_original_to_only_the_new_target_attempt() {
+    let mut f = Fixture::new();
+    f.engine.run(&f.session.id, None, None).await.unwrap();
+    f.session = f.engine.store.session(&f.session.id).unwrap();
+    let old_branch = f.session.active_branch.clone();
+    let event = f.proposal("TO_B restart exact é\n  original ").await;
+    let route = f.accept(event).0;
+    assert_eq!(route.state, "restart_proposed");
+    let review = f
+        .engine
+        .store
+        .prepare_manager_restart(f.root.path(), &f.session.id, &route.message_id)
+        .unwrap();
+    let rebound = f
+        .engine
+        .store
+        .confirm_manager_restart(f.root.path(), &mut f.session, review, false)
+        .unwrap();
+    assert_ne!(f.session.active_branch, old_branch);
+    assert_eq!(f.session.current_step, "b");
+    assert_eq!(rebound.original, route.original);
+    assert!(f
+        .engine
+        .store
+        .history(&f.session)
+        .unwrap()
+        .iter()
+        .any(|e| e.2 == "manager.restart-bound" && e.3.contains("original")));
+    f.engine
+        .run_manager_route(&f.session.id, &route.message_id)
+        .await
+        .unwrap();
+    let calls = f.coding();
+    assert_eq!(calls.len(), 5);
+    assert_eq!(
+        calls[3]
+            .iter()
+            .filter(|m| m["content"].as_str() == Some(&route.original))
+            .count(),
+        1
+    );
+    assert!(!calls[4]
+        .iter()
+        .any(|m| m["content"].as_str() == Some(&route.original)));
+    assert!(f
+        .engine
+        .store
+        .prepare_manager_restart(f.root.path(), &f.session.id, &route.message_id)
+        .is_err());
+}
+#[tokio::test]
+async fn cancelled_or_stale_restart_never_transfers_the_original_and_failed_fork_keeps_the_proposal(
+) {
+    let mut f = Fixture::new();
+    f.engine.run(&f.session.id, None, None).await.unwrap();
+    f.session = f.engine.store.session(&f.session.id).unwrap();
+    let event = f.proposal("TO_B review this restart").await;
+    let route = f.accept(event).0;
+    let review = f
+        .engine
+        .store
+        .prepare_manager_restart(f.root.path(), &f.session.id, &route.message_id)
+        .unwrap();
+    drop(review);
+    assert_eq!(f.routes()[0].state, "restart_proposed");
+    assert_eq!(f.coding().len(), 3);
+    let review = f
+        .engine
+        .store
+        .prepare_manager_restart(f.root.path(), &f.session.id, &route.message_id)
+        .unwrap();
+    let branch = f.session.active_branch.clone();
+    f.engine.store.db.execute_batch("CREATE TRIGGER reject_restart_branch BEFORE INSERT ON branches BEGIN SELECT RAISE(ABORT,'fixture fork failure'); END;").unwrap();
+    assert!(f
+        .engine
+        .store
+        .confirm_manager_restart(f.root.path(), &mut f.session, review, false)
+        .is_err());
+    assert_eq!(f.session.active_branch, branch);
+    assert_eq!(f.routes()[0].state, "restart_proposed");
+    assert_eq!(f.coding().len(), 3);
+    f.engine
+        .store
+        .db
+        .execute_batch("DROP TRIGGER reject_restart_branch;")
+        .unwrap();
+    let review = f
+        .engine
+        .store
+        .prepare_manager_restart(f.root.path(), &f.session.id, &route.message_id)
+        .unwrap();
+    f.engine
+        .store
+        .withdraw_manager_route(&f.session.id, &route.message_id)
+        .unwrap();
+    assert!(f
+        .engine
+        .store
+        .confirm_manager_restart(f.root.path(), &mut f.session, review, false)
+        .is_err());
+    assert_eq!(f.session.active_branch, branch);
+}
+
+#[tokio::test]
+async fn live_inbox_preserves_original_fifo_and_serializes_withdrawal_and_inclusion() {
+    let f = Fixture::new();
+    let store = &f.engine.store;
+    let owner = store.claim_execution(&f.session.id, None).unwrap();
+    store.advertise_steering().unwrap();
+    let s = store.session(&f.session.id).unwrap();
+    let wf = config::load_workflow(f.root.path(), "demo").unwrap();
+    store
+        .begin_attempt(&s, "a", "definition", "fixture")
+        .unwrap();
+    store.open_guidance_boundary(&s, "a", &wf).unwrap();
+    let first = f.proposal("TO_A  exact\n original é ").await;
+    let a = f.accept(first);
+    assert!(!a.2);
+    assert!(a.0.owner_token.is_some());
+    let second = f.proposal("TO_A second").await;
+    let b = f.accept(second).0;
+    let mut messages = vec![];
+    store
+        .refresh_guidance_messages(&s, "a", &mut messages)
+        .unwrap();
+    assert_eq!(messages[1]["content"], a.0.original);
+    assert_eq!(messages[3]["content"], b.original);
+    store
+        .withdraw_manager_route(&s.id, &a.0.message_id)
+        .unwrap();
+    assert!(store
+        .include_manager_guidance(&s, "a", "not-sent", &messages)
+        .unwrap_err()
+        .is::<crate::manager_inbox::GuidanceWithdrawn>());
+    store
+        .refresh_guidance_messages(&s, "a", &mut messages)
+        .unwrap();
+    assert_eq!(messages.len(), 2);
+    let tx = store.db.unchecked_transaction().unwrap();
+    store
+        .include_manager_guidance(&s, "a", "prepared", &messages)
+        .unwrap();
+    tx.commit().unwrap();
+    assert!(store.withdraw_manager_route(&s.id, &b.message_id).is_err());
+    assert!(!store.close_guidance_boundary(&s, "a").unwrap());
+    store.finish_execution(&s.id, &owner, None).unwrap();
+}
+
+#[tokio::test]
+async fn ending_before_next_request_holds_recorded_success_until_explicit_review() {
+    let f = Fixture::new();
+    let store = &f.engine.store;
+    let owner = store.claim_execution(&f.session.id, None).unwrap();
+    store.advertise_steering().unwrap();
+    let mut s = store.session(&f.session.id).unwrap();
+    let wf = config::load_workflow(f.root.path(), "demo").unwrap();
+    store
+        .begin_attempt(&s, "a", "definition", "fixture")
+        .unwrap();
+    store.open_guidance_boundary(&s, "a", &wf).unwrap();
+    let event = f.proposal("TO_A arrived at completion").await;
+    let route = f.accept(event).0;
+    assert!(store.close_guidance_boundary(&s, "a").unwrap());
+    store
+        .event(&s, Some("a"), "step.completed", "Recorded success")
+        .unwrap();
+    store
+        .hold_success_for_guidance(&mut s, &wf.steps["a"], &wf)
+        .unwrap();
+    store.finish_execution(&s.id, &owner, None).unwrap();
+    drop(owner);
+    assert_eq!(store.session(&s.id).unwrap().status, "instruction_review");
+    assert_eq!(f.routes()[0].state, "needs_review");
+    assert!(store.continue_after_guidance(f.root.path(), &s.id).is_err());
+    store
+        .withdraw_manager_route(&s.id, &route.message_id)
+        .unwrap();
+    store.continue_after_guidance(f.root.path(), &s.id).unwrap();
+    let after = store.session(&s.id).unwrap();
+    assert_eq!(after.current_step, "b");
+    assert_eq!(after.status, "ready");
+    assert_eq!(store.attempts(&after).unwrap().len(), 1);
+    assert!(f.coding().is_empty());
+}

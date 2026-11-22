@@ -307,16 +307,31 @@ impl App {
     }
     pub(super) fn footer_actions(&self) -> Vec<Action> {
         let mut actions = self.base_footer_actions();
-        if !self.reading_overlay()
-            && !self.composer_active()
-            && self.runner.is_none()
-            && self.view == View::Conversation
-        {
+        if !self.reading_overlay() && !self.composer_active() && self.view == View::Conversation {
             if self.selected_route_event().is_some() {
                 actions.insert(0, Action::DeliverRoute);
             }
             if self.selected_route_message().is_some() {
                 actions.insert(0, Action::WithdrawRoute);
+            }
+            if self.event().is_some_and(|e| {
+                e.kind == "manager.delivery"
+                    && serde_json::from_str::<serde_json::Value>(&e.data)
+                        .ok()
+                        .is_some_and(|v| {
+                            matches!(
+                                v["state"].as_str(),
+                                Some("needs_review" | "restart_proposed")
+                            )
+                        })
+            }) {
+                actions.insert(0, Action::ReviewGuidanceRestart);
+            }
+            if self
+                .session()
+                .is_some_and(|s| s.status == "instruction_review")
+            {
+                actions.insert(0, Action::ContinueGuidance);
             }
         }
         if self.approval.is_some() && self.approval_hidden && !self.help && !self.shell.more {
@@ -704,6 +719,25 @@ impl App {
             self.shell.more = false;
         }
         match action {
+            ContinueGuidance => {
+                let session = self.session().context("No selected session")?.id.clone();
+                match store.continue_after_guidance(root, &session) {
+                    Ok(()) => {
+                        self.clear_diagnostic();
+                        self.refresh(store)?;
+                        self.notice="Review hold resolved using the recorded success edge. No step was repeated; resume the next ready step explicitly.".into();
+                    }
+                    Err(error) => self.notice = format!("Cannot continue: {error:#}"),
+                }
+            }
+            ReviewGuidanceRestart => {
+                let message = self
+                    .selected_route_message()
+                    .context("Select an undelivered instruction")?;
+                if let Err(error) = self.prepare_manager_restart(root, store, &message) {
+                    self.notice = format!("Restart review unavailable: {error:#}");
+                }
+            }
             RouteStatus => {
                 let session = self.session().context("No session selected")?;
                 let routes = store.manager_routes(session)?;
@@ -715,12 +749,6 @@ impl App {
                 self.detail_scroll = 0;
             }
             DeliverRoute => {
-                if self.runner.is_some() {
-                    self.notice =
-                        "Stop execution before idle route delivery. Live delivery is unavailable."
-                            .into();
-                    return Ok(false);
-                }
                 let event = self
                     .selected_route_event()
                     .context("Select a manager forward proposal")?;
@@ -729,7 +757,11 @@ impl App {
                     Ok(accepted) => {
                         let route = accepted.route;
                         self.notice=route.display();
-                        if accepted.newly_accepted && accepted.start_current {
+                        if route.state=="restart_proposed" {
+                            if let Err(error)=self.prepare_manager_restart(root,store,&route.message_id) {self.notice=format!("Restart review unavailable: {error:#}");}
+                            return Ok(false);
+                        }
+                        if accepted.newly_accepted && accepted.start_current && self.runner.is_none() {
                             let scope=(Some(session.id.clone()),Some(session.active_branch),compose::Mode::Step);
                             self.compose.last_instruction=Some((scope,route.original.clone()));
                             self.runner=Some(tui_actions::resume_route(root.to_path_buf(),session.id,route.message_id));

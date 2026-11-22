@@ -1,6 +1,6 @@
 # Manager Q&A and routing proposals
 
-**Implemented:** bounded context, strict manager decisions, cited answers, clarification, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Live queues and automatic/confirmed restart delivery are not implemented.
+**Implemented:** bounded context, strict manager decisions, cited answers, clarification, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Owner-scoped live queues and explicitly confirmed restart delivery are implemented; ordinary messages still require explicit route acceptance.
 
 This implements the Q&A stage of the [coordinator contract](20-conversational-coordinator.md). It loads the text block in the [manager system prompt](prompts/manager-v1.md); the coding-agent YAML contract stays unchanged.
 
