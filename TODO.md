@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-030** — Project-status observation can briefly hold the exclusive OS lease before a worker claims execution, causing a false “project control operation in progress” refusal. Observed in `new_session_form_starts_worker_without_draft_loss_and_keeps_approvals` during GL-008 validation. Separate observation from claim contention or bound retries for unpublished transient ownership; preserve real-owner exclusion and retained drafts. Add deterministic interleaving coverage rather than weakening the existing startup assertion.
 - [ ] **GL-009** — Consider an inexpensive **optional summarizer** for long steps or completed workflows, run asynchronously and display evidence-linked output when ready; compare it against coding-agent-authored short activity titles. Never block execution on summarization.
 - [ ] **GL-010** — Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
 - [ ] **GL-011** — Evaluate **snapshotting changed file bodies** at step boundaries only after hash manifests reveal a useful gap; define size/privacy/caches policy and whether external edits should be restored or simply protected from overwrite.
@@ -40,6 +39,8 @@ GL-007 defines the coordination contract; GL-028 implements project exclusion an
 ## Completed recovery and code improvements
 
 - [x] **GL-008** — **Implemented, pending merge** on `feat/project-execution-coordination`: explicit validated proposal acceptance, exact original bytes scoped to one attempt, next-visit reservations, FIFO/withdrawal, atomic prepared-request inclusion, guarded restart binding, owner-scoped live delivery with completion-review holds linked clarification replies and default Conversation routing. See [idle manager delivery](docs/42-idle-manager-delivery.md). Preserve ownership, input/permission/verification gates and separate side-question accounting.
+
+- [x] **GL-030** — Fixed on `feat/project-execution-coordination` (awaiting merge): a short descriptor-anchored observation guard serializes project-status probes with execution-lock acquisition. Starting workers wait for probes rather than reporting false busy; real workers still exclude competitors through the original execution lease. Cross-process regression freezes the failing interleaving; transaction-order, recovery and original TUI startup checks remain intact.
 
 - [x] **GL-028** — Implemented on `feat/project-execution-coordination` (awaiting merge): one workflow/control lease per project, atomic project/session execution ownership, stable recovery lock order, one lease through restore/fork publication, legacy/interrupted maintenance recovery, truthful busy feedback and retained rejected drafts/goals. Read-only observers/manager questions remain available. See [project execution coordination](docs/41-project-execution-coordination.md).
 

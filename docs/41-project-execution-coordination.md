@@ -129,3 +129,13 @@ Automated coverage includes cross-session/process exclusion, retained waits, ind
 ## Refresh correctness (GL-029)
 
 While validating ownership updates, the intermittent missing diagnostic was traced to tagging old activity rows with a newer database revision observed later in the same refresh. Refresh now captures its generation before history/derived reads and also includes the visible history cutoff in activity-cache identity. A concurrent commit forces a subsequent rebuild rather than permanently hiding the new blocker. A deterministic regression simulates the old interleaving; the original engine-backed test retains its diagnostic assertion.
+
+## Observation/startup coordination (GL-030)
+
+A status probe must briefly acquire `project-execution.lock` to distinguish an idle project from an interrupted durable owner. Previously, a worker racing that probe could fail with “project control operation in progress” even though no workflow was running.
+
+`project-observation.lock` now serializes only probes and execution-lock acquisition. A probe holds this descriptor-anchored guard until its execution-lock inspection ends; a claimant holds it only while trying to acquire the existing execution lease. Claimants can wait for a short inspection, while a real execution lease still rejects competing work. Neither workflow execution nor model/tool/input/approval waits hold the observation guard. No timeout, PID heuristic, automatic retry of work or durable owner/schema change is introduced.
+
+The order is observation guard → execution lock → release observation guard → session/native-write locks and execution transactions. A probe releases its execution lock before releasing its observation guard. Attempting observation or acquisition inside a SQLite transaction is rejected before waiting, preserving the existing lock-order rule. Both locks use stable anchored files and explicit unlocks, including inherited-descriptor handling; neither lock file is deleted. Older binaries still share the execution lease, but their probes do not participate in the new observation guard.
+
+A cross-process regression freezes an idle probe, starts a separate claimant, verifies it remains unclaimed until inspection ends, then verifies that a second session still cannot claim against the actual worker. The existing TUI startup/approval test remains unchanged.

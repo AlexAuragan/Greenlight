@@ -79,10 +79,23 @@ impl Store {
             .optional()
             .map_err(Into::into)
     }
-    pub(crate) fn project_lock(&self) -> Result<LockGuard> {
+    /// Keep probes from briefly rejecting a real execution claim. This guard
+    /// never spans workflow execution, and is always acquired before SQLite work.
+    fn project_observation_lock(&self) -> Result<LockGuard> {
         if !self.db.is_autocommit() {
             bail!("Project ownership must be acquired before a SQLite transaction");
         }
+        Ok(LockGuard::wait(
+            self.directory_fd
+                .lock_file(Path::new("project-observation.lock"))?,
+        )?)
+    }
+    pub(crate) fn project_lock(&self) -> Result<LockGuard> {
+        let _observation = self.project_observation_lock()?;
+        self.try_project_lock()
+    }
+    /// Caller holds the observation guard until its probe or lock acquisition ends.
+    fn try_project_lock(&self) -> Result<LockGuard> {
         let file = self
             .directory_fd
             .lock_file(Path::new("project-execution.lock"))?;
@@ -121,9 +134,8 @@ impl Store {
         Ok(())
     }
     pub fn project_status(&self) -> Result<Option<ProjectConflict>> {
-        // TODO(GL-030): this observation briefly owns the exclusive lease and can
-        // reject a racing startup before any executing owner is published.
-        let lock = match self.project_lock() {
+        let _observation = self.project_observation_lock()?;
+        let lock = match self.try_project_lock() {
             Ok(lock) => lock,
             Err(error) if error.downcast_ref::<ProjectConflict>().is_some() => {
                 return Ok(Some(error.downcast::<ProjectConflict>()?))
@@ -565,6 +577,92 @@ mod tests {
             .unwrap()
             .to_string()
             .contains("before a SQLite transaction"));
+    }
+    #[test]
+    fn observation_probe_delays_a_process_claim_without_rejecting_or_admitting_a_second_owner() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            process::{Command, Stdio},
+            sync::mpsc,
+            time::Duration,
+        };
+        const ROOT: &str = "GREENLIGHT_PROJECT_PROBE_ROOT";
+        if let Some(root) = std::env::var_os(ROOT) {
+            let store = Store::open(Path::new(&root)).unwrap();
+            let session = std::env::var("GREENLIGHT_PROJECT_PROBE_SESSION").unwrap();
+            println!("PROBE-ATTEMPTING");
+            std::io::stdout().flush().unwrap();
+            let owner = store.claim_execution(&session, None).unwrap();
+            println!("PROBE-CLAIMED");
+            std::io::stdout().flush().unwrap();
+            std::io::stdin().read_line(&mut String::new()).unwrap();
+            store.finish_execution(&session, &owner, None).unwrap();
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let observer = Store::open(root.path()).unwrap();
+        let session = observer.create("demo", "Worker", "work").unwrap();
+        let other = observer.create("demo", "Other", "work").unwrap();
+        // Freeze precisely the old failing interleaving: an idle observation
+        // holds the execution probe while a separate process starts a worker.
+        let observation = observer.project_observation_lock().unwrap();
+        let probe = observer.try_project_lock().unwrap();
+        let mut child=Command::new(std::env::current_exe().unwrap()).args(["--exact","project_execution::tests::observation_probe_delays_a_process_claim_without_rejecting_or_admitting_a_second_owner","--nocapture"]).env(ROOT,root.path()).env("GREENLIGHT_PROJECT_PROBE_SESSION",&session.id).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut output = BufReader::new(child.stdout.take().unwrap());
+        loop {
+            let mut line = String::new();
+            assert!(output.read_line(&mut line).unwrap() > 0);
+            if line.contains("PROBE-ATTEMPTING") {
+                break;
+            }
+        }
+        let (sent, received) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            for line in output.lines() {
+                if line.unwrap().contains("PROBE-CLAIMED") {
+                    sent.send(()).unwrap();
+                }
+            }
+        });
+        let blocked = matches!(
+            received.recv_timeout(Duration::from_millis(40)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+        assert!(observer.project_record().unwrap().is_none());
+        drop(probe);
+        drop(observation);
+        let claimed = received.recv_timeout(Duration::from_secs(5)).is_ok();
+        if claimed {
+            let status = observer.project_status().unwrap().unwrap();
+            assert!(!status.interrupted);
+            assert_eq!(status.session.unwrap().id, session.id);
+            conflict(
+                observer.claim_execution(&other.id, None).err().unwrap(),
+                false,
+            );
+        }
+        // Always unblock/reap the fixture even when its claim failed.
+        let _ = child.stdin.as_mut().unwrap().write_all(b"\n");
+        let exit = child.wait().unwrap();
+        reader.join().unwrap();
+        assert!(
+            blocked && claimed && exit.success(),
+            "Worker failed after observation finished"
+        );
+        assert!(observer.project_status().unwrap().is_none());
+        let owner = observer.claim_execution(&other.id, None).unwrap();
+        observer.finish_execution(&other.id, &owner, None).unwrap();
+    }
+
+    #[test]
+    fn observation_lock_order_rejects_an_open_sqlite_transaction() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let tx = store.db.unchecked_transaction().unwrap();
+        assert!(store.project_status().is_err());
+        assert!(store.project_lock().is_err());
+        tx.rollback().unwrap();
+        assert!(store.project_status().unwrap().is_none());
     }
 }
 
