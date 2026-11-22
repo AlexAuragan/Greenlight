@@ -1,6 +1,6 @@
 # Conversational coordinator — routing contract v1
 
-**Status: implemented on `feat/project-execution-coordination`, pending merge.** [Manager Q&A](21-manager-qa.md) supplies grounded replies. [Guidance delivery](42-idle-manager-delivery.md) covers default Conversation routing, explicit read-only questions, linked clarifications, attempt-scoped live delivery and guarded restart confirmation. `manager.enabled: true` selects Conversation for fresh TUI drafts; Ask manager and CLI `ask` remain read-only. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
+**Status: merged into `master` on 2026-11-22.** [Manager Q&A](21-manager-qa.md) supplies grounded replies. [Guidance delivery](42-idle-manager-delivery.md) covers default Conversation routing, explicit read-only questions, linked clarifications, attempt-scoped live delivery and guarded restart confirmation. `manager.enabled: true` selects Conversation for fresh TUI drafts; Ask manager and CLI `ask` remain read-only. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
 
 ## Product behavior
 

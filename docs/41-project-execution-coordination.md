@@ -1,6 +1,6 @@
 # Project execution coordination (GL-007)
 
-Status: implemented by GL-028 on `feat/project-execution-coordination`, awaiting merge (2026-11-22). GL-007 supplied the design. This is exclusive project execution, not GL-021 parallel orchestration.
+Status: implemented by GL-028 and merged into `master` on 2026-11-22. GL-007 supplied the design. This is exclusive project execution, not GL-021 parallel orchestration.
 
 ## Problem and first policy
 

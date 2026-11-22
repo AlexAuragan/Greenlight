@@ -1,6 +1,6 @@
 # Manager guidance delivery (GL-008)
 
-Implemented on `feat/project-execution-coordination`, together with GL-028/GL-029, pending merge. Conversation automatically accepts validated forwards through the host. Explicit Ask manager and CLI ask remain read-only; their proposals require acceptance.
+Merged into `master` on 2026-11-22, together with GL-028/GL-029/GL-030. Conversation automatically accepts validated forwards through the host. Explicit Ask manager and CLI ask remain read-only; their proposals require acceptance.
 
 ## Controls
 

@@ -1,12 +1,18 @@
 # Validation
 
-## Current branch review — 2026-11-22
+## Coordination merge validation — 2026-11-22
+
+Final review of the GL-008/GL-028/GL-029/GL-030 stack against remote `master` found no additional blockers in the reviewed ownership, routing, persistence and recovery paths. The feature branch had no divergence from `master`. Merge validation passes 483 Rust tests (two existing integration/profiling tests ignored), six installer tests, strict all-target Clippy, formatting and offline build. Both native terminal scenarios pass: exact original guidance delivery and cross-client project exclusion through a provider retry. Tests use local/scripted providers, with no paid requests.
+
+The stack is merged into `master`; TODO and current runtime status headers reflect this. Earlier sections retain the historical pre-merge evidence and its limits. Filesystem/SQLite publication remains explicitly non-atomic across their boundary, saved manager retries require explicit route acceptance, and sandbox integration remains deferred as documented.
+
+## Pre-merge branch review — 2026-11-22
 
 Reviewed `feat/project-execution-coordination` through `cd9e421` against the current remote `master` (`dfc666d`): six commits ahead, no divergence. The review focused on project/session lock order, observation/startup contention, claim/cleanup transactions, manager snapshot and branch revalidation, linked original-message preservation, live inbox withdrawal/inclusion boundaries, saved-request retries, guarded restore/fork publication and TUI draft/approval isolation. No additional blocking code issue was found in those paths; this is not an exhaustive security audit.
 
 Fresh validation passes 483 Rust tests, with the existing Bubblewrap integration and manual profiling tests ignored, strict all-target Clippy, formatting, offline build and six installer tests. Native terminal checks use local fake HTTP providers, covering explicit guidance delivery and cross-client exclusion through provider retry; no paid provider requests or new sandbox validation are involved.
 
-GL-008, GL-028, GL-029 and GL-030 are implemented on this branch, pending merge. The earlier entries below describe the evidence and limitations at each historical slice; they do not override the current runtime documentation. Filesystem restore and SQLite fork publication remain separate operations: a publication failure after restoration is reported explicitly and starts no worker. Exact saved manager retries remain read-only, and older binaries/external editors do not participate in the new coordination protocol.
+GL-008, GL-028, GL-029 and GL-030 are implemented on this branch, pending merge. At the time of this pre-merge review, the earlier entries below described the evidence and limitations at each historical slice; they do not override the current runtime documentation. Filesystem restore and SQLite fork publication remain separate operations: a publication failure after restoration is reported explicitly and starts no worker. Exact saved manager retries remain read-only, and older binaries/external editors do not participate in the new coordination protocol.
 
 ## GL-008 initial idle-delivery slice (historical) — 2026-11-22
 
