@@ -165,6 +165,33 @@ fn manager_job_runs_beside_owner_preserves_text_and_cannot_answer_approvals() {
         .unwrap()
         .contains("no inference"));
     assert_eq!(count, store.history(&s).unwrap().len());
+    // The selected clarification exposes a contextual action and a visibly linked composer.
+    app.context_detail = None;
+    let history = store.history(&s).unwrap();
+    let mut reply: serde_json::Value =
+        serde_json::from_str(&history.iter().find(|e| e.2 == "manager.result").unwrap().3).unwrap();
+    reply["decision"]["action"] = serde_json::json!("clarify");
+    reply["status"] = serde_json::json!("clarification_needed");
+    let event = store
+        .event(&s, None, "manager.result", &reply.to_string())
+        .unwrap();
+    app.refresh(&store).unwrap();
+    app.event_index = app.events.iter().position(|e| e.id == event).unwrap();
+    app.view = View::Conversation;
+    assert!(app
+        .footer_actions()
+        .contains(&shell::Action::ReplyClarification));
+    app.activate(shell::Action::ReplyClarification, root.path(), &store)
+        .unwrap();
+    assert_eq!(app.compose.mode, compose::Mode::Conversation);
+    assert_eq!(
+        app.compose.clarification.get(&app.compose.scope),
+        Some(&event)
+    );
+    assert_eq!(app.focus, Focus::Compose);
+    app.activate(shell::Action::AskManager, root.path(), &store)
+        .unwrap();
+    assert!(!app.compose.clarification.contains_key(&app.compose.scope));
     store.finish_execution(&s.id, &owner, None).unwrap();
     std::env::remove_var(env_name);
 }

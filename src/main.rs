@@ -20,10 +20,13 @@ mod fs_race_tests;
 mod input_pins;
 mod locks;
 mod manager;
+mod manager_delivery;
+mod manager_inbox;
 mod markdown;
 mod paths;
 mod pricing;
 mod project;
+mod project_execution;
 mod provider;
 mod provider_diagnostic;
 mod provider_failure;
@@ -97,7 +100,7 @@ enum Commands {
     },
     /// Open the live, read-only session viewer (optional session ID)
     Tui { session: Option<String> },
-    /// Ask the read-only manager; proposed forwarding never executes work in this stage
+    /// Ask for an answer or proposal; this command never executes a route
     Ask {
         session: String,
         #[arg(long, required_unless_present = "file", conflicts_with = "file")]
@@ -106,7 +109,32 @@ enum Commands {
         file: Option<PathBuf>,
         #[arg(long)]
         artifact: Vec<String>,
+        /// Reply to this recorded manager clarification result
+        #[arg(long)]
+        reply_to: Option<i64>,
     },
+    /// Accept a recorded manager forward; start only if it targets the current idle step
+    DeliverRoute {
+        session: String,
+        decision_event: i64,
+        #[arg(long)]
+        queue_only: bool,
+    },
+    /// Preview and explicitly confirm a manager-proposed restart with its original instruction
+    RestartRoute {
+        session: String,
+        message_id: String,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Explicitly continue a recorded success transition after undelivered guidance review
+    ContinueGuidance { session: String },
+    /// Inspect pending/durable guidance for the active branch (no inference)
+    Routes { session: String },
+    /// Withdraw pending guidance before request inclusion, including during execution
+    WithdrawRoute { session: String, message_id: String },
     /// Preview the bounded project/pipeline evidence shared with the manager; no inference
     ManagerContext {
         session: String,
@@ -243,14 +271,86 @@ async fn main() -> Result<()> {
             message,
             file,
             artifact,
+            reply_to,
         } => {
             let text = match file {
                 Some(path) => manager::read_message_file(&path)?,
                 None => message.context("missing message")?,
             };
             let engine = engine::Engine::open(&root)?;
-            let reply = engine.ask_manager(&session, &text, &artifact).await?;
+            let reply = if reply_to.is_some() {
+                let saved = manager::save_clarification(&engine.store, &session, &text, reply_to)?;
+                engine.ask_saved_manager(&saved, &artifact).await?
+            } else {
+                engine.ask_manager(&session, &text, &artifact).await?
+            };
             println!("{}", reply.display());
+        }
+        Commands::DeliverRoute {
+            session,
+            decision_event,
+            queue_only,
+        } => {
+            let mut engine = engine::Engine::open(&root)?;
+            let accepted = engine
+                .store
+                .accept_manager_route(&root, &session, decision_event)?;
+            let route = &accepted.route;
+            println!("{}", route.display());
+            if accepted.newly_accepted && accepted.start_current && !queue_only {
+                engine
+                    .run_manager_route(&session, &route.message_id)
+                    .await?;
+            }
+        }
+        Commands::RestartRoute {
+            session,
+            message_id,
+            yes,
+            dry_run,
+        } => {
+            let mut engine = engine::Engine::open(&root)?;
+            let review = engine
+                .store
+                .prepare_manager_restart(&root, &session, &message_id)?;
+            println!(
+                "Restart target: {}\n{}",
+                review.route.step,
+                review.route.display()
+            );
+            review.plan.preview();
+            if !dry_run
+                && (yes || restore::confirm(
+                    "Restore, fork and reserve this original instruction for the selected step?",
+                )?)
+            {
+                let mut state = engine.store.session(&session)?;
+                let route = engine
+                    .store
+                    .confirm_manager_restart(&root, &mut state, review, true)?;
+                engine
+                    .run_manager_route(&session, &route.message_id)
+                    .await?;
+            }
+        }
+        Commands::ContinueGuidance { session } => {
+            let store = store::Store::open(&root)?;
+            store.continue_after_guidance(&root, &session)?;
+            println!("Guidance hold resolved. Recorded success transition applied; resume explicitly if another step is ready.");
+        }
+        Commands::Routes { session } => {
+            let store = store::Store::open(&root)?;
+            for route in store.manager_routes(&store.session(&session)?)? {
+                println!("{}\n", route.display());
+            }
+        }
+        Commands::WithdrawRoute {
+            session,
+            message_id,
+        } => {
+            let store = store::Store::open(&root)?;
+            store.withdraw_manager_route(&session, &message_id)?;
+            println!("Instruction withdrawn; original evidence retained.");
         }
         Commands::ManagerContext { session, artifact } => {
             let store = store::Store::open(&root)?;
@@ -528,10 +628,16 @@ async fn main() -> Result<()> {
             }
             engine
                 .store
-                .add_artifact(&s, &s.current_step, &name, &content)?;
-            engine
-                .store
-                .event(&s, Some(&s.current_step), "user.artifact_edited", &name)?;
+                .with_project_control(&s, "artifact-edit", |lease| {
+                    engine.store.check_project(lease, &s)?;
+                    engine
+                        .store
+                        .add_artifact(&s, &s.current_step, &name, &content)?;
+                    engine
+                        .store
+                        .event(&s, Some(&s.current_step), "user.artifact_edited", &name)?;
+                    Ok(())
+                })?;
             println!("Registered new artifact version: {name}");
         }
         Commands::Restore {
@@ -563,20 +669,29 @@ async fn main() -> Result<()> {
             if !wf.steps.contains_key(&step) {
                 bail!("unknown step {step}");
             }
+            let mut restoration = None;
             if !no_restore {
                 let plan = restore::RestorePlan::prepare(&root, &engine.store, &state, event)?;
                 plan.preview();
-                if !plan.is_empty() {
-                    if restore::confirm("Restore these tracked files before forking?")? {
-                        plan.apply(&root, &engine.store, &state)?;
-                    } else {
-                        println!("WARNING: forking without restoration; workspace may not match history.");
-                    }
+                if plan.is_empty()
+                    || restore::confirm("Restore these tracked files before forking?")?
+                {
+                    restoration = Some(plan);
+                } else {
+                    println!(
+                        "WARNING: forking without restoration; workspace may not match history."
+                    );
                 }
             } else {
                 println!("WARNING: skipping workspace checks; fork does not restore files.");
             }
-            engine.store.fork(&mut state, event, &step)?;
+            if let Some(plan) = restoration {
+                engine
+                    .store
+                    .restore_and_fork(&root, &mut state, plan, event, &step, true)?;
+            } else {
+                engine.store.fork(&mut state, event, &step)?;
+            }
             println!("New branch {} at step {step}.", state.active_branch);
         }
         Commands::Approvals => {

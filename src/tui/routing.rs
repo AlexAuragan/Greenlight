@@ -799,6 +799,7 @@ impl App {
                 KeyCode::Char('y') => self.confirm_restart(root, store),
                 KeyCode::Esc | KeyCode::Char('n') => {
                     self.restart_plan = None;
+                    self.restart_route = None;
                     self.restart_choices.clear();
                     self.notice = "Restart cancelled; no files modified.".into();
                 }
@@ -855,7 +856,37 @@ impl App {
             return Ok(false);
         }
 
+        if self.project_attention() && !self.reading_overlay() {
+            if let Some(action) = shell::Action::for_key(
+                key.code,
+                &[
+                    shell::Action::OpenProjectOwner,
+                    shell::Action::RefreshProject,
+                ],
+            ) {
+                return self.activate(action, root, store);
+            }
+        }
+        if !self.reading_overlay() {
+            let route_actions = self
+                .footer_actions()
+                .into_iter()
+                .filter(|a| {
+                    matches!(
+                        a,
+                        shell::Action::DeliverRoute
+                            | shell::Action::WithdrawRoute
+                            | shell::Action::ContinueGuidance
+                            | shell::Action::ReviewGuidanceRestart
+                    )
+                })
+                .collect::<Vec<_>>();
+            if let Some(action) = shell::Action::for_key(key.code, &route_actions) {
+                return self.activate(action, root, store);
+            }
+        }
         let workspace_actions = [
+            shell::Action::RouteStatus,
             shell::Action::Preview,
             shell::Action::Expand,
             shell::Action::New,

@@ -61,7 +61,7 @@ fn start(app: &mut App, root: &Path, session: &str, instruction: &str, responses
             Some(&instruction),
             None,
         ));
-        let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
+        let _ = finished_tx.send(result.map_err(crate::tui_actions::RunnerError::from));
     });
     app.runner = Some(Runner {
         tool_rerun: false,
@@ -629,7 +629,7 @@ fn provider_retry_keeps_exact_messages_attempt_and_branch_without_replaying_a_to
         let result = tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(engine.run(&id, None, None));
-        let _ = ft.send(result.map_err(|e| format!("{e:#}")));
+        let _ = ft.send(result.map_err(crate::tui_actions::RunnerError::from));
     });
     app.runner = Some(Runner {
         tool_rerun: false,

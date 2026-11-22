@@ -5,10 +5,10 @@ use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
 #[cfg(test)]
 use std::fs;
-use uuid::Uuid;
 
 pub struct ExecutionOwner {
     _lock: crate::locks::LockGuard,
+    project: std::sync::Arc<crate::project_execution::ProjectLease>,
     token: String,
 }
 
@@ -22,12 +22,18 @@ pub enum ExecutionState {
 impl Store {
     pub fn execution_state(&self, id: &str) -> Result<ExecutionState> {
         // Do not briefly lock idle sessions during polling: a resume may start concurrently.
-        if !self.has_execution_record(id)? && self.session(id)?.status != "running" {
+        if !self.has_execution_record(id)?
+            && self.session(id)?.status != "running"
+            && self.project_record()?.is_none_or(|r| r.session != id)
+        {
             return Ok(ExecutionState::Idle);
         }
         match self.session_lock(id) {
             Ok(_lock) => Ok(
-                if self.has_execution_record(id)? || self.session(id)?.status == "running" {
+                if self.has_execution_record(id)?
+                    || self.session(id)?.status == "running"
+                    || self.project_record()?.is_some_and(|r| r.session == id)
+                {
                     ExecutionState::Interrupted
                 } else {
                     ExecutionState::Idle
@@ -43,7 +49,7 @@ impl Store {
             Err(error) => Err(error),
         }
     }
-    fn session_lock(&self, id: &str) -> Result<crate::locks::LockGuard> {
+    pub(crate) fn session_lock(&self, id: &str) -> Result<crate::locks::LockGuard> {
         self.session(id)?;
         let directory = self
             .directory_fd
@@ -75,24 +81,39 @@ impl Store {
         Ok(lock)
     }
 
-    // TODO(GL-007): session ownership does not coordinate separate sessions editing one project.
     pub fn claim_execution(&self, id: &str, instruction: Option<&str>) -> Result<ExecutionOwner> {
-        self.claim_owner(id, instruction, None)
+        self.claim_owner(id, instruction, None, None)
     }
 
     pub fn claim_tool_execution(&self, id: &str, branch: &str) -> Result<ExecutionOwner> {
-        self.claim_owner(id, None, Some(branch))
+        self.claim_owner(id, None, Some(branch), None)
     }
 
+    pub(crate) fn claim_routed_execution(&self, id: &str, message: &str) -> Result<ExecutionOwner> {
+        self.claim_owner(id, None, None, Some(message))
+    }
     fn claim_owner(
         &self,
         id: &str,
         instruction: Option<&str>,
         rerun_branch: Option<&str>,
+        route: Option<&str>,
     ) -> Result<ExecutionOwner> {
+        let initial = self.session(id)?;
+        let project = self.acquire_project(
+            &initial,
+            if rerun_branch.is_some() {
+                "tool-rerun"
+            } else {
+                "workflow"
+            },
+        )?;
         let lock = self.lock_idle_session(id)?;
         self.ensure_no_pending_writes()?;
         let mut session = self.session(id)?;
+        if initial.active_branch != session.active_branch {
+            bail!("Session branch changed before execution claim");
+        }
         if rerun_branch.is_some_and(|branch| branch != session.active_branch) {
             bail!("Branch changed; select the tool call again");
         }
@@ -104,8 +125,20 @@ impl Store {
                 session.status
             );
         }
-        let token = Uuid::new_v4().to_string();
+        if let Some(message) = route {
+            let valid = self.manager_routes(&session)?.iter().any(|r| {
+                r.message_id == message
+                    && r.step == session.current_step
+                    && r.state == "queued"
+                    && r.attempt.is_none()
+            });
+            if !valid {
+                bail!("Routing target/branch changed or instruction was already consumed; no new attempt started");
+            }
+        }
+        let token = project.record.token.clone();
         let tx = self.db.unchecked_transaction()?;
+        self.publish_project(&project)?;
         tx.execute(
             "INSERT INTO execution_owners(session,token,pid) VALUES (?1,?2,?3)",
             params![id, token, std::process::id()],
@@ -127,7 +160,12 @@ impl Store {
             )?;
         }
         tx.commit()?;
-        Ok(ExecutionOwner { _lock: lock, token })
+        *self.active_project.borrow_mut() = std::sync::Arc::downgrade(&project);
+        Ok(ExecutionOwner {
+            _lock: lock,
+            project,
+            token,
+        })
     }
 
     pub fn finish_execution(
@@ -137,6 +175,9 @@ impl Store {
         error: Option<&anyhow::Error>,
     ) -> Result<()> {
         let tx = self.db.unchecked_transaction()?;
+        let scope = self.session(id)?;
+        self.invalidate_manager_routes(&scope,scope.status!="completed","Worker ended before request inclusion; review rather than replay against another attempt")?;
+        self.release_project(&owner.project)?;
         let removed = tx.execute(
             "DELETE FROM execution_owners WHERE session=?1 AND token=?2",
             params![id, owner.token],
@@ -169,14 +210,44 @@ impl Store {
 
     pub fn recover_session(&self, id: &str) -> Result<String> {
         // Never infer death from PID reuse, elapsed time, or a UI's status.
+        let _project = self.project_lock()?;
+        let project = self.project_record()?;
+        if project.as_ref().is_some_and(|r| r.session != id) {
+            bail!(
+                "Another interrupted project owner must be recovered first: {}",
+                project.as_ref().unwrap().session
+            );
+        }
         let _lock = self.session_lock(id)?;
         let mut session = self.session(id)?;
-        if !self.has_execution_record(id)? && session.status != "running" {
+        if project.is_none() && !self.has_execution_record(id)? && session.status != "running" {
             return Ok("No interrupted execution to recover; session unchanged.".into());
         }
         let tx = self.db.unchecked_transaction()?;
+        if let Some(project) = &project {
+            let session_token: Option<String> = self
+                .db
+                .query_row(
+                    "SELECT token FROM execution_owners WHERE session=?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if session_token.as_ref().is_some_and(|t| t != &project.token) {
+                bail!("Inconsistent project/session owner tokens; inspect ownership records before recovery");
+            }
+            tx.execute(
+                "DELETE FROM project_owner WHERE singleton=1 AND token=?1",
+                [&project.token],
+            )?;
+        }
+        self.invalidate_manager_routes(
+            &session,
+            true,
+            "Owner recovery cannot replay undelivered attempt-bound instructions",
+        )?;
         tx.execute("DELETE FROM execution_owners WHERE session=?1", [id])?;
-        if session.status != "completed" {
+        if !matches!(session.status.as_str(), "completed" | "instruction_review") {
             session.status = "blocked".into();
         }
         self.save(&session)?;
@@ -217,13 +288,22 @@ mod tests {
         assert_eq!(observer.session(&session.id).unwrap().status, "running");
         assert_eq!(observer.history(&session).unwrap(), before);
         let other = store.create("demo", "other goal", "step").unwrap();
+        assert!(observer
+            .claim_execution(&other.id, Some("losing other session instruction"))
+            .is_err());
+        assert_eq!(observer.session(&other.id).unwrap().status, "ready");
+        assert!(!observer
+            .history(&other)
+            .unwrap()
+            .iter()
+            .any(|e| e.3 == "losing other session instruction"));
+        store.finish_execution(&session.id, &owner, None).unwrap();
+        drop(owner);
         let other_owner = observer.claim_execution(&other.id, None).unwrap();
         observer
             .finish_execution(&other.id, &other_owner, None)
             .unwrap();
         drop(other_owner);
-        store.finish_execution(&session.id, &owner, None).unwrap();
-        drop(owner);
         assert_eq!(store.session(&session.id).unwrap().status, "blocked");
         let next = store.claim_execution(&session.id, None).unwrap();
         store.finish_execution(&session.id, &next, None).unwrap();
@@ -396,6 +476,9 @@ mod tests {
         .unwrap();
         let store = Store::open(root.path()).unwrap();
         let session = store.create("demo", "goal", "approve").unwrap();
+        let other_session = store
+            .create("demo", "other session goal", "approve")
+            .unwrap();
         let first = crate::tui_actions::resume(
             root.path().into(),
             session.id.clone(),
@@ -410,6 +493,20 @@ mod tests {
             .run(&session.id, Some("losing CLI instruction"), None)
             .await
             .is_err());
+        let before_other = store.history(&other_session).unwrap();
+        let error = cli
+            .run(&other_session.id, Some("must not be sent"), None)
+            .await
+            .unwrap_err();
+        assert!(error
+            .downcast_ref::<crate::project_execution::ProjectConflict>()
+            .is_some());
+        assert_eq!(store.history(&other_session).unwrap(), before_other);
+        assert!(store
+            .usage_report(&other_session, crate::usage::Scope::Session)
+            .unwrap()
+            .calls
+            .is_empty());
         let second = crate::tui_actions::resume(
             root.path().into(),
             session.id.clone(),

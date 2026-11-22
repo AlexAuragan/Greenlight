@@ -31,7 +31,9 @@ impl App {
             self.focus_before_compose = self.focus;
         }
         if !self.compose.explicit && self.composer.is_empty() {
-            let mode = if self.manager_enabled || !self.can_resume_message() {
+            let mode = if self.manager_enabled {
+                compose::Mode::Conversation
+            } else if !self.can_resume_message() {
                 compose::Mode::Manager
             } else {
                 compose::Mode::Step

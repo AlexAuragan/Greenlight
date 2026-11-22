@@ -3,6 +3,13 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    ContinueGuidance,
+    ReviewGuidanceRestart,
+    RouteStatus,
+    DeliverRoute,
+    WithdrawRoute,
+    OpenProjectOwner,
+    RefreshProject,
     RetrySaved,
     RetrySavedManager,
     RerunTool,
@@ -18,6 +25,9 @@ pub(super) enum Action {
     RecordedActivity,
     GiveInstructions,
     AskManager,
+    Conversation,
+    SendConversation,
+    ReplyClarification,
     RecoverOwner,
     WriteGuidance,
     RestartReview,
@@ -104,6 +114,9 @@ impl Action {
             Self::RecordedActivity => "Recorded activity",
             Self::GiveInstructions => "Give instructions",
             Self::AskManager => "Ask manager",
+            Self::Conversation => "Conversation",
+            Self::SendConversation => "Send message",
+            Self::ReplyClarification => "Reply to clarification",
             Self::RecoverOwner => "Recover owner",
             Self::WriteGuidance => "Recovery guidance",
             Self::RestartReview => "Restart review",
@@ -163,6 +176,13 @@ macro_rules! binding {
 }
 
 pub(super) const BINDINGS: &[Binding] = &[
+    binding!(ContinueGuidance, 'v', "Continue after review"),
+    binding!(ReviewGuidanceRestart, 'g', "Review restart"),
+    binding!(RouteStatus, 'G', "Instruction delivery"),
+    binding!(DeliverRoute, 'g', "Deliver original"),
+    binding!(WithdrawRoute, 'w', "Withdraw instruction"),
+    binding!(OpenProjectOwner, 'O', "Open owner"),
+    binding!(RefreshProject, 'R', "Refresh project"),
     binding!(ResumeProvider, 't', "Continue step"),
     binding!(ReviewProviderRetry, 'a', "Review retry"),
     binding!(ReviewPermission, 'a', "Review permission"),
@@ -257,19 +277,23 @@ impl App {
                     self.details.close();
                     self.refresh(store)?;
                     self.focus = Focus::Events;
-                    self.runner = Some(tui_actions::resume(
-                        root.to_path_buf(),
-                        session.id,
-                        String::new(),
-                    ));
+                    let project_busy = match store.ensure_project_available() {
+                        Ok(()) => None,
+                        Err(error) => Some(format!("Created; not started — {error:#}")),
+                    };
+                    if project_busy.is_none() {
+                        self.runner = Some(tui_actions::resume(
+                            root.to_path_buf(),
+                            session.id,
+                            String::new(),
+                        ));
+                    }
                     self.view = View::Conversation;
                     self.follow_activity = true;
                     self.activity_query.clear();
                     self.compose.creation_goal.clear();
                     self.compose.creation_workflow.clear();
-                    self.notice =
-                        "Starting workflow. Model output and approval requests will appear here."
-                            .into();
+                    self.notice = project_busy.unwrap_or_else(|| "Starting workflow. Model output and approval requests will appear here.".into());
                 }
                 Err(error) => form.error = Some(format!("Cannot create session: {error:#}")),
             }
@@ -361,6 +385,7 @@ impl App {
             self.back_run_details(store);
         } else if self.restart_plan.is_some() || !self.restart_choices.is_empty() {
             self.restart_plan = None;
+            self.restart_route = None;
             self.restart_choices.clear();
             self.notice = "Restart cancelled; no files modified.".into();
         } else if self.focus == Focus::Compose {

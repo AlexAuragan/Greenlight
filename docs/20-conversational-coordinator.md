@@ -1,6 +1,6 @@
 # Conversational coordinator — routing contract v1
 
-**Status: routing contract with its first runtime stage implemented.** [Manager Q&A](21-manager-qa.md) now supplies grounded answers, clarification and validated **unexecuted** routing proposals. The [system prompt](prompts/manager-v1.md) is loaded by that runtime. Targeted delivery, guarded executing routes and live queues below remain requirements for later increments; they are not existing features. Coding-agent YAML and execution ownership remain enforced by the engine. Prompt quality does not substitute for Rust checks.
+**Status: merged into `master` on 2026-11-22.** [Manager Q&A](21-manager-qa.md) supplies grounded replies. [Guidance delivery](42-idle-manager-delivery.md) covers default Conversation routing, explicit read-only questions, linked clarifications, attempt-scoped live delivery and guarded restart confirmation. `manager.enabled: true` selects Conversation for fresh TUI drafts; Ask manager and CLI `ask` remain read-only. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
 
 ## Product behavior
 
@@ -18,7 +18,7 @@ Examples:
 
 Question grammar alone is insufficient: “Can you retry…” requests action. A question about a failure or suggestion alone does not authorize retry. A clear step name/description wins over an assumption that every instruction belongs to the current step. Match the supplied workflow, not a hard-coded list of names. Unknown or ambiguous targets require clarification.
 
-The default manager is part of this proposed interface, not a requirement for an additional provider account. It may share the coding provider/model. Explicit direct-agent controls can be added later; ordinary messages must not silently bypass the manager based on a heuristic.
+The default manager shares the existing provider account. It may share the coding provider/model. Explicit Step and Commands recipients remain available; Conversation never silently bypasses the manager based on a heuristic.
 
 ## Original message and scope
 
@@ -112,7 +112,7 @@ Use the central per-dispatch ledger with purpose `manager`, including failures, 
 
 ## Runtime acceptance and implementation order
 
-The first runtime stage covers schema/context/Q&A tests and read-only TUI behavior. Executing delivery tests below remain **required future tests**, not claims that the whole contract exists today:
+Q&A, idle delivery, restart binding and live inbox boundaries have deterministic coverage; the following remains the full acceptance target. This is not a claim that the whole contract exists today:
 
 1. Store/deserialize the tagged response union and validate limits, unknown/duplicate fields, IDs, target/citation membership, Unicode and hostile source contents. The manager cannot emit agent YAML, grants, restore commands or fabricated destinations.
 2. Capture a consistent database snapshot plus qualified immutable file/artifact evidence. Test TODO-vs-pipeline distinctions, missing sources, mixed intents, stale control state and completed-verification/model-claim distinctions.

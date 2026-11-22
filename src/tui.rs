@@ -83,12 +83,14 @@ enum View {
 
 #[derive(PartialEq, Eq)]
 struct ActivityGeneration {
+    history_cutoff: Option<i64>,
     session: String,
     branch: String,
     revision: (u64, i64),
     show_all: bool,
 }
 struct App {
+    project: Option<crate::project_execution::ProjectConflict>,
     shell: shell::Shell,
     inspector_open: bool,
     edits: edits::Edits,
@@ -137,6 +139,7 @@ struct App {
     restart_choices: Vec<RestartCandidate>,
     restart_cursor: usize,
     restart_plan: Option<RestorePlan>,
+    restart_route: Option<(crate::manager_delivery::Route, String)>,
     restart_preview: String,
     restart_branch: Option<String>,
     diagnostic: Option<String>,
@@ -183,6 +186,7 @@ impl App {
     fn new(initial_session: Option<&str>) -> Self {
         Self {
             shell: Default::default(),
+            project: None,
             inspector_open: false,
             edits: Default::default(),
             compose: Default::default(),
@@ -234,6 +238,7 @@ impl App {
             restart_choices: Vec::new(),
             restart_cursor: 0,
             restart_plan: None,
+            restart_route: None,
             restart_preview: String::new(),
             restart_branch: None,
             diagnostic: None,
@@ -348,7 +353,24 @@ impl App {
         }
         Ok(())
     }
+    fn project_attention(&self) -> bool {
+        self.other_project_owner() || self.project.as_ref().is_some_and(|p| p.interrupted)
+    }
+    fn other_project_owner(&self) -> bool {
+        self.project.as_ref().is_some_and(|p| {
+            p.session
+                .as_ref()
+                .is_none_or(|s| self.session().is_none_or(|selected| selected.id != s.id))
+        })
+    }
     fn refresh(&mut self, store: &Store) -> Result<()> {
+        self.project = match store.project_status() {
+            Ok(project) => project,
+            Err(error) => {
+                self.notice = format!("Project ownership unavailable: {error:#}. Execution remains guarded; inspect state before retrying.");
+                None
+            }
+        };
         self.saved_workflow_request = false;
         self.saved_manager_request = false;
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
@@ -432,6 +454,9 @@ impl App {
                 session.active_branch.clone(),
                 store.data_revision()?,
             );
+            // Capture before loading history or derived views. A commit during
+            // this refresh must invalidate the next one, not tag old rows as new.
+            let revision = preview_generation.2;
             if self.partial_history && self.preview_generation.as_ref() == Some(&preview_generation)
             {
                 self.load_selected_artifact(store);
@@ -553,11 +578,11 @@ impl App {
                         Some(format!("Workspace projection unavailable: {error:#}"));
                 }
             }
-            let revision = store.data_revision()?;
             let unchanged = self.activity_generation.as_ref().is_some_and(|g| {
                 g.session == session.id
                     && g.branch == session.active_branch
                     && g.revision == revision
+                    && g.history_cutoff == history.last().map(|e| e.0)
             });
             let usage = if unchanged && self.details.report.is_some() {
                 Ok(self.details.report.take().unwrap())
@@ -602,11 +627,11 @@ impl App {
                     }
                     self.result_key = Some(key);
                 }
-                let revision = store.data_revision()?;
                 if self.activity_generation.as_ref().is_none_or(|g| {
                     g.session != session.id
                         || g.branch != session.active_branch
                         || g.revision != revision
+                        || g.history_cutoff != history.last().map(|e| e.0)
                 }) {
                     self.result_text = result::summary(store, &session, &history);
                     self.result_overview = Some(result::overview(&session, &history));
@@ -618,9 +643,10 @@ impl App {
             }
             let show_all = self.show_all;
             let generation = ActivityGeneration {
+                history_cutoff: history.last().map(|e| e.0),
                 session: session.id.clone(),
                 branch: session.active_branch.clone(),
-                revision: store.data_revision()?,
+                revision,
                 show_all: self.show_all,
             };
             if self.activity_generation.as_ref() != Some(&generation) {
@@ -902,6 +928,13 @@ impl App {
         let tool_rerun = runner.tool_rerun;
         let completion = runner.finished.try_recv();
         let failed = !matches!(&completion, Ok(Ok(())) | Err(TryRecvError::Empty));
+        let project_failure =
+            if let Ok(Err(tui_actions::RunnerError::Project(conflict))) = &completion {
+                Some(conflict.clone())
+            } else {
+                None
+            };
+        let rejected_session = runner.session_id.clone();
         if !matches!(&completion, Err(TryRecvError::Empty)) {
             if tool_rerun && matches!(&completion, Ok(Ok(()))) {
                 if let Some(session) = self
@@ -916,6 +949,7 @@ impl App {
                 Ok(()) if stopped => "Execution stopped. Applied edits remain; review recorded work before continuing.".into(),
                 Ok(()) if tool_rerun => "Tool rerun recorded. Workflow remains stopped; inspect its output, then continue when ready.".into(),
                 Ok(()) => "Workflow finished. Review the result and recorded evidence.".into(),
+                Err(tui_actions::RunnerError::Project(error)) => format!("Not started: {error}. No work was queued."),
                 Err(error) => format!("Runner error: {error}"),
                 },
                 Err(_) => "Worker disconnected; pending approval expired. Inspect history and use /recover before resuming.".into(),
@@ -923,7 +957,27 @@ impl App {
             self.runner = None;
             self.approval = None;
             self.approval_hidden = false;
-            if failed {
+            if let Some(conflict) = project_failure {
+                self.project = Some(conflict);
+                if !tool_rerun {
+                    if let Some((scope, text)) = self
+                        .compose
+                        .last_instruction
+                        .clone()
+                        .filter(|(scope, _)| scope.0 == rejected_session)
+                    {
+                        if self.compose.scope == scope && self.composer.is_empty() {
+                            self.composer = text.clone();
+                        }
+                        let draft = self.drafts.entry(scope).or_default();
+                        if draft.is_empty() {
+                            *draft = text;
+                        }
+                        self.notice
+                            .push_str(" Instruction retained as a draft; nothing was sent.");
+                    }
+                }
+            } else if failed {
                 self.raise_diagnostic(self.notice.clone());
             }
         }
@@ -936,7 +990,7 @@ impl App {
             return;
         }
         if let Some(text) = original.strip_prefix("/ask ") {
-            self.start_manager(root, store, text.to_owned());
+            self.start_manager(root, store, text.to_owned(), false);
             return;
         }
         if instruction == "/ask" {
@@ -1047,7 +1101,7 @@ impl App {
             return;
         }
         if instruction != "/resume" && self.manager_enabled {
-            self.start_manager(root, store, original);
+            self.start_manager(root, store, original, true);
             return;
         }
         let input = if instruction == "/resume" {
@@ -1202,3 +1256,11 @@ mod edits_tests;
 #[cfg(test)]
 #[path = "tui_presentation_tests.rs"]
 mod presentation_tests;
+
+#[cfg(test)]
+#[path = "tui_project_tests.rs"]
+mod project_tests;
+
+#[cfg(test)]
+#[path = "tui_delivery_tests.rs"]
+mod delivery_tests;

@@ -173,6 +173,8 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
         "PROVIDER REQUEST PAUSED".into()
     } else if permission_pending_here {
         "WAITING FOR PERMISSION".into()
+    } else if raw_status == "instruction_review" {
+        "INSTRUCTION REVIEW".into()
     } else if starting {
         "STARTING".into()
     } else if workspace
@@ -191,9 +193,11 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
     };
     let state_color = match status.as_str() {
         "RUNNING" | "STARTING" => theme::FOCUS,
-        "BLOCKED" | "INTERRUPTED" | "WAITING FOR PERMISSION" | "PROVIDER REQUEST PAUSED" => {
-            theme::ATTENTION
-        }
+        "BLOCKED"
+        | "INTERRUPTED"
+        | "INSTRUCTION REVIEW"
+        | "WAITING FOR PERMISSION"
+        | "PROVIDER REQUEST PAUSED" => theme::ATTENTION,
         _ => theme::MUTED,
     };
     let state = if raw_status == "completed" && !permission_pending_here {
@@ -218,6 +222,40 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             1,
         ),
     );
+    if let Some(project) = &app.project {
+        if app.other_project_owner() || project.interrupted {
+            let owner = project
+                .session
+                .as_ref()
+                .map(|s| {
+                    format!(
+                        "{} · {}",
+                        inline_display(&s.goal),
+                        inline_display(&s.current_step)
+                    )
+                })
+                .unwrap_or_else(|| "control operation in progress".into());
+            let controls = if app.other_project_owner() && project.session.is_some() {
+                "[O] Open owner · [R] Refresh"
+            } else {
+                "[R] Refresh"
+            };
+            let label = format!(
+                "{} · {owner} · {controls}",
+                if project.interrupted {
+                    "Project interrupted"
+                } else {
+                    "Project busy"
+                }
+            );
+            let row = ratatui::layout::Rect::new(outer[0].x, outer[0].y + 1, outer[0].width, 1);
+            frame.render_widget(
+                Paragraph::new(fit(&label, row.width as usize))
+                    .style(Style::default().fg(theme::ATTENTION)),
+                row,
+            );
+        }
+    }
     let mut x = outer[0].x;
     for (action, view) in [
         (shell::Action::Activity, View::Conversation),
@@ -465,7 +503,9 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                     s.workflow,
                     s.status,
                     s.current_step,
-                    if app.compose.mode == compose::Mode::Manager {
+                    if app.compose.mode == compose::Mode::Conversation {
+                        "The manager answers or routes your original instruction. Restart previews require confirmation."
+                    } else if app.compose.mode == compose::Mode::Manager {
                         "Your question goes to the read-only manager."
                     } else if app.compose.mode == compose::Mode::Command {
                         "Review a Greenlight slash command before running it."

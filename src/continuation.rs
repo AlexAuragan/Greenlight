@@ -132,6 +132,8 @@ impl Engine {
                         | "tool.rerun"
                         | "step.completed"
                         | "branch.forked"
+                        | "manager.restart-authorized"
+                        | "manager.progress-resumed"
                 )
             })
             .collect();
@@ -300,7 +302,8 @@ impl Engine {
             .store
             .pending_continuation(&s, false)?
             .context("No saved workflow request")?;
-        self.validate_continuation(&s, &cp)?;
+        // run_owned validates the checkpoint after claiming project/session ownership.
+
         *self.frame.borrow_mut() = cp.frame.clone();
         *self.checks.borrow_mut() = cp.checks.clone();
         *self.continuation.borrow_mut() = Some(cp);

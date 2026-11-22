@@ -103,6 +103,8 @@ impl<'a> IntoIterator for &'a History {
 }
 type HistoryCache = (String, String, (u64, i64), History);
 pub struct Store {
+    pub(crate) active_project:
+        std::cell::RefCell<std::sync::Weak<crate::project_execution::ProjectLease>>,
     pub(crate) limits: crate::resource_limits::Limits,
     #[cfg(test)]
     pub(crate) blob_reads: std::cell::Cell<usize>,
@@ -117,6 +119,7 @@ impl Store {
         let db = crate::anchored_sqlite::open(&directory_fd)?;
         db.execute_batch(
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+           BEGIN;
            CREATE TABLE IF NOT EXISTS sessions (
              id TEXT PRIMARY KEY, workflow TEXT NOT NULL, goal TEXT NOT NULL,
              active_branch TEXT NOT NULL, current_step TEXT NOT NULL, status TEXT NOT NULL);
@@ -144,10 +147,23 @@ impl Store {
            CREATE TABLE IF NOT EXISTS execution_owners (
              session TEXT PRIMARY KEY REFERENCES sessions(id), token TEXT NOT NULL,
              pid INTEGER NOT NULL);
+           CREATE TABLE IF NOT EXISTS project_owner (
+             singleton INTEGER PRIMARY KEY CHECK(singleton=1), token TEXT NOT NULL UNIQUE,
+             session TEXT NOT NULL REFERENCES sessions(id), branch TEXT NOT NULL,
+             operation TEXT NOT NULL, pid INTEGER NOT NULL);
            CREATE TABLE IF NOT EXISTS step_attempts (
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              step TEXT NOT NULL, definition_event INTEGER NOT NULL, start_event INTEGER NOT NULL,
              end_event INTEGER, status TEXT NOT NULL);
+           CREATE TABLE IF NOT EXISTS manager_routes (
+             message_id TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES sessions(id), branch TEXT NOT NULL,
+             step TEXT NOT NULL, original TEXT NOT NULL, workflow_digest TEXT NOT NULL,
+             decision_event INTEGER NOT NULL, state TEXT NOT NULL, attempt TEXT, call_id TEXT, owner_token TEXT, clarification_thread TEXT NOT NULL DEFAULT '[]');
+           CREATE INDEX IF NOT EXISTS manager_routes_scope ON manager_routes(session,branch,decision_event);
+           CREATE TABLE IF NOT EXISTS execution_steering (
+             token TEXT PRIMARY KEY REFERENCES project_owner(token) ON DELETE CASCADE,
+             session TEXT NOT NULL REFERENCES sessions(id), protocol INTEGER NOT NULL,
+             step TEXT, attempt TEXT, workflow_digest TEXT, accepting INTEGER NOT NULL DEFAULT 0);
            CREATE TABLE IF NOT EXISTS model_calls (
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              created_event INTEGER NOT NULL, payload TEXT NOT NULL);
@@ -155,9 +171,31 @@ impl Store {
            CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
-           CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);",
+           CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);
+           COMMIT;",
         )?;
+        // Upgrade existing private stores under a writer transaction so two
+        // starting clients cannot race an ALTER after inspecting old columns.
+        {
+            let tx = rusqlite::Transaction::new_unchecked(
+                &db,
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            let columns = {
+                let mut q = db.prepare("PRAGMA table_info(manager_routes)")?;
+                let names = q.query_map([], |r| r.get::<_, String>(1))?;
+                names.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            if !columns.iter().any(|n| n == "owner_token") {
+                db.execute_batch("ALTER TABLE manager_routes ADD COLUMN owner_token TEXT;")?;
+            }
+            if !columns.iter().any(|n| n == "clarification_thread") {
+                db.execute_batch("ALTER TABLE manager_routes ADD COLUMN clarification_thread TEXT NOT NULL DEFAULT '[]';")?;
+            }
+            tx.commit()?;
+        }
         Ok(Self {
+            active_project: std::cell::RefCell::new(std::sync::Weak::new()),
             #[cfg(test)]
             blob_reads: std::cell::Cell::new(0),
             limits: crate::config::load_config(root)
@@ -304,40 +342,69 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub fn switch_branch(&self, s: &mut Session, branch: &str, step: &str) -> Result<()> {
-        let _lock = self.lock_idle_session(&s.id)?;
-        self.ensure_no_pending_writes()?;
-        let found: i64 = self.db.query_row(
-            "SELECT count(*) FROM branches WHERE session=?1 AND id=?2",
-            params![s.id, branch],
-            |r| r.get(0),
-        )?;
-        if found != 1 {
-            bail!("branch does not belong to this session");
-        }
-        let transaction = self.db.unchecked_transaction()?;
-        let mut next = s.clone();
-        next.active_branch = branch.into();
-        next.current_step = step.into();
-        next.status = "ready".into();
-        self.save(&next)?;
-        self.event(
-            &next,
-            Some(step),
-            "branch.selected",
-            "manual selection; filesystem unchanged",
-        )?;
-        transaction.commit()?;
-        *s = next;
-        Ok(())
+        let previous = s.clone();
+        self.with_project_control(&previous, "branch-control", |lease| {
+            self.check_project(lease, s)?;
+            self.ensure_no_pending_writes()?;
+            let found: i64 = self.db.query_row(
+                "SELECT count(*) FROM branches WHERE session=?1 AND id=?2",
+                params![s.id, branch],
+                |r| r.get(0),
+            )?;
+            if found != 1 {
+                bail!("branch does not belong to this session");
+            }
+            let transaction = self.db.unchecked_transaction()?;
+            self.invalidate_manager_routes(
+                s,
+                false,
+                "Branch selection invalidated the reservation; no cross-branch delivery",
+            )?;
+            let mut next = s.clone();
+            next.active_branch = branch.into();
+            next.current_step = step.into();
+            next.status = "ready".into();
+            self.save(&next)?;
+            self.event(
+                &next,
+                Some(step),
+                "branch.selected",
+                "manual selection; filesystem unchanged",
+            )?;
+            transaction.commit()?;
+            *s = next;
+            Ok(())
+        })
     }
     pub fn fork(&self, s: &mut Session, event_id: i64, step: &str) -> Result<()> {
-        let _lock = self.lock_idle_session(&s.id)?;
+        let previous = s.clone();
+        self.with_project_control(&previous, "branch-control", |lease| {
+            self.fork_owned(s, event_id, step, lease)
+        })
+    }
+    pub(crate) fn fork_owned(
+        &self,
+        s: &mut Session,
+        event_id: i64,
+        step: &str,
+        lease: &crate::project_execution::ProjectLease,
+    ) -> Result<()> {
+        self.check_project(lease, s)?;
         self.ensure_no_pending_writes()?;
         let valid: bool = self.history(s)?.iter().any(|(id, _, _, _)| *id == event_id);
         if !valid {
             bail!("fork event is not part of current branch ancestry");
         }
-        let transaction = self.db.unchecked_transaction()?;
+        let transaction = if self.db.is_autocommit() {
+            Some(self.db.unchecked_transaction()?)
+        } else {
+            None
+        };
+        self.invalidate_manager_routes(
+            s,
+            false,
+            "Fork invalidated the reservation; no cross-branch replay",
+        )?;
         let branch = Uuid::new_v4().to_string();
         self.db.execute(
             "INSERT INTO branches(id,session,parent,fork_event) VALUES (?1,?2,?3,?4)",
@@ -354,7 +421,9 @@ impl Store {
             "branch.forked",
             &format!("from_event: {event_id}"),
         )?;
-        transaction.commit()?;
+        if let Some(transaction) = transaction {
+            transaction.commit()?;
+        }
         *s = next;
         Ok(())
     }
@@ -714,7 +783,11 @@ impl Store {
         definition: &str,
         model: &str,
     ) -> Result<String> {
-        let tx = self.db.unchecked_transaction()?;
+        let tx = if self.db.is_autocommit() {
+            Some(self.db.unchecked_transaction()?)
+        } else {
+            None
+        };
         let definition_event = self.event(s, Some(step), "step.definition", definition)?;
         let id = Uuid::new_v4().to_string();
         let start = self.event(
@@ -726,7 +799,9 @@ impl Store {
         self.db.execute("UPDATE step_attempts SET status='interrupted',end_event=?2 WHERE session=?1 AND status='running'", params![s.id,start-1])?;
         self.db.execute("INSERT INTO step_attempts(id,session,branch,step,definition_event,start_event,status) VALUES (?1,?2,?3,?4,?5,?6,'running')",
             params![id,s.id,s.active_branch,step,definition_event,start])?;
-        tx.commit()?;
+        if let Some(tx) = tx {
+            tx.commit()?;
+        }
         Ok(id)
     }
     pub fn latest_attempt(&self, s: &Session, step: &str) -> Result<(String, i64)> {

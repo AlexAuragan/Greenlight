@@ -12,13 +12,39 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 
+#[derive(Debug)]
+pub enum RunnerError {
+    Project(crate::project_execution::ProjectConflict),
+    Other(String),
+}
+impl From<anyhow::Error> for RunnerError {
+    fn from(error: anyhow::Error) -> Self {
+        match error.downcast::<crate::project_execution::ProjectConflict>() {
+            Ok(conflict) => Self::Project(conflict),
+            Err(error) => Self::Other(format!("{error:#}")),
+        }
+    }
+}
+impl From<String> for RunnerError {
+    fn from(error: String) -> Self {
+        Self::Other(error)
+    }
+}
+impl std::fmt::Display for RunnerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Project(conflict) => std::fmt::Display::fmt(conflict, f),
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
 pub struct Runner {
     pub tool_rerun: bool,
     pub live: Option<crate::provider::stream::Preview>,
     pub cancel_retry: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub session_id: Option<String>,
     pub prompts: Receiver<ApprovalPrompt>,
-    pub finished: Receiver<Result<(), String>>,
+    pub finished: Receiver<Result<(), RunnerError>>,
     pub answers: Sender<String>,
 }
 
@@ -34,7 +60,12 @@ pub fn resume_saved(root: PathBuf, session_id: String) -> Runner {
     start(root, session_id, Work::Saved)
 }
 
+pub fn resume_route(root: PathBuf, session_id: String, message: String) -> Runner {
+    start(root, session_id, Work::Route(message))
+}
+
 enum Work {
+    Route(String),
     Resume(String),
     Rerun(String, i64),
     Saved,
@@ -70,9 +101,12 @@ fn start(root: PathBuf, session_id: String, work: Work) -> Runner {
                     runtime.block_on(engine.run(&session_id, Some(&instruction), None))
                 }
                 Work::Saved => runtime.block_on(engine.resume_saved(&session_id)),
+                Work::Route(message) => {
+                    runtime.block_on(engine.run_manager_route(&session_id, &message))
+                }
             }
         })();
-        let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
+        let _ = finished_tx.send(result.map_err(RunnerError::from));
     });
 
     Runner {

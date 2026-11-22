@@ -896,7 +896,7 @@ fn saved_provider_request_is_visible_after_reopen_and_help_cannot_retry_it() {
     app.activate(shell::Action::RetrySaved, root.path(), &store)
         .unwrap();
     assert!(app.runner.is_none());
-    assert!(app.notice.contains("Recover"));
+    assert!(app.notice.contains("Project busy"));
     store.finish_execution(&session.id, &owner, None).unwrap();
 }
 

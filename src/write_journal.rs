@@ -127,6 +127,8 @@ impl Store {
         before: Option<&str>,
         after: &str,
     ) -> Result<()> {
+        self.owned_native_write(s, |lease| {
+        self.check_project(lease, s)?;
         let _lock = self.native_write_lock()?;
         self.ensure_no_pending_writes()?;
         checked_path(root, relative)?;
@@ -170,13 +172,34 @@ impl Store {
         }
         self.finish_write(&intent, true)
             .context("file changed but journal completion failed; run greenlight recover-writes")
+        })
     }
 
     pub fn recover_writes(&self, root: &Path) -> Result<Vec<String>> {
+        // Acquire project before any session/native-write locks. No pending work
+        // needs no durable maintenance record, but still refuses another live owner.
+        let initial = self.pending_writes()?;
+        let Some(first) = initial.iter().min_by_key(|i| &i.session) else {
+            self.ensure_project_available()?;
+            let _lock = self.project_lock()?;
+            if let Some(owner) = self.project_record()? {
+                bail!(
+                    "Interrupted project owner {}; recover-session first",
+                    owner.session
+                );
+            }
+            let _write = self.native_write_lock()?;
+            return Ok(Vec::new());
+        };
+        let session = self.session(&first.session)?;
+        self.with_project_control(&session, "recover-writes", |lease| {
+        self.check_project(lease, &session)?;
+        let mut sessions = self.pending_writes()?.into_iter().map(|i|i.session).collect::<std::collections::BTreeSet<_>>();
+        sessions.remove(&session.id); // outer control already holds this session lock
+        let _sessions = sessions.into_iter().map(|id|self.lock_idle_session(&id)).collect::<Result<Vec<_>>>()?;
         let _lock = self.native_write_lock()?;
         let mut outcomes = Vec::new();
         for intent in self.pending_writes()? {
-            let _session_lock = self.lock_idle_session(&intent.session)?;
             let current = match snapshot(root, &intent.path) {
                 Ok(current) => current,
                 Err(error) => {
@@ -216,6 +239,7 @@ impl Store {
             ));
         }
         Ok(outcomes)
+        })
     }
 }
 

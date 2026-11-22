@@ -1,8 +1,8 @@
-# Manager Q&A — first runtime increment
+# Manager Q&A and routing proposals
 
-**Implemented:** bounded project/pipeline context, strict manager JSON decisions, cited answers, clarification, saved original messages, validated forwarding proposals, independent TUI inference and central usage accounting. **Not implemented:** executing a forward, targeted idle delivery, automatic restart or live instruction queues. A forward is explicitly `forward_unavailable` (or `needs_review` if control state changed). No manager decision executes tools or changes a session's workflow state.
+**Implemented:** bounded context, strict manager decisions, cited answers, linked clarification replies, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Owner-scoped live queues and explicitly confirmed restart delivery are implemented; Conversation messages can accept validated routes through the host; explicit Ask remains read-only.
 
-This implements the first stage of the [coordinator contract](20-conversational-coordinator.md). It loads the text block in the [manager system prompt](prompts/manager-v1.md); the coding-agent YAML contract stays unchanged.
+This implements the Q&A stage of the [coordinator contract](20-conversational-coordinator.md). It loads the text block in the [manager system prompt](prompts/manager-v1.md); the coding-agent YAML contract stays unchanged.
 
 ## CLI
 
@@ -11,6 +11,7 @@ greenlight manager-context SESSION_ID                    # preview sources/model
 greenlight ask SESSION_ID --message "Where are we on the TODO?"
 greenlight ask SESSION_ID --file question.txt              # original UTF-8, including whitespace
 greenlight ask SESSION_ID --message "Explain this plan" --artifact plan.md
+greenlight ask SESSION_ID --reply-to RESULT_EVENT --message "Use threads"
 greenlight manager-history SESSION_ID                    # branch-visible exchanges, JSON lines
 greenlight usage SESSION_ID --json                       # includes purpose: manager
 ```
@@ -21,7 +22,7 @@ The manager reuses the existing provider. Optionally select a separate model ID 
 
 ```yaml
 manager:
-  enabled: true         # suggest the manager recipient for a fresh TUI draft
+  enabled: true         # default fresh TUI drafts to Conversation (answers or routed instructions)
   model: example-model # optional; defaults to provider.model
 ```
 
@@ -29,7 +30,7 @@ Default `enabled: false` suggests the step recipient when it can resume; explici
 
 ## TUI
 
-- Ask manager explicitly sends a literal read-only question. Send & resume explicitly delivers literal step instructions, bypassing the manager route. In the separate Commands editor, `/ask QUESTION` also asks the manager; the prefix is removed and remaining text preserved. `/resume`, `/restart`, `/recover`, `/usage`, existing navigation and approvals keep their deterministic behavior.
+- Conversation routes ordinary messages through the manager when enabled; validated forwards use normal host delivery and guarded restart controls. Ask manager explicitly sends a literal read-only question. Send & resume explicitly delivers literal step instructions, bypassing the manager route. In the separate Commands editor, `/ask QUESTION` also asks the manager; the prefix is removed and remaining text preserved. `/resume`, `/restart`, `/recover`, `/usage`, existing navigation and approvals keep their deterministic behavior.
 - `/manager-context` opens a scrollable source/model preview and makes no inference request or history entry. This initial TUI does not implicitly send a selected artifact body; explicit artifact selection is available in the CLI.
 - More → Manager replies (or `/manager` in Commands mode) filters the activity list to manager exchanges. Enter expands the answer and cited captured source text; Escape/Left returns as in normal readers. `F` then Escape clears the filter. Raw mode retains snapshot and model-output records.
 - Stop manager retries in the active manager composer (or `/cancel-manager` in Commands mode) stops future manager requests/retries; an in-flight request may finish. Navigation `x` cancels the manager when no coding cancel handle takes precedence; when both are running, use `/cancel-manager` for the manager. Quitting waits for an active manager job to finish so completion/uncertain usage can be inspected.
@@ -48,7 +49,7 @@ Sources and total input are bounded: at most 20 source entries, a 40 KiB snapsho
 
 The runtime validates JSON types, action variants, version/message/snapshot IDs, content/citation bounds, supplied citations and agent-step destinations. No fences/prose/extra actions, unknown or duplicate fields, replacement instruction bodies or human/command-step targets are accepted. An `answer` requires at least one supplied citation; missing evidence can produce `clarify` instead. Valid citation membership does not prove the model's interpretation; verify important claims against sources.
 
-Fresh session/branch/attempt/owner/workflow/recovery state is checked after inference. A changed fingerprint qualifies an answer as an older snapshot and marks a forward `needs_review`; unrelated manager/usage events do not invalidate every answer. All forwards remain unexecuted regardless of validation. A pure question never joins coding context, creates an attempt, grants approval, restores files or advances a step.
+Fresh session/branch/attempt/owner/workflow/recovery state is checked after inference. A changed fingerprint qualifies an answer as an older snapshot and marks a forward `needs_review`; unrelated manager/usage events do not invalidate every answer. All forwards remain unexecuted until the separate explicit idle-delivery action is accepted. A pure question never joins coding context, creates an attempt, grants approval, restores files or advances a step.
 
 ## Persistence, failures and costs
 

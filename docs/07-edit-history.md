@@ -11,7 +11,7 @@ The active branch includes inherited edits only up to its fork point. The diff r
 
 Before a write, the proposed diff is printed. Approval is requested as usual, and the original file is re-read afterward to reject concurrent modifications. Denied writes are not recorded. An identical write is skipped.
 
-Before mutation, SQLite durably records a `file.write-intent` event and the original/intended contents in `write_intents`. The tool writes and syncs a temporary sibling, rechecks the source, atomically replaces it and syncs its directory. Journal completion publishes `file.changed`, its snapshots and the completed intent status in one SQLite transaction. A project mutation lock prevents overlapping native writes, recovery and explicit restores; this is not a session execution lease or protection against external editors.
+Before mutation, SQLite durably records a `file.write-intent` event and the original/intended contents in `write_intents`. The tool writes and syncs a temporary sibling, rechecks the source, atomically replaces it and syncs its directory. Journal completion publishes `file.changed`, its snapshots and the completed intent status in one SQLite transaction. A short native-write lock prevents overlapping native writes, recovery and explicit restores. The outer project execution/control lease excludes competing sessions across inference and user waits; neither advisory lock protects against external editors. Project → session → native-write is the mutation lock order.
 
 After an interruption, inspect history and run:
 

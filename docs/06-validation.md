@@ -1,5 +1,35 @@
 # Validation
 
+## Coordination merge validation — 2026-11-22
+
+Final review of the GL-008/GL-028/GL-029/GL-030 stack against remote `master` found no additional blockers in the reviewed ownership, routing, persistence and recovery paths. The feature branch had no divergence from `master`. Merge validation passes 483 Rust tests (two existing integration/profiling tests ignored), six installer tests, strict all-target Clippy, formatting and offline build. Both native terminal scenarios pass: exact original guidance delivery and cross-client project exclusion through a provider retry. Tests use local/scripted providers, with no paid requests.
+
+The stack is merged into `master`; TODO and current runtime status headers reflect this. Earlier sections retain the historical pre-merge evidence and its limits. Filesystem/SQLite publication remains explicitly non-atomic across their boundary, saved manager retries require explicit route acceptance, and sandbox integration remains deferred as documented.
+
+## Pre-merge branch review — 2026-11-22
+
+Reviewed `feat/project-execution-coordination` through `cd9e421` against the current remote `master` (`dfc666d`): six commits ahead, no divergence. The review focused on project/session lock order, observation/startup contention, claim/cleanup transactions, manager snapshot and branch revalidation, linked original-message preservation, live inbox withdrawal/inclusion boundaries, saved-request retries, guarded restore/fork publication and TUI draft/approval isolation. No additional blocking code issue was found in those paths; this is not an exhaustive security audit.
+
+Fresh validation passes 483 Rust tests, with the existing Bubblewrap integration and manual profiling tests ignored, strict all-target Clippy, formatting, offline build and six installer tests. Native terminal checks use local fake HTTP providers, covering explicit guidance delivery and cross-client exclusion through provider retry; no paid provider requests or new sandbox validation are involved.
+
+GL-008, GL-028, GL-029 and GL-030 are implemented on this branch, pending merge. At the time of this pre-merge review, the earlier entries below described the evidence and limitations at each historical slice; they do not override the current runtime documentation. Filesystem restore and SQLite fork publication remain separate operations: a publication failure after restoration is reported explicitly and starts no worker. Exact saved manager retries remain read-only, and older binaries/external editors do not participate in the new coordination protocol.
+
+## GL-008 initial idle-delivery slice (historical) — 2026-11-22
+
+The existing `feat/project-execution-coordination` branch now also contains explicit idle manager delivery, retaining one pending branch. The suite passes 467 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Tests use scripted/local providers and no paid API calls.
+
+New coverage checks exact whitespace/Unicode originals in only the target step; separate FIFO IDs for identical text; stale branch/workflow/artifact rejection; withdrawal; no permission/input-gate bypass; non-executing restart proposals; unresolved/unreachable guidance; atomic attempt binding and prepared-envelope inclusion; saved retries without duplication; withdrawal preventing a saved request from replaying the instruction; and Help-safe TUI controls.
+
+A native PTY/local HTTP scenario asks from the CLI, verifies that asking queued nothing, selects the manager proposal in the TUI and uses **g** to start the blocked current target. Its persisted coding envelope contains the exact original once; the initial attempt did not contain it. Reaccepting via CLI starts nothing. Three central dispatch records account for initial coding, manager inference and routed coding. At this initial slice, confirmed restart binding and live delivery were not yet implemented; the current branch validation above supersedes that limitation.
+
+## GL-028 / GL-029 — 2026-11-22
+
+`feat/project-execution-coordination` implements the project lease and fixes the refresh-generation race; this validation does not merge the branch. The suite passes 454 Rust tests with the existing Bubblewrap integration and manual profiler ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. The original engine-backed diagnostic acceptance test also passed 20 consecutive runs with its assertion unchanged; a deterministic cache-generation regression covers the previously missing blocker.
+
+New tests cover competing stores/threads/processes, independent projects, no loser instruction/status/usage changes, crash and maintenance-unwind recovery, legacy live/multiple owners, atomic claim/cleanup failure, retained drafts/goals and Help-safe owner navigation. Existing continuation, manager, native-intent and restore checks remain enabled.
+
+A native PTY/local HTTP scenario holds a TUI at an HTTP 429 decision, rejects a competing CLI start with zero extra provider calls, retains its goal as a Ready session, and lets a second TUI browse that session and open the owner. The same token remains held through the paused request and explicit retry; earlier tools are not repeated, the original attempt is retained, and cleanup removes the project row. These fixtures use a fake local key and make no paid provider requests. Sandbox isolation was not reconfigured or revalidated on a different host.
+
 ## Merge validation — 2026-11-22
 
 The GL-003/GL-005 implementation and GL-007 design stack is merged into `master`. Formatting, strict all-target Clippy, offline build and six installer tests pass. The first Rust suite run passed 436 tests and failed one diagnostic-presence assertion in the engine-backed workflow UI test; that test passed in isolation and the subsequent complete suite passed 437 tests (two ignored). GL-029 records the intermittent failure for investigation; no runtime change or assertion weakening was made to obtain the rerun.

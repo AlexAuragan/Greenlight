@@ -400,6 +400,25 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                 Tone::Error,
             ),
         },
+        "manager.delivery" => match serde_json::from_str::<serde_json::Value>(raw) {
+            Ok(value) => card(
+                format!(
+                    "Instruction · {}",
+                    value["state"].as_str().unwrap_or("unknown")
+                ),
+                format!(
+                    "{} · {}",
+                    value["step"].as_str().unwrap_or("?"),
+                    value["reason"].as_str().unwrap_or("Inspect raw evidence")
+                ),
+                Tone::Attention,
+            ),
+            Err(_) => card(
+                "Instruction delivery unavailable",
+                "Malformed delivery record; inspect raw evidence",
+                Tone::Error,
+            ),
+        },
         "manager.failed" => card(
             "Manager request unresolved",
             "Original message retained · no route executed",

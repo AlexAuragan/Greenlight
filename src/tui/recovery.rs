@@ -2,8 +2,39 @@
 use super::*;
 
 impl App {
+    pub(super) fn prepare_manager_restart(
+        &mut self,
+        root: &Path,
+        store: &Store,
+        message: &str,
+    ) -> Result<()> {
+        if self.runner.is_some() {
+            bail!("Stop the worker before reviewing a restart");
+        }
+        let session = self.session().context("No selected session")?.clone();
+        let review = store.prepare_manager_restart(root, &session.id, message)?;
+        self.restart_preview = format!(
+            "Confirm restart to {} with this original instruction:\n{}\n\n{}",
+            review.route.step,
+            review.route.original,
+            review.plan.preview_text()
+        );
+        self.restart_branch = Some(session.active_branch.clone());
+        self.restart_route = Some((review.route, review.fingerprint));
+        self.restart_choices = vec![review.candidate];
+        self.restart_cursor = 0;
+        self.restart_plan = Some(review.plan);
+        self.result_open = false;
+        self.clear_diagnostic();
+        self.detail_scroll = 0;
+        self.notice =
+            "Review restore and original instruction. y confirms; n/Esc cancels without delivery."
+                .into();
+        Ok(())
+    }
     pub(super) fn open_restart(&mut self, root: &Path, store: &Store) {
         self.result_open = false;
+        self.restart_route = None;
         if self.runner.is_some() {
             self.notice = "Cannot restart while an agent is running.".into();
             return;
@@ -73,14 +104,47 @@ impl App {
         let Some(plan) = self.restart_plan.take() else {
             return;
         };
-        if let Err(error) = plan.apply_silent(root, store, &state) {
-            self.raise_diagnostic(format!(
-                "Restore failed: {error:#}. Inspect history before retrying."
-            ));
+        if let Some((route, fingerprint)) = self.restart_route.take() {
+            let review = crate::manager_delivery::RouteRestart {
+                route,
+                candidate,
+                plan,
+                fingerprint,
+            };
+            match store.confirm_manager_restart(root, &mut state, review, false) {
+                Ok(route) => {
+                    self.requested_session = Some(state.id.clone());
+                    self.refresh(store).ok();
+                    self.compose.last_instruction = Some((
+                        (
+                            Some(state.id.clone()),
+                            Some(state.active_branch),
+                            compose::Mode::Step,
+                        ),
+                        route.original,
+                    ));
+                    self.runner = Some(tui_actions::resume_route(
+                        root.to_path_buf(),
+                        state.id,
+                        route.message_id,
+                    ));
+                    self.notice="Restart confirmed; original instruction reserved for the target. Starting the new attempt with normal approvals and verification.".into();
+                }
+                Err(error) => self.raise_diagnostic(format!("Guided restart failed: {error:#}")),
+            }
             self.restart_choices.clear();
+            self.restart_branch = None;
+            self.detail_scroll = 0;
             return;
         }
-        match store.fork(&mut state, candidate.prior_event, &candidate.step) {
+        match store.restore_and_fork(
+            root,
+            &mut state,
+            plan,
+            candidate.prior_event,
+            &candidate.step,
+            false,
+        ) {
             Ok(()) => {
                 self.notice = format!(
                     "Forked from event #{} to '{}'. Type an instruction or /resume.",
@@ -88,7 +152,7 @@ impl App {
                 )
             }
             Err(error) => self.raise_diagnostic(format!(
-                "Restore applied, but fork failed: {error:#}. Inspect workspace and history."
+                "Restart failed: {error:#}. Inspect workspace and history before retrying."
             )),
         }
         self.restart_choices.clear();

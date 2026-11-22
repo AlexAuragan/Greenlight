@@ -14,6 +14,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Rate limits, provider errors and explicit retry | [Provider recovery](19-provider-failures.md) |
 | Full model/tool evidence and local exports | [Conversation dumps](35-conversation-dump.md) |
 | Input/cached-input/output counts and model pricing | [Usage and pricing](18-token-usage-and-pricing.md) |
+| Conversation routing, live guidance and clarification replies | [Manager guidance delivery](42-idle-manager-delivery.md) |
 | Read-only project/pipeline questions | [Manager Q&A](21-manager-qa.md) |
 | Actual application renders | [Ratatui captures](screenshots/README.md) |
 
@@ -38,8 +39,8 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 ## Decisions, future work and validation
 
 - [Settled decisions](16-decision-log.md): rationale and current boundaries, including explicit deferred work.
-- [Project execution coordination proposal](41-project-execution-coordination.md): GL-007 design and GL-028 implementation criteria; the current binary still owns execution per session.
-- [Conversational coordinator contract](20-conversational-coordinator.md): retains unimplemented targeted delivery, guarded routing and live-owner inbox requirements. Only its read-only Q&A stage is currently implemented.
+- [Project execution coordination](41-project-execution-coordination.md): GL-007 design implemented by GL-028; exclusive workflow/control leases, read-only exceptions, interrupted owners and contextual busy feedback.
+- [Conversational coordinator contract](20-conversational-coordinator.md): retains unimplemented targeted delivery, guarded routing and live-owner inbox requirements. Read-only Q&A and explicit idle delivery are implemented; confirmed restart binding and live delivery remain open.
 - [Code review](code-review.md): readability changes, corrected oversights and deferred findings.
 - [Validation](06-validation.md): current evidence and reproducible checks.
 - [Manual smoke tests](17-smoke-test.md): acceptance scenarios for real terminals and disposable projects.

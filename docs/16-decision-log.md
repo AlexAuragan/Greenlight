@@ -16,7 +16,7 @@ Step-boundary hashes, scan metrics and native-journal correlation are implemente
 
 ## D-004 — Compact, explicit interaction and semantic colors
 
-Keep the session sidebar hidden and composer closed by default. Enter/click explicitly opens an inspector, which then follows deliberate selection. Preserve scoped memory-only drafts and reading positions. Use arrows, j/k and Tab; require no function keys. `h` opens Help where its layer permits it. Page/navigation keys remain optional alternatives, not requirements.
+Keep the session sidebar hidden and composer closed by default. Enter/click explicitly opens an inspector, which then follows deliberate selection. Preserve scoped memory-only drafts and reading positions. Use arrows and Tab; `k` stops execution. Require no function keys. `h` opens Help where its layer permits it. Page/navigation keys remain optional alternatives, not requirements.
 
 Blue identifies user input, cyan focus/active controls, neutral text model output, green recorded positive outcomes, amber attention and red errors/destructive actions. Active view and keyboard focus are distinct. Keep controls contextual, their shortcuts truthful, and important decision consequences visible. See [the TUI guide](11-tui.md).
 
@@ -110,3 +110,8 @@ Review GL-001/002, stop controls and provider capacity/diagnostic changes togeth
 ## 2026-11-21 — GL-003 descriptor-anchored file access
 
 Replace check-then-open path IO with a small Linux directory-capability layer using openat/O_NOFOLLOW and pinned file descriptors. Inspect O_PATH handles before reading regular files; publish mutations relative to pinned parents, verify published inode identity, retain write intents on uncertainty, and refuse changed parent bindings around journaled writes/restores. Route includes, discovery/workspace scans, state blobs, exports, approval saves and locks through that layer. Preserve SQLite descriptor paths with a narrow VFS pathname adapter; default SQLite canonicalization would otherwise undo the anchor. Bubblewrap receives project/cache descriptors using bind-fd options. Existing privacy/approval/sandbox policy remains; no unsafe fallback. Native race/SQLite tests pass, while this cloud environment blocks the optional live sandbox test at its read-only UID-map interface. GL-027 usability work remains deferred.
+
+
+## D-017 — Exclusive project execution (2026-11-22)
+
+One workflow/tool rerun or workspace control scope owns a project at a time. Ownership spans inference, verification, transitions and approval/input/retry waits. Read-only inspection and manager questions remain available. A busy result never queues work; goals/drafts remain reviewable. Durable owner records require explicit crash recovery, and restore plus fork publication shares one lease. See [project coordination](41-project-execution-coordination.md). Parallel orchestration remains separate work.

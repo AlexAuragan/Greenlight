@@ -161,6 +161,7 @@ impl App {
         if self.diagnostic.is_some() || self.attention_visible() {
             let mut actions = vec![
                 Action::RecordedActivity,
+                Action::Conversation,
                 Action::AskManager,
                 Action::FullDiagnostic,
                 Action::Provider,
@@ -200,6 +201,7 @@ impl App {
             Action::Usage,
             Action::Provider,
             Action::ConversationDump,
+            Action::RouteStatus,
         ];
         if self.session().is_some_and(|s| s.status == "completed")
             && !(self.result_open && self.view == View::Conversation)
@@ -248,7 +250,11 @@ impl App {
             actions.push(Action::RestoreInstruction);
         }
         if self.session().is_some() {
-            actions.push(Action::ManagerReplies);
+            actions.extend([
+                Action::Conversation,
+                Action::AskManager,
+                Action::ManagerReplies,
+            ]);
         }
         actions.push(Action::Sessions);
         if self.session().is_some() {
@@ -267,6 +273,30 @@ impl App {
             vec![Action::Sessions, Action::Details, Action::Help]
         }
     }
+    fn selected_route_event(&self) -> Option<i64> {
+        let event = self.event()?;
+        if event.kind != "manager.result" {
+            return None;
+        }
+        let reply: crate::manager::Reply = serde_json::from_str(&event.data).ok()?;
+        (matches!(reply.decision, crate::manager::Decision::Forward { .. })
+            && !reply.snapshot_changed)
+            .then_some(event.id)
+    }
+    fn selected_route_message(&self) -> Option<String> {
+        let event = self.event()?;
+        if event.kind != "manager.delivery" {
+            return None;
+        }
+        let value: serde_json::Value = serde_json::from_str(&event.data).ok()?;
+        if !matches!(
+            value["state"].as_str(),
+            Some("queued" | "needs_review" | "restart_proposed")
+        ) {
+            return None;
+        }
+        value["message_id"].as_str().map(str::to_owned)
+    }
     pub(super) fn selected_tool_request(&self) -> Option<i64> {
         if self.view != View::Conversation {
             return None;
@@ -282,6 +312,41 @@ impl App {
     }
     pub(super) fn footer_actions(&self) -> Vec<Action> {
         let mut actions = self.base_footer_actions();
+        if !self.reading_overlay() && !self.composer_active() && self.view == View::Conversation {
+            if self.event().is_some_and(|e| {
+                e.kind == "manager.result"
+                    && serde_json::from_str::<crate::manager::Reply>(&e.data).is_ok_and(|r| {
+                        matches!(r.decision, crate::manager::Decision::Clarify { .. })
+                    })
+            }) {
+                actions.insert(0, Action::ReplyClarification);
+            }
+            if self.selected_route_event().is_some() {
+                actions.insert(0, Action::DeliverRoute);
+            }
+            if self.selected_route_message().is_some() {
+                actions.insert(0, Action::WithdrawRoute);
+            }
+            if self.event().is_some_and(|e| {
+                e.kind == "manager.delivery"
+                    && serde_json::from_str::<serde_json::Value>(&e.data)
+                        .ok()
+                        .is_some_and(|v| {
+                            matches!(
+                                v["state"].as_str(),
+                                Some("needs_review" | "restart_proposed")
+                            )
+                        })
+            }) {
+                actions.insert(0, Action::ReviewGuidanceRestart);
+            }
+            if self
+                .session()
+                .is_some_and(|s| s.status == "instruction_review")
+            {
+                actions.insert(0, Action::ContinueGuidance);
+            }
+        }
         if self.approval.is_some() && self.approval_hidden && !self.help && !self.shell.more {
             actions.insert(
                 0,
@@ -291,6 +356,14 @@ impl App {
                     Action::ReviewPermission
                 },
             );
+        }
+        if self.project_attention() && !self.reading_overlay() && !self.composer_active() {
+            actions.insert(0, Action::RefreshProject);
+            if self.other_project_owner()
+                && self.project.as_ref().is_some_and(|p| p.session.is_some())
+            {
+                actions.insert(0, Action::OpenProjectOwner);
+            }
         }
         actions
     }
@@ -359,7 +432,11 @@ impl App {
             };
         }
         if self.composer_active() {
-            if self.compose.mode == compose::Mode::Manager && self.manager_job.is_some() {
+            if matches!(
+                self.compose.mode,
+                compose::Mode::Manager | compose::Mode::Conversation
+            ) && self.manager_job.is_some()
+            {
                 return vec![Action::StopManager, Action::Recipient, Action::Close];
             }
             if self.compose.mode == compose::Mode::Step && !self.can_resume_message() {
@@ -368,6 +445,7 @@ impl App {
             let send = match self.compose.mode {
                 compose::Mode::Step => Action::SendStep,
                 compose::Mode::Manager => Action::SendQuestion,
+                compose::Mode::Conversation => Action::SendConversation,
                 compose::Mode::Command => Action::SendCommand,
             };
             return vec![
@@ -659,7 +737,83 @@ impl App {
             self.shell.more = false;
         }
         match action {
+            ContinueGuidance => {
+                let session = self.session().context("No selected session")?.id.clone();
+                match store.continue_after_guidance(root, &session) {
+                    Ok(()) => {
+                        self.clear_diagnostic();
+                        self.refresh(store)?;
+                        self.notice="Review hold resolved using the recorded success edge. No step was repeated; resume the next ready step explicitly.".into();
+                    }
+                    Err(error) => self.notice = format!("Cannot continue: {error:#}"),
+                }
+            }
+            ReviewGuidanceRestart => {
+                let message = self
+                    .selected_route_message()
+                    .context("Select an undelivered instruction")?;
+                if let Err(error) = self.prepare_manager_restart(root, store, &message) {
+                    self.notice = format!("Restart review unavailable: {error:#}");
+                }
+            }
+            RouteStatus => {
+                let session = self.session().context("No session selected")?;
+                let routes = store.manager_routes(session)?;
+                self.context_detail = Some(if routes.is_empty() {
+                    "Instruction delivery · no accepted routes on this branch. Select a manager forward proposal and use Deliver original. Ask/Answer alone never executes it.".into()
+                } else {
+                    format!("Instruction delivery · current branch snapshot\nQueued means not included yet. Reopen to refresh.\n\n{}",routes.iter().map(|r|r.display()).collect::<Vec<_>>().join("\n\n"))
+                });
+                self.detail_scroll = 0;
+            }
+            DeliverRoute => {
+                let event = self
+                    .selected_route_event()
+                    .context("Select a manager forward proposal")?;
+                if let Err(error) = self.deliver_manager_result(root, store, event) {
+                    self.notice = format!("Route not delivered: {error:#}. Original retained.");
+                }
+            }
+            WithdrawRoute => {
+                let message = self
+                    .selected_route_message()
+                    .context("Select a manager delivery record")?;
+                let session = self.session().context("No session")?.id.clone();
+                self.notice = match store.withdraw_manager_route(&session, &message) {
+                    Ok(()) => "Instruction withdrawn; original evidence retained.".into(),
+                    Err(error) => format!("Cannot withdraw: {error:#}"),
+                };
+                self.refresh(store)?;
+            }
+            OpenProjectOwner => {
+                if let Some(owner) = store.project_status()?.and_then(|p| p.session) {
+                    self.remember_creation();
+                    self.new_session = None;
+                    self.requested_session = Some(owner.id);
+                    self.shell.sessions = false;
+                    self.clear_diagnostic();
+                    self.refresh(store)?;
+                    self.notice = "Opened project owner. Other clients' approval/input waits may be unavailable here; browsing does not stop the worker.".into();
+                } else {
+                    self.refresh(store)?;
+                    self.notice = "Project owner changed; refreshed.".into();
+                }
+            }
+            RefreshProject => {
+                self.refresh(store)?;
+                self.notice = self
+                    .project
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| {
+                        "Project available. Start explicitly when ready; no work was queued.".into()
+                    });
+            }
             RetrySaved => {
+                if let Err(error) = store.ensure_project_available() {
+                    self.notice = format!("Not started: {error:#}");
+                    return Ok(false);
+                }
                 if self.runner.is_some() || self.manager_job.is_some() {
                     self.notice = "Stop active execution before retrying the saved request.".into();
                     return Ok(false);
@@ -764,9 +918,41 @@ impl App {
                 self.set_message_mode(compose::Mode::Step);
                 self.focus_composer();
             }
+            ReplyClarification => {
+                let event = self.event().context("Select a clarification")?.id;
+                let raw = &self.event().context("Select a clarification")?.data;
+                let reply: crate::manager::Reply = serde_json::from_str(raw)?;
+                if !matches!(reply.decision, crate::manager::Decision::Clarify { .. }) {
+                    bail!("Selected result is not a clarification");
+                }
+                let scope = self.session().context("No selected session")?.clone();
+                let automatic = store.history(&scope)?.iter().any(|e| {
+                    e.2 == "manager.routing-requested"
+                        && serde_json::from_str::<serde_json::Value>(&e.3).is_ok_and(|v| {
+                            v["message_id"].as_str() == Some(reply.decision.message_id())
+                        })
+                });
+                self.clear_diagnostic();
+                self.set_message_mode(if automatic {
+                    compose::Mode::Conversation
+                } else {
+                    compose::Mode::Manager
+                });
+                self.compose
+                    .clarification
+                    .insert(self.compose.scope.clone(), event);
+                self.focus_composer();
+                self.notice="Reply to the selected clarification. Original request is preserved; the visible recipient determines whether a validated forward can be delivered.".into();
+            }
+            Conversation => {
+                self.clear_diagnostic();
+                self.set_message_mode(compose::Mode::Conversation);
+                self.focus_composer();
+            }
             AskManager => {
                 self.clear_diagnostic();
                 self.set_message_mode(compose::Mode::Manager);
+                self.compose.clarification.remove(&self.compose.scope);
                 self.focus_composer();
             }
             RecoverOwner => {
@@ -781,10 +967,11 @@ impl App {
                 self.clear_diagnostic();
                 self.open_restart(root, store);
             }
-            SendStep | SendQuestion | SendCommand => {
+            SendStep | SendQuestion | SendConversation | SendCommand => {
                 let expected = match action {
                     SendStep => compose::Mode::Step,
                     SendQuestion => compose::Mode::Manager,
+                    SendConversation => compose::Mode::Conversation,
                     _ => compose::Mode::Command,
                 };
                 if self.compose.mode != expected || self.focus != Focus::Compose {
@@ -1587,7 +1774,10 @@ mod tests {
         assert!(app.approval.is_some());
         assert_eq!(app.detail_scroll, 3);
         key(&mut app, root.path(), &store, KeyCode::Char('h'));
-        ft.send(Err("fixture disconnected".into())).unwrap();
+        ft.send(Err(crate::tui_actions::RunnerError::Other(
+            "fixture disconnected".into(),
+        )))
+        .unwrap();
         app.tick();
         key(&mut app, root.path(), &store, KeyCode::Esc);
         assert!(app.approval.is_none());

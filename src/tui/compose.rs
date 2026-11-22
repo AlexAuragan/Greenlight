@@ -5,12 +5,14 @@ pub(super) enum Mode {
     #[default]
     Step,
     Manager,
+    Conversation,
     Command,
 }
 pub(super) type Scope = (Option<String>, Option<String>, Mode);
 #[derive(Default)]
 pub(super) struct Composer {
     pub mode: Mode,
+    pub clarification: HashMap<Scope, i64>,
     pub scope: Scope,
     pub explicit: bool,
     pub creation_goal: String,
@@ -41,8 +43,11 @@ impl App {
     }
     pub(super) fn choose_recipient(&mut self) {
         let mode = match self.compose.mode {
+            Mode::Step if self.manager_enabled => Mode::Conversation,
             Mode::Step => Mode::Manager,
+            Mode::Conversation => Mode::Manager,
             Mode::Manager | Mode::Command if self.can_resume_message() => Mode::Step,
+            _ if self.manager_enabled => Mode::Conversation,
             _ => Mode::Manager,
         };
         self.set_message_mode(mode);
@@ -50,7 +55,7 @@ impl App {
         self.focus = Focus::Compose;
     }
     pub(super) fn message_limit(&self) -> usize {
-        if self.compose.mode == Mode::Manager {
+        if matches!(self.compose.mode, Mode::Manager | Mode::Conversation) {
             crate::manager::MESSAGE_BYTES
         } else {
             8192
@@ -79,7 +84,12 @@ impl App {
             }
         }
         match self.compose.mode {
-            Mode::Manager => self.start_manager(root, store, self.composer.clone()),
+            Mode::Manager | Mode::Conversation => self.start_manager(
+                root,
+                store,
+                self.composer.clone(),
+                self.compose.mode == Mode::Conversation,
+            ),
             Mode::Command => {
                 if !self.composer.starts_with('/') {
                     self.notice =
@@ -99,6 +109,7 @@ impl App {
             if self.runner.is_some() {
                 bail!("A workflow worker is already active; this draft was not sent.")
             }
+            store.ensure_project_available()?;
             store.ensure_no_pending_writes()?;
             let selected = self.session().context("Choose a session first")?;
             let session = store.session(&selected.id)?;
@@ -181,8 +192,16 @@ pub(super) fn draw_composer(frame: &mut Frame, app: &App, area: ratatui::layout:
     }
     let title = match app.compose.mode {
         Mode::Step => "Resume step with instructions",
-        Mode::Manager if app.manager_job.is_some() => "Manager answering · draft retained",
+        Mode::Manager | Mode::Conversation if app.manager_job.is_some() => {
+            "Manager answering · draft retained"
+        }
+        Mode::Manager | Mode::Conversation
+            if app.compose.clarification.contains_key(&app.compose.scope) =>
+        {
+            "Reply to manager clarification"
+        }
         Mode::Manager => "Ask manager",
+        Mode::Conversation => "Conversation",
         Mode::Command => "Commands",
     };
     let description = match app.compose.mode {
@@ -190,6 +209,9 @@ pub(super) fn draw_composer(frame: &mut Frame, app: &App, area: ratatui::layout:
             "Step delivery is unavailable; recover/restart or choose the manager."
         }
         Mode::Step => "Send & resume starts this step; tool approvals remain separate.",
+        Mode::Conversation => {
+            "Manager answers or delivers your original to a step; restarts require confirmation."
+        }
         Mode::Manager => {
             "Read-only answer or route proposal; no workflow instruction is delivered."
         }
@@ -217,6 +239,7 @@ pub(super) fn draw_composer(frame: &mut Frame, app: &App, area: ratatui::layout:
     let recipient = match app.compose.mode {
         Mode::Step => "workflow step",
         Mode::Manager => "manager (read-only)",
+        Mode::Conversation => "manager → workflow routing",
         Mode::Command => "Greenlight controls",
     };
     let target = app
@@ -407,6 +430,13 @@ mod tests {
         (root, store, session, app)
     }
     fn server(root: &Path) -> (std::thread::JoinHandle<()>, String) {
+        server_replies(root, "answer", 1)
+    }
+    fn server_replies(
+        root: &Path,
+        action: &'static str,
+        requests: usize,
+    ) -> (std::thread::JoinHandle<()>, String) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
@@ -414,50 +444,57 @@ mod tests {
         std::env::set_var(&env, "local-fixture");
         fs::write(root.join(".greenlight/config.yaml"),format!("provider:\n  model: fixture\n  base_url: http://{address}/v1\n  api_key_env: {env}\nmanager:\n  enabled: true\n")).unwrap();
         let handle = std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            let mut socket = loop {
-                match listener.accept() {
-                    Ok((s, _)) => break s,
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        assert!(Instant::now() < deadline, "No local request received");
-                        std::thread::sleep(Duration::from_millis(5));
+            for _ in 0..requests {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((s, _)) => break s,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "No local request received");
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(e) => panic!("{e}"),
                     }
-                    Err(e) => panic!("{e}"),
-                }
-            };
-            socket
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut bytes = Vec::new();
-            let mut buf = [0; 2048];
-            let request: serde_json::Value = loop {
-                let n = socket.read(&mut buf).unwrap();
-                assert!(n > 0);
-                bytes.extend_from_slice(&buf[..n]);
-                if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
-                    let head = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
-                    let length = head
-                        .lines()
-                        .find_map(|l| {
-                            l.strip_prefix("content-length:")
-                                .and_then(|n| n.trim().parse::<usize>().ok())
-                        })
-                        .unwrap();
-                    if bytes.len() >= end + 4 + length {
-                        break serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap();
+                };
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let mut buf = [0; 2048];
+                let request: serde_json::Value = loop {
+                    let n = socket.read(&mut buf).unwrap();
+                    assert!(n > 0);
+                    bytes.extend_from_slice(&buf[..n]);
+                    if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+                        let length = head
+                            .lines()
+                            .find_map(|l| {
+                                l.strip_prefix("content-length:")
+                                    .and_then(|n| n.trim().parse::<usize>().ok())
+                            })
+                            .unwrap();
+                        if bytes.len() >= end + 4 + length {
+                            break serde_json::from_slice(&bytes[end + 4..end + 4 + length])
+                                .unwrap();
+                        }
                     }
-                }
-            };
-            let input = request["messages"][1]["content"]
-                .as_str()
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
-            let content = if let Some(input) = input.filter(|v| v.get("message_id").is_some()) {
-                serde_json::json!({"schema_version":1,"message_id":input["message_id"],"snapshot_id":input["evidence"]["snapshot_id"],"action":"answer","content":"Read-only fixture answer.","citations":["workflow:demo"]}).to_string()
-            } else {
-                "action: finish\nsummary: Local step complete".into()
-            };
-            let body=serde_json::json!({"choices":[{"message":{"content":content}}],"usage":{"prompt_tokens":12,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":0}}}).to_string();
-            write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+                };
+                let input = request["messages"][1]["content"]
+                    .as_str()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+                let content = if let Some(input) = input.filter(|v| v.get("message_id").is_some()) {
+                    let mut reply = serde_json::json!({"schema_version":1,"message_id":input["message_id"],"snapshot_id":input["evidence"]["snapshot_id"],"action":action,"content":"Fixture manager reply.","citations":["workflow:demo"]});
+                    if action == "forward" {
+                        reply["step_id"] = serde_json::json!("work");
+                    }
+                    reply.to_string()
+                } else {
+                    "action: finish\nsummary: Local step complete".into()
+                };
+                let body=serde_json::json!({"choices":[{"message":{"content":content}}],"usage":{"prompt_tokens":12,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":0}}}).to_string();
+                write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+            }
         });
         (handle, env)
     }
@@ -666,5 +703,96 @@ mod tests {
             .unwrap();
         app.new_form(root.path()).unwrap();
         assert!(app.new_session.as_ref().unwrap().goal.is_none());
+    }
+    #[test]
+    fn default_conversation_answers_without_starting_a_worker() {
+        let (root, store, session, mut app) = setup();
+        let (http, env) = server(root.path());
+        app.refresh(&store).unwrap();
+        app.focus_composer();
+        assert_eq!(app.compose.mode, Mode::Conversation);
+        app.composer = "  Where are we? — é\n ".into();
+        app.send_message(root.path(), &store);
+        wait(&mut app);
+        http.join().unwrap();
+        std::env::remove_var(env);
+        assert_eq!(store.session(&session.id).unwrap().status, "ready");
+        assert!(store.manager_routes(&session).unwrap().is_empty());
+        assert!(app.inspector_open);
+        assert_eq!(app.event().unwrap().kind, "manager.result");
+    }
+    #[test]
+    fn default_conversation_delivers_a_forward_but_explicit_question_does_not() {
+        for automatic in [false, true] {
+            let (root, store, session, mut app) = setup();
+            let (http, env) = server_replies(root.path(), "forward", if automatic { 2 } else { 1 });
+            app.refresh(&store).unwrap();
+            if !automatic {
+                app.set_message_mode(Mode::Manager);
+            }
+            app.focus_composer();
+            let original = "  Try threads — déjà\nKeep spacing.  ";
+            app.composer = original.into();
+            app.send_message(root.path(), &store);
+            wait(&mut app);
+            http.join().unwrap();
+            std::env::remove_var(env);
+            let state = store.session(&session.id).unwrap();
+            let routes = store.manager_routes(&state).unwrap();
+            if automatic {
+                assert_eq!(state.status, "completed", "{}", app.notice);
+                assert_eq!(routes.len(), 1);
+                assert_eq!(routes[0].original, original);
+                assert_eq!(routes[0].state, "included_in_request");
+                assert_eq!(store.attempts(&state).unwrap().len(), 1);
+            } else {
+                assert_eq!(state.status, "ready");
+                assert!(routes.is_empty());
+            }
+        }
+    }
+    #[test]
+    fn default_clarification_reply_preserves_the_original_and_can_route() {
+        let (root, store, session, mut app) = setup();
+        let (http, env) = server_replies(root.path(), "clarify", 1);
+        app.refresh(&store).unwrap();
+        app.focus_composer();
+        let original = "Optimize this — é\n ";
+        app.composer = original.into();
+        app.send_message(root.path(), &store);
+        wait(&mut app);
+        http.join().unwrap();
+        std::env::remove_var(env);
+        assert!(app
+            .footer_actions()
+            .contains(&shell::Action::ReplyClarification));
+        app.activate(shell::Action::ReplyClarification, root.path(), &store)
+            .unwrap();
+        assert_eq!(app.compose.mode, Mode::Conversation);
+        let (http, env) = server_replies(root.path(), "forward", 2);
+        app.composer = "Use threads".into();
+        app.send_message(root.path(), &store);
+        wait(&mut app);
+        http.join().unwrap();
+        std::env::remove_var(env);
+        let routes = store
+            .manager_routes(&store.session(&session.id).unwrap())
+            .unwrap();
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].original, "Use threads");
+        assert_eq!(routes[0].clarification_thread[0]["text"], original);
+        assert_eq!(routes[0].state, "included_in_request");
+    }
+    #[test]
+    fn disabling_default_manager_keeps_the_step_recipient_and_explicit_modes_available() {
+        let (_root, _store, _session, mut app) = setup();
+        assert!(!app.manager_enabled);
+        app.focus_composer();
+        assert_eq!(app.compose.mode, Mode::Step);
+        app.set_message_mode(Mode::Manager);
+        app.focus_composer();
+        assert_eq!(app.compose.mode, Mode::Manager);
+        assert!(app.runner.is_none());
+        assert!(app.manager_job.is_none());
     }
 }
