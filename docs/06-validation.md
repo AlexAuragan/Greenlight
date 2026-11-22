@@ -1,5 +1,11 @@
 # Validation
 
+## Project inspection permissions (GL-012) — 2026-11-22
+
+Implemented on the existing `feat/optional-summaries` branch, pending merge. The normal suite passes 500 Rust tests, with three integration/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. New checks cover argv/option classification and injection rejection, path/private/symlink scope, filtered snapshot stability and limits, literal coreutils argv semantics, fixed-executable sandbox construction, output bounds, policy opt-out/deny, exact grants, explicit reruns and early cancellation. Test-only direct coreutils execution checks argv semantics; production never has an unsandboxed fallback.
+
+The explicitly attempted new Bubblewrap integration fails before executing the inspection command: `bwrap: setting up uid map: Read-only file system`. This cloud host cannot validate live namespace isolation, consistent with the previously deferred sandbox limitation. The failure remains closed; it was not bypassed or converted into a passing result. No paid provider calls were used. See [policy and host reproduction](46-project-inspection-permissions.md).
+
 ## File-body snapshot evaluation (GL-011) — 2026-11-22
 
 This increment changes documentation/backlog decisions only. Eight existing workspace-audit tests and six restore tests pass, including external-change classification, journal-chain gaps, branch/retry cutoffs and refusal to overwrite manual drift. A three-run read-only workspace benchmark recorded 443 included files, 26,608,001 bytes hashed and a 57,075-byte manifest, with median scan time 0.511585 seconds. The raw aggregate measurements and their limits are retained in the [snapshot evaluation](45-file-body-snapshot-evaluation.md). No new file bodies, schema/configuration changes or provider requests were introduced. Broader recovery remains unimplemented; the completed item is the evaluation and policy decision.

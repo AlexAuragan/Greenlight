@@ -6,7 +6,7 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-012** — **Design command-level shell grants together before implementation:** allow selected executables (e.g. `ls`) across approved argument/path variations without approving a whole shell string by prefix. Define argument/option restrictions, path and executable identity, wrappers/interpreters, pipelines/AND/OR/sequences, redirections, substitutions and environment assignments; validate every executed component or request approval for the whole compound command. Regression case: granting `cat` must never auto-approve `cat something.txt | ./harmful_script.sh` (nor hidden substitutions). Keep exact-command grants until this design is agreed.
+- [ ] **GL-031** — Design safe inspection pipelines after the GL-012 simple-command profile: validate every stage and I/O edge before execution, retain exact approval for wrappers/substitutions/unsupported options, and never let a permitted `cat`/`ls` authorize a later script. Metadata-dependent inspection and additional option forms require separate policy review.
 - [ ] **GL-013** — Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
 - [ ] **GL-014** — Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
 - [ ] **GL-015** — Extend diff review with hunk navigation and exportable verification evidence.
@@ -34,6 +34,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-012** — First version implemented on `feat/optional-summaries` (pending merge): supported read-only argv forms auto-approve under project inspection policy, using trusted executables and bounded filtered private views inside Bubblewrap. Private/outside paths, symlinks and shell syntax cannot broaden automatic authority. Exact grants, denies, user reruns and opt-out remain intact. Pipelines remain exact-approved; see GL-031 and [project inspection](docs/46-project-inspection-permissions.md). Live namespace validation remains host-blocked as documented.
 
 - [x] **GL-011** — Evaluated on `feat/optional-summaries` (pending merge): confirmed the external-preimage gap, measured the current hash baseline, and defined privacy/size/cache/retention and external-edit protection requirements. Decision: no automatic external-body capture or restore expansion; a future implementation needs explicit opt-in and a concrete recovery case. See [snapshot evaluation](docs/45-file-body-snapshot-evaluation.md).
 

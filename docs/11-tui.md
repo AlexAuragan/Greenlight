@@ -262,3 +262,7 @@ A new goal created while busy stays saved as a Ready session with **Created; not
 ## Idle manager instruction delivery
 
 Select a manager forward in Activity and use **[g] Deliver original** to explicitly accept its destination. Current idle targets start through normal execution, unvisited targets reserve their next visit, and old targets record Restart proposed without changing workflow state. **[G] Instruction delivery** shows current-branch status; **[w] Withdraw instruction** on a pending delivery event withdraws it while idle. Asking alone executes nothing. Live delivery and binding guidance through confirmed restart remain unavailable; see [idle manager delivery](42-idle-manager-delivery.md).
+
+## Project inspection feedback
+
+Supported GL-012 inspection commands can run without an approval popup when policy permits. Their tool results identify the filtered snapshot scope, and raw permission evidence records automatic classification. Unsupported commands/options/pipelines still show the full exact-command permission popup; no control approves a command prefix. `permissions.project_inspection: false` restores prompt-only shell classification. Existing exact grants, explicit shell allow/deny and user-requested reruns preserve their earlier behavior. See [inspection permissions](46-project-inspection-permissions.md), including the sandbox integration prerequisite.

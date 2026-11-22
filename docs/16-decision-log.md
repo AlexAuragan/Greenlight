@@ -119,3 +119,7 @@ One workflow/tool rerun or workspace control scope owns a project at a time. Own
 ## D-018 — External file bodies remain opt-in future work (2026-11-22)
 
 GL-011 confirms that hashes cannot recover external preimages, but after-step changed-file capture cannot recover those preimages either. Keep bounded hash auditing, native-write snapshots and overwrite protection; do not introduce implicit whole-project body retention or broader restore claims. A future implementation requires a concrete recovery case, explicit narrow opt-in, aggregate quotas, privacy/cache exclusions, stable captures and reference-aware retention. See the [evaluation and measured baseline](45-file-body-snapshot-evaluation.md). No runtime/schema/provider behavior changes in this decision.
+
+## D-019 — Auto-approve a bounded project-inspection language (2026-11-22)
+
+GL-012 uses a static supported argv/option subset, fixed system executables and private filtered per-command views inside the existing sandbox. It does not turn shell strings into prefix/wildcard grants. Preserve explicit policy/grant/rerun semantics; reject private/outside/parent paths from automatic classification, and retain exact approval for shell syntax/unsupported forms. Temporary inspection views do not become persistent recovery snapshots. Metadata-dependent commands remain approved through the original path rather than reporting staged metadata as original. See [inspection permissions](46-project-inspection-permissions.md); safe pipelines remain GL-031.

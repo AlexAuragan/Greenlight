@@ -27,6 +27,7 @@ mod paths;
 mod pricing;
 mod project;
 mod project_execution;
+mod project_inspection;
 mod provider;
 mod provider_diagnostic;
 mod provider_failure;

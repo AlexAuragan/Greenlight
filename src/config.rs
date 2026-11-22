@@ -40,6 +40,8 @@ fn max_tokens() -> u32 {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Permissions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_inspection: Option<bool>,
     #[serde(default = "ask")]
     pub shell: String,
     #[serde(default = "ask")]
@@ -58,6 +60,7 @@ fn allow() -> String {
 impl Default for Permissions {
     fn default() -> Self {
         Self {
+            project_inspection: None,
             shell: ask(),
             write: ask(),
             read: allow(),

@@ -432,14 +432,39 @@ impl Tools {
         Ok(resolved)
     }
     pub async fn shell(&mut self, command: &str) -> Result<String> {
-        self.permission("shell", command)?;
-        let sandbox = crate::sandbox::Sandbox::open(&self.root)?;
+        if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Execution stopped by user before tool authorization/execution");
+        }
+        let exact_grant = self.approved.contains(&format!("shell:{command}"))
+            || self.approvals.matched_scope("shell", command).is_some();
+        let inspection = if !self.user_requested
+            && !exact_grant
+            && self.policies.shell == "ask"
+            && self.policies.read == "allow"
+            && self.policies.project_inspection.unwrap_or(true)
+        {
+            crate::project_inspection::parse(&self.root, command)
+        } else {
+            None
+        };
+        let view = if let Some(plan) = &inspection {
+            self.decisions.push(format!("shell: auto-approved project inspection — {command}; filtered snapshot, no shell expansion"));
+            Some(plan.snapshot(&self.root)?)
+        } else {
+            self.permission("shell", command)?;
+            None
+        };
+        let sandbox = if let Some(view) = &view {
+            crate::sandbox::Sandbox::project_inspection(view)?
+        } else {
+            crate::sandbox::Sandbox::open(&self.root)?
+        };
         let output = tokio::select! {
             biased;
             _ = crate::provider_failure::cancelled(&self.stop) => {
                 bail!("Command stopped by user; partial effects/output may be unknown. No automatic replay.");
             }
-            result = sandbox.run(command) => result?,
+            result = async {if let Some(plan)=&inspection {sandbox.inspect(plan).await} else {sandbox.run(command).await}} => result?,
         };
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -458,6 +483,9 @@ impl Tools {
                 .unwrap_or(0);
             result.truncate(cut);
             result.push_str("\n[output truncated by harness]");
+        }
+        if inspection.is_some() {
+            result.push_str("\n[Project inspection: filtered private snapshot; sensitive/generated paths and symlinks excluded. Supported argv only; no shell expansion. Files may have changed since capture.]\n");
         }
         Ok(result)
     }
@@ -1145,5 +1173,94 @@ mod stop_tests {
             .unwrap();
         stop.store(true, std::sync::atomic::Ordering::SeqCst);
         worker.join().unwrap();
+    }
+    #[tokio::test]
+    async fn project_inspection_does_not_prompt_but_policy_opt_out_and_compound_commands_do() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("notes"), "fixture data").unwrap();
+        for (command, policy, prompts_expected) in [
+            ("cat notes", Permissions::default(), false),
+            (
+                "cat notes",
+                Permissions {
+                    project_inspection: Some(false),
+                    ..Default::default()
+                },
+                true,
+            ),
+            (
+                "cat notes",
+                Permissions {
+                    read: "ask".into(),
+                    ..Default::default()
+                },
+                true,
+            ),
+            ("cat notes | ./danger.sh", Permissions::default(), true),
+        ] {
+            let mut tools = Tools::new(root.path().to_path_buf(), policy).unwrap();
+            let (sent, requests) = std::sync::mpsc::channel();
+            let (answers, received) = std::sync::mpsc::channel();
+            answers.send("n".into()).unwrap();
+            tools.use_tui(sent, received);
+            let result = tools.shell(command).await;
+            if prompts_expected {
+                assert!(result.is_err());
+                assert_eq!(
+                    requests.try_recv().unwrap().command.as_deref(),
+                    Some(command)
+                );
+            } else {
+                assert!(requests.try_recv().is_err());
+                assert!(tools
+                    .decisions
+                    .iter()
+                    .any(|d| d.contains("auto-approved project inspection")));
+            }
+            // A failed namespace setup must remain an error, never host execution.
+            assert!(!root.path().join("danger-ran").exists());
+        }
+        let mut denied = Tools::new(
+            root.path().to_path_buf(),
+            Permissions {
+                shell: "deny".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(denied
+            .shell("cat notes")
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("forbidden"));
+        let mut rerun = Tools::new(root.path().to_path_buf(), Permissions::default()).unwrap();
+        rerun.user_requested = true;
+        let _ = rerun.shell("cat notes").await;
+        assert!(rerun
+            .decisions
+            .iter()
+            .any(|d| d.contains("explicitly authorized by user-requested rerun")));
+        assert!(!rerun
+            .decisions
+            .iter()
+            .any(|d| d.contains("auto-approved project inspection")));
+        let mut granted = Tools::new(root.path().to_path_buf(), Permissions::default()).unwrap();
+        granted
+            .approvals
+            .grant(Scope::Project, "shell", "cat notes")
+            .unwrap();
+        let _ = granted.shell("cat notes").await;
+        assert!(granted.decisions.iter().any(|d| d.contains("whitelist")));
+        assert!(!granted
+            .decisions
+            .iter()
+            .any(|d| d.contains("auto-approved project inspection")));
+        let mut stopped = Tools::new(root.path().to_path_buf(), Permissions::default()).unwrap();
+        stopped
+            .stop
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(stopped.shell("cat notes").await.is_err());
+        assert!(stopped.decisions.is_empty());
     }
 }

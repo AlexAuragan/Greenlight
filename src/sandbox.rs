@@ -18,26 +18,32 @@ const CACHE: &str = "/cache";
 pub struct Sandbox {
     root_fd: crate::anchored_fs::Dir,
     cache_fd: crate::anchored_fs::Dir,
+    inspection_cache: Option<tempfile::TempDir>,
+}
+
+pub(crate) fn checked_project_root(root: &Path) -> Result<PathBuf> {
+    #[cfg(not(target_os = "linux"))]
+    bail!("shell execution requires Linux and bubblewrap; no unsandboxed fallback");
+
+    let root = root
+        .canonicalize()
+        .context("sandbox project root does not exist")?;
+    // Reject roots that would expose unrelated host directories.
+    if root == Path::new("/") {
+        bail!("refusing to sandbox the entire host filesystem as a project");
+    }
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        if home.is_absolute() && home.starts_with(&root) {
+            bail!("project root contains the host HOME; select a narrower project");
+        }
+    }
+    Ok(root)
 }
 
 impl Sandbox {
     pub fn open(root: &Path) -> Result<Self> {
-        #[cfg(not(target_os = "linux"))]
-        bail!("shell execution requires Linux and bubblewrap; no unsandboxed fallback");
-
-        let root = root
-            .canonicalize()
-            .context("sandbox project root does not exist")?;
-        // Reject roots that would expose unrelated host directories.
-        if root == Path::new("/") {
-            bail!("refusing to sandbox the entire host filesystem as a project");
-        }
-        if let Some(home) = env::var_os("HOME") {
-            let home = PathBuf::from(home);
-            if home.is_absolute() && home.starts_with(&root) {
-                bail!("project root contains the host HOME; select a narrower project");
-            }
-        }
+        let root = checked_project_root(root)?;
         let (_, state) = crate::paths::state_directory_handle(&root)?;
         let cache_fd = state.create_dirs(Path::new("sandbox-cache"))?;
         use std::os::unix::fs::PermissionsExt;
@@ -47,10 +53,22 @@ impl Sandbox {
         Ok(Self {
             root_fd: crate::anchored_fs::Dir::open(&root)?,
             cache_fd,
+            inspection_cache: None,
         })
     }
 
+    pub(crate) fn project_inspection(view: &tempfile::TempDir) -> Result<Self> {
+        let cache = tempfile::tempdir()?;
+        Ok(Self {
+            root_fd: crate::anchored_fs::Dir::open(view.path())?,
+            cache_fd: crate::anchored_fs::Dir::open(cache.path())?,
+            inspection_cache: Some(cache),
+        })
+    }
     fn build(&self, input: &str) -> Result<Command> {
+        self.build_program(&["/bin/sh".into(), "-c".into(), input.into()])
+    }
+    fn build_program(&self, arguments: &[String]) -> Result<Command> {
         if !Path::new(BWRAP).is_file() {
             bail!(
                 "bubblewrap ({BWRAP}) is required for shell commands; install the 'bubblewrap' package. No host-shell fallback."
@@ -191,13 +209,56 @@ impl Sandbox {
         if has_rustup {
             command.args(["--setenv", "RUSTUP_HOME", "/rustup"]);
         }
-        command.arg("--").arg("/bin/sh").arg("-c").arg(input);
+        command.arg("--").args(arguments);
         Ok(command)
     }
 
     pub async fn run(&self, input: &str) -> Result<Output> {
-        let mut process = self.build(input)?;
-        let output = tokio::time::timeout(Duration::from_secs(120), process.output())
+        Self::execute(self.build(input)?, None).await
+    }
+    pub async fn inspect(&self, plan: &crate::project_inspection::Inspection) -> Result<Output> {
+        if self.inspection_cache.is_none() {
+            bail!("Automatic inspection requires a private filtered view");
+        }
+        Self::execute(self.build_program(plan.argv())?, Some(128 * 1024)).await
+    }
+    async fn execute(mut process: Command, limit: Option<u64>) -> Result<Output> {
+        let running = async {
+            if let Some(limit) = limit {
+                use tokio::io::AsyncReadExt;
+                process
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+                let mut child = process.spawn()?;
+                let stdout = child.stdout.take().context("Missing inspection stdout")?;
+                let stderr = child.stderr.take().context("Missing inspection stderr")?;
+                let out = async {
+                    let mut bytes = Vec::new();
+                    stdout.take(limit + 1).read_to_end(&mut bytes).await?;
+                    Ok::<_, std::io::Error>(bytes)
+                };
+                let err = async {
+                    let mut bytes = Vec::new();
+                    stderr.take(limit + 1).read_to_end(&mut bytes).await?;
+                    Ok::<_, std::io::Error>(bytes)
+                };
+                let (status, stdout, mut stderr) = tokio::try_join!(child.wait(), out, err)?;
+                if stdout.len() as u64 > limit || stderr.len() as u64 > limit {
+                    stderr.extend_from_slice(
+                        b"\n[Inspection output limit reached; command output may be incomplete.]\n",
+                    );
+                }
+                Ok::<_, anyhow::Error>(Output {
+                    status,
+                    stdout,
+                    stderr,
+                })
+            } else {
+                Ok(process.output().await?)
+            }
+        };
+        let output = tokio::time::timeout(Duration::from_secs(120), running)
             .await
             .context("sandboxed command timed out after 120s")?
             .context("failed to start bubblewrap sandbox")?;
@@ -212,7 +273,7 @@ impl Sandbox {
     }
 }
 
-fn is_sensitive(name: &str) -> bool {
+pub(crate) fn is_sensitive(name: &str) -> bool {
     matches!(
         name,
         ".git"
@@ -396,5 +457,60 @@ mod descriptor_tests {
         assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
         fs::remove_file(root.path()).unwrap();
         fs::rename(&renamed, root.path()).unwrap();
+    }
+    #[test]
+    fn inspection_argv_keeps_isolation_and_never_invokes_a_shell() {
+        let root = tempfile::tempdir().unwrap();
+        let sandbox = Sandbox::open(root.path()).unwrap();
+        let args = vec!["/usr/bin/cat".into(), "--".into(), "./notes".into()];
+        let command = sandbox.build_program(&args).unwrap();
+        let arguments = command
+            .as_std()
+            .get_args()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(arguments.contains(&"--unshare-net".into()));
+        assert!(arguments.contains(&"--ro-bind-fd".into()));
+        assert_eq!(
+            &arguments[arguments.len() - 4..],
+            ["--", "/usr/bin/cat", "--", "./notes"]
+        );
+        assert!(!arguments.iter().any(|a| a == "/bin/sh" || a == "-c"));
+    }
+    #[tokio::test]
+    async fn inspection_capture_has_a_hard_output_bound() {
+        let mut command = Command::new("/usr/bin/head");
+        command.args(["-c", "1000000", "/dev/zero"]);
+        command.kill_on_drop(true);
+        let output = Sandbox::execute(command, Some(1024)).await.unwrap();
+        assert!(output.stdout.len() <= 1025);
+        assert!(String::from_utf8_lossy(&output.stderr).contains("Inspection output limit reached"));
+    }
+    #[tokio::test]
+    #[ignore = "requires installed bubblewrap and enabled Linux user namespaces"]
+    async fn integration_project_inspection_executes_the_private_view() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("notes"), "visible").unwrap();
+        fs::write(root.path().join(".env"), "secret").unwrap();
+        let plan = crate::project_inspection::parse(root.path(), "cat notes").unwrap();
+        let view = plan.snapshot(root.path()).unwrap();
+        let sandbox = Sandbox::project_inspection(&view).unwrap();
+        assert!(!view.path().join(".greenlight").exists());
+        assert!(!view.path().join(".env").exists());
+        let output = sandbox.inspect(&plan).await.unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"visible");
+    }
+    #[tokio::test]
+    async fn inspection_cannot_use_an_ordinary_full_project_sandbox() {
+        let root = tempfile::tempdir().unwrap();
+        let plan = crate::project_inspection::parse(root.path(), "cat notes").unwrap();
+        let sandbox = Sandbox::open(root.path()).unwrap();
+        assert!(sandbox
+            .inspect(&plan)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("private filtered view"));
     }
 }
