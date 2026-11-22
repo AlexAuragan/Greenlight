@@ -152,13 +152,11 @@ impl Store {
                 && r.owner_token.as_deref() == Some(&lease.record.token)
         }) {
             if let Some(index) = messages.iter().position(|m| m == &route.metadata(&attempt)) {
-                if messages
-                    .get(index + 1)
-                    .is_none_or(|m| m["content"].as_str() != Some(&route.original))
-                {
+                let guidance = route.guidance(&attempt);
+                if messages.get(index..index + guidance.len()) != Some(guidance.as_slice()) {
                     bail!("Guidance context mismatch");
                 }
-                messages.drain(index..index + 2);
+                messages.drain(index..index + guidance.len());
             }
         }
         for route in routes
@@ -173,8 +171,7 @@ impl Store {
             if messages.iter().any(|m| m == &route.metadata(&attempt)) {
                 continue;
             }
-            messages.push(route.metadata(&attempt));
-            messages.push(json!({"role":"user","content":route.original}));
+            messages.extend(route.guidance(&attempt));
         }
         Ok(())
     }

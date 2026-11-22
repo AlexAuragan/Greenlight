@@ -109,6 +109,9 @@ enum Commands {
         file: Option<PathBuf>,
         #[arg(long)]
         artifact: Vec<String>,
+        /// Reply to this recorded manager clarification result
+        #[arg(long)]
+        reply_to: Option<i64>,
     },
     /// Accept a recorded manager forward; start only if it targets the current idle step
     DeliverRoute {
@@ -268,13 +271,19 @@ async fn main() -> Result<()> {
             message,
             file,
             artifact,
+            reply_to,
         } => {
             let text = match file {
                 Some(path) => manager::read_message_file(&path)?,
                 None => message.context("missing message")?,
             };
             let engine = engine::Engine::open(&root)?;
-            let reply = engine.ask_manager(&session, &text, &artifact).await?;
+            let reply = if reply_to.is_some() {
+                let saved = manager::save_clarification(&engine.store, &session, &text, reply_to)?;
+                engine.ask_saved_manager(&saved, &artifact).await?
+            } else {
+                engine.ask_manager(&session, &text, &artifact).await?
+            };
             println!("{}", reply.display());
         }
         Commands::DeliverRoute {

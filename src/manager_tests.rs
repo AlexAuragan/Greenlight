@@ -516,3 +516,111 @@ async fn manager_checkpoint_reopens_exact_original_question_and_snapshot() {
         .is_none());
     assert_eq!(reopened.store.session(&f.s.id).unwrap().status, "ready");
 }
+
+#[tokio::test]
+async fn linked_clarification_is_immutable_bounded_and_uses_fresh_evidence() {
+    let f = Fixture::new();
+    let original = "\t Original request — é\n ";
+    let saved = save_message(&f.engine.store, &f.s.id, original).unwrap();
+    let snapshot = capture_with_config(
+        f.root.path(),
+        &f.engine.store,
+        &f.s.id,
+        &saved.message_id,
+        &[],
+        &f.engine.cfg,
+    )
+    .unwrap();
+    let question = Decision::parse(&response(&snapshot, "clarify").to_string(), &snapshot).unwrap();
+    let reply = Reply {
+        decision: question,
+        status: "clarification_needed".into(),
+        captured_at: snapshot.captured_at.clone(),
+        sources: snapshot.sources.clone(),
+        snapshot_changed: false,
+    };
+    let event = f
+        .engine
+        .store
+        .event(
+            &f.s,
+            None,
+            "manager.result",
+            &serde_json::to_string(&reply).unwrap(),
+        )
+        .unwrap();
+    f.engine
+        .store
+        .event(
+            &f.s,
+            Some("work"),
+            "user.instruction",
+            "New evidence since question",
+        )
+        .unwrap();
+    let answer = " forward\nUse threads — déjà  ";
+    let linked = save_clarification(&f.engine.store, &f.s.id, answer, Some(event)).unwrap();
+    assert_ne!(linked.message_id, saved.message_id);
+    let result = f.engine.ask_saved_manager(&linked, &[]).await.unwrap();
+    assert!(matches!(result.decision, Decision::Forward { .. }));
+    let calls = &f.script.lock().unwrap().requests;
+    let input: Value =
+        serde_json::from_str(calls.last().unwrap()[1]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(input["text"], answer);
+    assert_eq!(input["clarification_thread"][0]["text"], original);
+    assert_eq!(input["clarification_thread"][0]["question_event"], event);
+    assert_ne!(input["evidence"]["snapshot_id"], snapshot.snapshot_id);
+    let latest = f
+        .engine
+        .store
+        .history(&f.s)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|e| e.2 == "manager.result")
+        .unwrap()
+        .0;
+    assert!(save_clarification(&f.engine.store, &f.s.id, "invalid parent", Some(latest)).is_err());
+    let other = f.engine.store.create("demo", "Other", "work").unwrap();
+    assert!(save_clarification(&f.engine.store, &other.id, "cross-session", Some(event)).is_err());
+    assert_eq!(
+        f.engine
+            .store
+            .history(&f.s)
+            .unwrap()
+            .iter()
+            .filter(|e| e.2 == "manager.message")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn clarification_threads_refuse_a_ninth_turn_without_saving_partial_messages() {
+    let f = Fixture::new();
+    let mut saved = save_message(&f.engine.store, &f.s.id, "original").unwrap();
+    for turn in 0..9 {
+        let value = json!({"decision":{"schema_version":1,"message_id":saved.message_id,"snapshot_id":"fixture","action":"clarify","content":"Which step?","citations":[]},"status":"clarification_needed","snapshot_changed":false,"captured_at":"fixture","sources":[]});
+        let event = f
+            .engine
+            .store
+            .event(&f.s, None, "manager.result", &value.to_string())
+            .unwrap();
+        let result = save_clarification(&f.engine.store, &f.s.id, "answer", Some(event));
+        if turn < 8 {
+            saved = result.unwrap();
+        } else {
+            assert!(result.is_err());
+        }
+    }
+    assert_eq!(
+        f.engine
+            .store
+            .history(&f.s)
+            .unwrap()
+            .iter()
+            .filter(|e| e.2 == "manager.message")
+            .count(),
+        9
+    );
+}

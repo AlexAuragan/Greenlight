@@ -158,7 +158,7 @@ impl Store {
            CREATE TABLE IF NOT EXISTS manager_routes (
              message_id TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES sessions(id), branch TEXT NOT NULL,
              step TEXT NOT NULL, original TEXT NOT NULL, workflow_digest TEXT NOT NULL,
-             decision_event INTEGER NOT NULL, state TEXT NOT NULL, attempt TEXT, call_id TEXT, owner_token TEXT);
+             decision_event INTEGER NOT NULL, state TEXT NOT NULL, attempt TEXT, call_id TEXT, owner_token TEXT, clarification_thread TEXT NOT NULL DEFAULT '[]');
            CREATE INDEX IF NOT EXISTS manager_routes_scope ON manager_routes(session,branch,decision_event);
            CREATE TABLE IF NOT EXISTS execution_steering (
              token TEXT PRIMARY KEY REFERENCES project_owner(token) ON DELETE CASCADE,
@@ -181,15 +181,16 @@ impl Store {
                 &db,
                 rusqlite::TransactionBehavior::Immediate,
             )?;
-            let has_owner = {
+            let columns = {
                 let mut q = db.prepare("PRAGMA table_info(manager_routes)")?;
-                let names = q
-                    .query_map([], |r| r.get::<_, String>(1))?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                names.iter().any(|n| n == "owner_token")
+                let names = q.query_map([], |r| r.get::<_, String>(1))?;
+                names.collect::<rusqlite::Result<Vec<_>>>()?
             };
-            if !has_owner {
+            if !columns.iter().any(|n| n == "owner_token") {
                 db.execute_batch("ALTER TABLE manager_routes ADD COLUMN owner_token TEXT;")?;
+            }
+            if !columns.iter().any(|n| n == "clarification_thread") {
+                db.execute_batch("ALTER TABLE manager_routes ADD COLUMN clarification_thread TEXT NOT NULL DEFAULT '[]';")?;
             }
             tx.commit()?;
         }

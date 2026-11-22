@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{bail, Context, Result};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -60,15 +60,62 @@ pub struct SavedMessage {
     pub text: String,
 }
 pub fn save_message(store: &Store, session: &str, text: &str) -> Result<SavedMessage> {
+    save_clarification(store, session, text, None)
+}
+
+/// A reply is a new immutable message linked to one visible clarification.
+pub fn save_clarification(
+    store: &Store,
+    session: &str,
+    text: &str,
+    parent: Option<i64>,
+) -> Result<SavedMessage> {
     validate_message(text)?;
     let tx = store.db.unchecked_transaction()?;
     let s = store.session(session)?;
+    let mut thread = Vec::<Value>::new();
+    if let Some(event) = parent {
+        let history = store.history(&s)?;
+        let raw = &history
+            .iter()
+            .find(|e| e.0 == event && e.2 == "manager.result")
+            .context("Clarification must be a visible manager result on this branch")?
+            .3;
+        let reply: Reply = serde_json::from_str(raw)?;
+        let Decision::Clarify {
+            content,
+            message_id,
+            ..
+        } = &reply.decision
+        else {
+            bail!("Selected manager result is not a clarification");
+        };
+        let original = history
+            .iter()
+            .filter(|e| e.0 < event && e.2 == "manager.message")
+            .find_map(|e| {
+                serde_json::from_str::<Value>(&e.3)
+                    .ok()
+                    .filter(|v| v["message_id"].as_str() == Some(message_id))
+            })
+            .context("Clarification original unavailable")?;
+        thread = serde_json::from_value(
+            original
+                .get("clarification_thread")
+                .cloned()
+                .unwrap_or(json!([])),
+        )?;
+        thread.push(json!({"message_id":message_id,"text":original["text"],"question_event":event,"question":content}));
+        if thread.len() > 8 || serde_json::to_vec(&thread)?.len() > 24 * 1024 {
+            bail!("Clarification thread exceeds 8 turns or 24 KiB; start a new explicit request");
+        }
+    }
     let message_id = Uuid::new_v4().to_string();
     store.event(
         &s,
         None,
         "manager.message",
-        &json!({"message_id":message_id,"text":text}).to_string(),
+        &json!({"message_id":message_id,"text":text,"clarification_thread":thread}).to_string(),
     )?;
     tx.commit()?;
     Ok(SavedMessage {
@@ -673,8 +720,20 @@ impl Engine {
             "manager.snapshot",
             &serde_json::to_string(&snapshot)?,
         )?;
+        let thread = self
+            .store
+            .history(s)?
+            .iter()
+            .filter(|e| e.2 == "manager.message")
+            .find_map(|e| {
+                serde_json::from_str::<Value>(&e.3)
+                    .ok()
+                    .filter(|v| v["message_id"].as_str() == Some(message_id))
+            })
+            .and_then(|v| v.get("clarification_thread").cloned())
+            .unwrap_or(json!([]));
         let input = serde_json::to_string(
-            &json!({"message_id":message_id,"text":text,"evidence":snapshot}),
+            &json!({"message_id":message_id,"text":text,"clarification_thread":thread,"evidence":snapshot}),
         )?;
         if input.len() + system_prompt().len() > INPUT_BYTES {
             bail!("Manager input exceeds 64 KiB; original message retained without inference");

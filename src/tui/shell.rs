@@ -308,6 +308,14 @@ impl App {
     pub(super) fn footer_actions(&self) -> Vec<Action> {
         let mut actions = self.base_footer_actions();
         if !self.reading_overlay() && !self.composer_active() && self.view == View::Conversation {
+            if self.event().is_some_and(|e| {
+                e.kind == "manager.result"
+                    && serde_json::from_str::<crate::manager::Reply>(&e.data).is_ok_and(|r| {
+                        matches!(r.decision, crate::manager::Decision::Clarify { .. })
+                    })
+            }) {
+                actions.insert(0, Action::ReplyClarification);
+            }
             if self.selected_route_event().is_some() {
                 actions.insert(0, Action::DeliverRoute);
             }
@@ -916,9 +924,25 @@ impl App {
                 self.set_message_mode(compose::Mode::Step);
                 self.focus_composer();
             }
+            ReplyClarification => {
+                let event = self.event().context("Select a clarification")?.id;
+                let raw = &self.event().context("Select a clarification")?.data;
+                let reply: crate::manager::Reply = serde_json::from_str(raw)?;
+                if !matches!(reply.decision, crate::manager::Decision::Clarify { .. }) {
+                    bail!("Selected result is not a clarification");
+                }
+                self.clear_diagnostic();
+                self.set_message_mode(compose::Mode::Manager);
+                self.compose
+                    .clarification
+                    .insert(self.compose.scope.clone(), event);
+                self.focus_composer();
+                self.notice="Reply to the selected clarification. Original request is preserved; no workflow action starts on send.".into();
+            }
             AskManager => {
                 self.clear_diagnostic();
                 self.set_message_mode(compose::Mode::Manager);
+                self.compose.clarification.remove(&self.compose.scope);
                 self.focus_composer();
             }
             RecoverOwner => {

@@ -11,6 +11,7 @@ pub(super) type Scope = (Option<String>, Option<String>, Mode);
 #[derive(Default)]
 pub(super) struct Composer {
     pub mode: Mode,
+    pub clarification: HashMap<Scope, i64>,
     pub scope: Scope,
     pub explicit: bool,
     pub creation_goal: String,
@@ -183,6 +184,9 @@ pub(super) fn draw_composer(frame: &mut Frame, app: &App, area: ratatui::layout:
     let title = match app.compose.mode {
         Mode::Step => "Resume step with instructions",
         Mode::Manager if app.manager_job.is_some() => "Manager answering · draft retained",
+        Mode::Manager if app.compose.clarification.contains_key(&app.compose.scope) => {
+            "Reply to manager clarification"
+        }
         Mode::Manager => "Ask manager",
         Mode::Command => "Commands",
     };

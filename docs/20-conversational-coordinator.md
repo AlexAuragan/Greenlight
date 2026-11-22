@@ -1,6 +1,6 @@
 # Conversational coordinator — routing contract v1
 
-**Status: Q&A and explicit idle/live delivery implemented; the full contract remains incremental.** [Manager Q&A](21-manager-qa.md) supplies cited answers and validated unexecuted proposals. [Explicit idle delivery](42-idle-manager-delivery.md) adds user acceptance, scoped original-message delivery, next-visit reservations, withdrawal and request inclusion evidence. Guarded restart binding and the owner-advertised live inbox are implemented, including undelivered-instruction review holds. Asking alone still executes nothing, and ordinary-message automatic routing below remains a proposed interface. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
+**Status: Q&A and explicit idle/live delivery implemented; the full contract remains incremental.** [Manager Q&A](21-manager-qa.md) supplies cited answers and validated unexecuted proposals. [Explicit idle delivery](42-idle-manager-delivery.md) adds user acceptance, scoped original-message delivery, next-visit reservations, withdrawal and request inclusion evidence. Guarded restart binding and the owner-advertised live inbox are implemented, including undelivered-instruction review holds and linked clarification replies. Asking alone still executes nothing, and ordinary-message automatic routing below remains a proposed interface. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
 
 ## Product behavior
 

@@ -649,3 +649,59 @@ async fn ending_before_next_request_holds_recorded_success_until_explicit_review
     assert_eq!(store.attempts(&after).unwrap().len(), 1);
     assert!(f.coding().is_empty());
 }
+
+#[tokio::test]
+async fn clarified_route_delivers_each_original_verbatim_only_to_its_target() {
+    let mut f = Fixture::new();
+    let original = "TO_A optimize — é\n  ";
+    let event = f.proposal(original).await;
+    let history = f.engine.store.history(&f.session).unwrap();
+    let raw = &history.iter().find(|e| e.0 == event).unwrap().3;
+    let mut value: Value = serde_json::from_str(raw).unwrap();
+    value["decision"]["action"] = json!("clarify");
+    value["decision"].as_object_mut().unwrap().remove("step_id");
+    value["decision"]["content"] = json!("Which approach?");
+    value["status"] = json!("clarification_needed");
+    let question = f
+        .engine
+        .store
+        .event(&f.session, None, "manager.result", &value.to_string())
+        .unwrap();
+    let answer = "\t TO_A use multithreading\n ";
+    let linked =
+        crate::manager::save_clarification(&f.engine.store, &f.session.id, answer, Some(question))
+            .unwrap();
+    f.engine.ask_saved_manager(&linked, &[]).await.unwrap();
+    let event = f
+        .engine
+        .store
+        .history(&f.session)
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|e| e.2 == "manager.result")
+        .unwrap()
+        .0;
+    let route = f.accept(event).0;
+    assert_eq!(route.original, answer);
+    assert_eq!(route.clarification_thread[0]["text"], original);
+    assert_eq!(f.routes()[0], route);
+    f.engine
+        .run_manager_route(&f.session.id, &route.message_id)
+        .await
+        .unwrap();
+    let calls = f.coding();
+    for text in [original, answer] {
+        assert_eq!(
+            calls[0]
+                .iter()
+                .filter(|m| m["role"] == "user" && m["content"].as_str() == Some(text))
+                .count(),
+            1
+        );
+        assert!(calls[1..]
+            .iter()
+            .all(|call| call.iter().all(|m| m["content"].as_str() != Some(text))));
+    }
+    assert_eq!(f.routes()[0].state, "included_in_request");
+}

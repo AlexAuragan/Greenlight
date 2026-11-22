@@ -51,8 +51,16 @@ Closing a step atomically closes its inbox boundary. If an accepted instruction 
 
 The inbox capability is removed with its execution owner. Recovery never silently replays accepted instructions. A prepared request remains evidence of inclusion, not proof of provider acceptance or exactly-once execution.
 
+## Linked clarifications
+
+Select a `manager.result` clarification in Activity and choose **Reply to clarification**. The composer identifies the reply; closing it preserves the draft/link for that session, branch and recipient. **Ask manager** starts an independent question. CLI: `greenlight ask SESSION --reply-to MANAGER_RESULT_EVENT --message 'Use threads'` (or `--file answer.txt`).
+
+Each answer is a new immutable message. The saved thread retains earlier originals and manager questions; it never edits the initial request. Only visible clarification results are valid parents, and chains are capped at eight turns / 24 KiB in addition to the 12 KiB latest-message limit and total inference budget. A fresh snapshot re-evaluates current state; a clarification never grants approval or resumes execution.
+
+If the manager then proposes a forward, explicit acceptance delivers each original and answer as a separate verbatim user message with host-labelled question context. The entire chain shares the route's target, owner/attempt, withdrawal, retry and restart lifecycle. It does not become a run-wide instruction or leak to later steps.
+
 ## Remaining GL-008 work
 
-- Linked clarification delivery and the proposed default ordinary-message coordinator flow. This increment retains explicit Manager/Step recipients and explicit route acceptance.
+- The proposed default ordinary-message coordinator flow. This increment retains explicit Manager/Step recipients and explicit route acceptance.
 
 The complete [coordinator contract](20-conversational-coordinator.md) remains the target. This implements explicit restart binding and live delivery; ordinary messages still require explicit routing acceptance.

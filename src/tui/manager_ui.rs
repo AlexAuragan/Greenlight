@@ -26,7 +26,8 @@ impl App {
                 "Manager messages must be nonempty and at most 12 KiB; draft retained.".into();
             return;
         }
-        let saved = match crate::manager::save_message(store, &session, &text) {
+        let parent = self.compose.clarification.get(&self.compose.scope).copied();
+        let saved = match crate::manager::save_clarification(store, &session, &text, parent) {
             Ok(saved) => saved,
             Err(error) => {
                 self.notice =
@@ -65,6 +66,7 @@ impl App {
             finished,
             cancel,
         });
+        self.compose.clarification.remove(&self.compose.scope);
         self.composer.clear();
         self.focus = self.main_focus();
         self.follow_activity = true;

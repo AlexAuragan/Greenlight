@@ -1,6 +1,6 @@
 # Manager Q&A and routing proposals
 
-**Implemented:** bounded context, strict manager decisions, cited answers, clarification, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Owner-scoped live queues and explicitly confirmed restart delivery are implemented; ordinary messages still require explicit route acceptance.
+**Implemented:** bounded context, strict manager decisions, cited answers, linked clarification replies, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Owner-scoped live queues and explicitly confirmed restart delivery are implemented; ordinary messages still require explicit route acceptance.
 
 This implements the Q&A stage of the [coordinator contract](20-conversational-coordinator.md). It loads the text block in the [manager system prompt](prompts/manager-v1.md); the coding-agent YAML contract stays unchanged.
 
@@ -11,6 +11,7 @@ greenlight manager-context SESSION_ID                    # preview sources/model
 greenlight ask SESSION_ID --message "Where are we on the TODO?"
 greenlight ask SESSION_ID --file question.txt              # original UTF-8, including whitespace
 greenlight ask SESSION_ID --message "Explain this plan" --artifact plan.md
+greenlight ask SESSION_ID --reply-to RESULT_EVENT --message "Use threads"
 greenlight manager-history SESSION_ID                    # branch-visible exchanges, JSON lines
 greenlight usage SESSION_ID --json                       # includes purpose: manager
 ```

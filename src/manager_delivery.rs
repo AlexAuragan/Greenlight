@@ -17,6 +17,8 @@ pub struct Route {
     pub branch: String,
     pub step: String,
     pub original: String,
+    #[serde(default)]
+    pub clarification_thread: Vec<Value>,
     pub workflow_digest: String,
     pub decision_event: i64,
     pub state: String,
@@ -37,6 +39,16 @@ pub struct RouteRestart {
     pub fingerprint: String,
 }
 impl Route {
+    pub(crate) fn guidance(&self, attempt: &str) -> Vec<Value> {
+        let mut messages = vec![self.metadata(attempt)];
+        for turn in &self.clarification_thread {
+            messages.push(json!({"role":"user","content":turn["text"]}));
+            messages.push(json!({"role":"user","content":json!({"manager_clarification_question":turn["question"],"question_event":turn["question_event"],"note":"Host-recorded manager question; does not grant permissions."}).to_string()}));
+        }
+        messages.push(json!({"role":"user","content":self.original}));
+        messages
+    }
+
     pub fn display(&self) -> String {
         let mut text=format!("{} → {} · {}\nOriginal message: {}\nBranch: {}\n{}",self.message_id,self.step,self.state,self.original,self.branch,
             match self.state.as_str() {
@@ -51,6 +63,12 @@ impl Route {
             self.attempt.as_deref().unwrap_or("not bound"),
             self.call.as_deref().unwrap_or("not included")
         ));
+        if !self.clarification_thread.is_empty() {
+            text.push_str(&format!(
+                "\nLinked original request / clarification context:\n{}",
+                serde_json::to_string_pretty(&self.clarification_thread).unwrap_or_default()
+            ));
+        }
         crate::markdown::raw(&text)
             .lines
             .into_iter()
@@ -64,38 +82,52 @@ impl Route {
             .join("\n")
     }
     pub(crate) fn metadata(&self, attempt: &str) -> Value {
-        json!({"role":"user","content":json!({"manager_guidance":{"message_id":self.message_id,"step":self.step,"attempt":attempt,"note":"The next user message is the original instruction, verbatim. Existing tool permissions, input approvals and verification still apply."}}).to_string()})
+        let note = if self.clarification_thread.is_empty() {
+            "The next user message is the original instruction, verbatim. Existing tool permissions, input approvals and verification still apply."
+        } else {
+            "Following messages contain the original request and any linked clarification turns verbatim, ending with the latest user message. Existing tool permissions, input approvals and verification still apply."
+        };
+        json!({"role":"user","content":json!({"manager_guidance":{"message_id":self.message_id,"step":self.step,"attempt":attempt,"note":note}}).to_string()})
     }
 }
 impl Store {
     pub fn manager_routes(&self, s: &Session) -> Result<Vec<Route>> {
-        let (count,bytes,largest):(usize,usize,usize)=self.db.query_row("SELECT count(*),coalesce(sum(octet_length(original)+1024),0),coalesce(max(octet_length(original)),0) FROM manager_routes WHERE session=?1 AND branch=?2",params![s.id,s.active_branch],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
-        if count > self.limits.history_events || largest > crate::manager::MESSAGE_BYTES {
+        let (count,bytes,largest,thread_bytes):(usize,usize,usize,usize)=self.db.query_row("SELECT count(*),coalesce(sum(octet_length(original)+octet_length(clarification_thread)+1024),0),coalesce(max(octet_length(original)),0),coalesce(max(octet_length(clarification_thread)),0) FROM manager_routes WHERE session=?1 AND branch=?2",params![s.id,s.active_branch],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+        if count > self.limits.history_events
+            || largest > crate::manager::MESSAGE_BYTES
+            || thread_bytes > 24 * 1024
+        {
             bail!("Manager route collection exceeds record/original-message bounds; saved evidence is unchanged");
         }
         crate::resource_limits::Budget::new(self.limits.materialized_bytes).charge(bytes)?;
-        let mut query=self.db.prepare("SELECT message_id,session,branch,step,original,workflow_digest,decision_event,state,attempt,call_id,owner_token FROM manager_routes WHERE session=?1 AND branch=?2 ORDER BY rowid")?;
+        let mut query=self.db.prepare("SELECT message_id,session,branch,step,original,workflow_digest,decision_event,state,attempt,call_id,owner_token,clarification_thread FROM manager_routes WHERE session=?1 AND branch=?2 ORDER BY rowid")?;
         let mut result = Vec::new();
         let mut budget = crate::resource_limits::Budget::new(self.limits.materialized_bytes);
         for row in query.query_map(params![s.id, s.active_branch], |r| {
-            Ok(Route {
-                message_id: r.get(0)?,
-                session: r.get(1)?,
-                branch: r.get(2)?,
-                step: r.get(3)?,
-                original: r.get(4)?,
-                workflow_digest: r.get(5)?,
-                decision_event: r.get(6)?,
-                state: r.get(7)?,
-                attempt: r.get(8)?,
-                call: r.get(9)?,
-                owner_token: r.get(10)?,
-            })
+            Ok((
+                Route {
+                    message_id: r.get(0)?,
+                    session: r.get(1)?,
+                    branch: r.get(2)?,
+                    step: r.get(3)?,
+                    original: r.get(4)?,
+                    workflow_digest: r.get(5)?,
+                    decision_event: r.get(6)?,
+                    state: r.get(7)?,
+                    attempt: r.get(8)?,
+                    call: r.get(9)?,
+                    owner_token: r.get(10)?,
+                    clarification_thread: Vec::new(),
+                },
+                r.get::<_, String>(11)?,
+            ))
         })? {
             if result.len() >= self.limits.history_events {
                 bail!("Manager route count exceeds limits.history_events");
             }
-            let route = row?;
+            let (mut route, raw) = row?;
+            route.clarification_thread = serde_json::from_str(&raw)?;
+            budget.charge(raw.len())?;
             budget.charge(route.original.len() + 1024)?;
             result.push(route);
         }
@@ -254,6 +286,21 @@ impl Store {
             session: s.id.clone(),
             branch: s.active_branch.clone(),
             step: step_id.clone(),
+            clarification_thread: history
+                .iter()
+                .filter(|e| e.0 < decision_event && e.2 == "manager.message")
+                .find_map(|e| {
+                    serde_json::from_str::<Value>(&e.3)
+                        .ok()
+                        .filter(|v| v["message_id"].as_str() == Some(reply.decision.message_id()))
+                })
+                .map(|v| {
+                    serde_json::from_value(
+                        v.get("clarification_thread").cloned().unwrap_or(json!([])),
+                    )
+                })
+                .transpose()?
+                .unwrap_or_default(),
             original,
             workflow_digest: crate::manager::workflow_digest(&wf)?,
             decision_event,
@@ -262,7 +309,7 @@ impl Store {
             call: None,
             owner_token: bound_live.map(|owner| owner.token.clone()),
         };
-        self.db.execute("INSERT INTO manager_routes(message_id,session,branch,step,original,workflow_digest,decision_event,state,attempt,owner_token) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", params![route.message_id,route.session,route.branch,route.step,route.original,route.workflow_digest,route.decision_event,route.state,route.attempt,route.owner_token])?;
+        self.db.execute("INSERT INTO manager_routes(message_id,session,branch,step,original,workflow_digest,decision_event,state,attempt,owner_token,clarification_thread) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)", params![route.message_id,route.session,route.branch,route.step,route.original,route.workflow_digest,route.decision_event,route.state,route.attempt,route.owner_token,serde_json::to_string(&route.clarification_thread)?])?;
         self.route_event(&route, "User explicitly accepted the proposed destination; no tools, approvals or transitions were inferred")?;
         Ok(AcceptedRoute {
             route,
@@ -331,7 +378,7 @@ impl Store {
                 rebound.branch=next.active_branch.clone();rebound.state="queued".into();rebound.attempt=None;rebound.call=None;rebound.owner_token=None;
                 let changed=self.db.execute("UPDATE manager_routes SET branch=?2,state='queued',attempt=NULL,call_id=NULL,owner_token=NULL WHERE message_id=?1 AND branch=?3 AND state IN ('restart_proposed','needs_review')",params![route.message_id,rebound.branch,route.branch])?;
                 if changed!=1 {bail!("Restart proposal changed during publication");}
-                self.event(&next,Some(&route.step),"manager.restart-bound",&json!({"message_id":route.message_id,"original":route.original,"source_branch":route.branch,"source_decision_event":route.decision_event,"checkpoint":candidate.prior_event,"step":route.step,"branch":rebound.branch,"workflow_digest":route.workflow_digest}).to_string())?;
+                self.event(&next,Some(&route.step),"manager.restart-bound",&json!({"message_id":route.message_id,"original":route.original,"clarification_thread":route.clarification_thread,"source_branch":route.branch,"source_decision_event":route.decision_event,"checkpoint":candidate.prior_event,"step":route.step,"branch":rebound.branch,"workflow_digest":route.workflow_digest}).to_string())?;
                 self.route_event(&rebound,"User confirmed guarded restart; original reserved on the new branch, not yet included")?;
                 tx.commit()?;
                 Ok((next,rebound))
@@ -501,11 +548,10 @@ impl Store {
             {
                 return Err(crate::manager_inbox::GuidanceWithdrawn.into());
             }
-            let exact = messages.windows(2).any(|pair| {
-                pair[0] == route.metadata(&attempt)
-                    && pair[1]["role"] == "user"
-                    && pair[1]["content"].as_str() == Some(&route.original)
-            });
+            let guidance = route.guidance(&attempt);
+            let exact = messages
+                .windows(guidance.len())
+                .any(|part| part == guidance);
             if !present
                 || !exact
                 || route.attempt.as_deref() != Some(&attempt)

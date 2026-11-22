@@ -121,6 +121,8 @@ impl Store {
         Ok(())
     }
     pub fn project_status(&self) -> Result<Option<ProjectConflict>> {
+        // TODO(GL-030): this observation briefly owns the exclusive lease and can
+        // reject a racing startup before any executing owner is published.
         let lock = match self.project_lock() {
             Ok(lock) => lock,
             Err(error) if error.downcast_ref::<ProjectConflict>().is_some() => {
