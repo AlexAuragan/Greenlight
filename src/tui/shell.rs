@@ -161,6 +161,7 @@ impl App {
         if self.diagnostic.is_some() || self.attention_visible() {
             let mut actions = vec![
                 Action::RecordedActivity,
+                Action::Conversation,
                 Action::AskManager,
                 Action::FullDiagnostic,
                 Action::Provider,
@@ -249,7 +250,11 @@ impl App {
             actions.push(Action::RestoreInstruction);
         }
         if self.session().is_some() {
-            actions.push(Action::ManagerReplies);
+            actions.extend([
+                Action::Conversation,
+                Action::AskManager,
+                Action::ManagerReplies,
+            ]);
         }
         actions.push(Action::Sessions);
         if self.session().is_some() {
@@ -427,7 +432,11 @@ impl App {
             };
         }
         if self.composer_active() {
-            if self.compose.mode == compose::Mode::Manager && self.manager_job.is_some() {
+            if matches!(
+                self.compose.mode,
+                compose::Mode::Manager | compose::Mode::Conversation
+            ) && self.manager_job.is_some()
+            {
                 return vec![Action::StopManager, Action::Recipient, Action::Close];
             }
             if self.compose.mode == compose::Mode::Step && !self.can_resume_message() {
@@ -436,6 +445,7 @@ impl App {
             let send = match self.compose.mode {
                 compose::Mode::Step => Action::SendStep,
                 compose::Mode::Manager => Action::SendQuestion,
+                compose::Mode::Conversation => Action::SendConversation,
                 compose::Mode::Command => Action::SendCommand,
             };
             return vec![
@@ -760,24 +770,8 @@ impl App {
                 let event = self
                     .selected_route_event()
                     .context("Select a manager forward proposal")?;
-                let session = self.session().context("No selected session")?.clone();
-                match store.accept_manager_route(root,&session.id,event) {
-                    Ok(accepted) => {
-                        let route = accepted.route;
-                        self.notice=route.display();
-                        if route.state=="restart_proposed" {
-                            if let Err(error)=self.prepare_manager_restart(root,store,&route.message_id) {self.notice=format!("Restart review unavailable: {error:#}");}
-                            return Ok(false);
-                        }
-                        if accepted.newly_accepted && accepted.start_current && self.runner.is_none() {
-                            let scope=(Some(session.id.clone()),Some(session.active_branch),compose::Mode::Step);
-                            self.compose.last_instruction=Some((scope,route.original.clone()));
-                            self.runner=Some(tui_actions::resume_route(root.to_path_buf(),session.id,route.message_id));
-                            self.notice="Starting the selected idle step with the saved original instruction. Permissions and verification remain separate.".into();
-                        }
-                        self.refresh(store)?;
-                    }
-                    Err(error) => self.notice=format!("Route not delivered: {error:#}. Original message retained; no route was guessed."),
+                if let Err(error) = self.deliver_manager_result(root, store, event) {
+                    self.notice = format!("Route not delivered: {error:#}. Original retained.");
                 }
             }
             WithdrawRoute => {
@@ -931,13 +925,29 @@ impl App {
                 if !matches!(reply.decision, crate::manager::Decision::Clarify { .. }) {
                     bail!("Selected result is not a clarification");
                 }
+                let scope = self.session().context("No selected session")?.clone();
+                let automatic = store.history(&scope)?.iter().any(|e| {
+                    e.2 == "manager.routing-requested"
+                        && serde_json::from_str::<serde_json::Value>(&e.3).is_ok_and(|v| {
+                            v["message_id"].as_str() == Some(reply.decision.message_id())
+                        })
+                });
                 self.clear_diagnostic();
-                self.set_message_mode(compose::Mode::Manager);
+                self.set_message_mode(if automatic {
+                    compose::Mode::Conversation
+                } else {
+                    compose::Mode::Manager
+                });
                 self.compose
                     .clarification
                     .insert(self.compose.scope.clone(), event);
                 self.focus_composer();
-                self.notice="Reply to the selected clarification. Original request is preserved; no workflow action starts on send.".into();
+                self.notice="Reply to the selected clarification. Original request is preserved; the visible recipient determines whether a validated forward can be delivered.".into();
+            }
+            Conversation => {
+                self.clear_diagnostic();
+                self.set_message_mode(compose::Mode::Conversation);
+                self.focus_composer();
             }
             AskManager => {
                 self.clear_diagnostic();
@@ -957,10 +967,11 @@ impl App {
                 self.clear_diagnostic();
                 self.open_restart(root, store);
             }
-            SendStep | SendQuestion | SendCommand => {
+            SendStep | SendQuestion | SendConversation | SendCommand => {
                 let expected = match action {
                     SendStep => compose::Mode::Step,
                     SendQuestion => compose::Mode::Manager,
+                    SendConversation => compose::Mode::Conversation,
                     _ => compose::Mode::Command,
                 };
                 if self.compose.mode != expected || self.focus != Focus::Compose {

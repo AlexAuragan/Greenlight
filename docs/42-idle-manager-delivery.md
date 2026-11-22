@@ -1,6 +1,6 @@
-# Explicit manager delivery (GL-008)
+# Manager guidance delivery (GL-008)
 
-Implemented on `feat/project-execution-coordination`, together with GL-028/GL-029, pending merge. This extends manager Q&A with explicit acceptance of a validated forward. Asking a question or receiving a forward alone still executes nothing.
+Implemented on `feat/project-execution-coordination`, together with GL-028/GL-029, pending merge. Conversation automatically accepts validated forwards through the host. Explicit Ask manager and CLI ask remain read-only; their proposals require acceptance.
 
 ## Controls
 
@@ -55,12 +55,18 @@ The inbox capability is removed with its execution owner. Recovery never silentl
 
 Select a `manager.result` clarification in Activity and choose **Reply to clarification**. The composer identifies the reply; closing it preserves the draft/link for that session, branch and recipient. **Ask manager** starts an independent question. CLI: `greenlight ask SESSION --reply-to MANAGER_RESULT_EVENT --message 'Use threads'` (or `--file answer.txt`).
 
-Each answer is a new immutable message. The saved thread retains earlier originals and manager questions; it never edits the initial request. Only visible clarification results are valid parents, and chains are capped at eight turns / 24 KiB in addition to the 12 KiB latest-message limit and total inference budget. A fresh snapshot re-evaluates current state; a clarification never grants approval or resumes execution.
+Each answer is a new immutable message. The saved thread retains earlier originals and manager questions; it never edits the initial request. Only visible clarification results are valid parents, and chains are capped at eight turns / 24 KiB in addition to the 12 KiB latest-message limit and total inference budget. A fresh snapshot re-evaluates current state; a clarification question never grants approval or resumes execution.
 
-If the manager then proposes a forward, explicit acceptance delivers each original and answer as a separate verbatim user message with host-labelled question context. The entire chain shares the route's target, owner/attempt, withdrawal, retry and restart lifecycle. It does not become a run-wide instruction or leak to later steps.
+If the manager then proposes a forward, acceptance delivers each original and answer as a separate verbatim user message with host-labelled question context. The entire chain shares the route's target, owner/attempt, withdrawal, retry and restart lifecycle. It does not become a run-wide instruction or leak to later steps.
 
-## Remaining GL-008 work
+## Default Conversation routing
 
-- The proposed default ordinary-message coordinator flow. This increment retains explicit Manager/Step recipients and explicit route acceptance.
+With `manager.enabled: true`, a fresh TUI composer defaults to **Conversation**. The visible recipient explains that the manager can answer, clarify or deliver the saved original to a workflow step. **Change recipient** cycles Conversation, read-only Manager and available direct Step delivery; Commands remains separate. More also exposes Conversation and Ask manager. An explicit recipient and existing drafts take precedence over defaults. With the setting disabled, fresh drafts retain the existing direct-step default when available.
 
-The complete [coordinator contract](20-conversational-coordinator.md) remains the target. This implements explicit restart binding and live delivery; ordinary messages still require explicit routing acceptance.
+A Conversation submission records `manager.routing-requested` before inference. A valid forward is accepted through the same branch/workflow/ownership checks as `[g] Deliver original`: current idle targets can start, future targets reserve their next visit, and supported live owners receive next-boundary guidance. Restart targets open the existing preview when the UI is available, and always require confirmation. A result arriving behind another popup/draft leaves a restart proposal for explicit review. Activity filters do not prevent routing.
+
+Answers/clarifications open their recorded result when the UI is available. They do not dismiss another popup or replace a new draft. Clarification replies inherit Conversation only when their parent came from Conversation; replies to read-only questions remain read-only. All linked originals retain their own bytes.
+
+Cancellation disables automatic delivery even if an in-flight manager response completes. A stale/invalid result, interrupted/unsupported owner or provider failure retains evidence and never falls back to direct execution. Switching session/branch before the reply arrives leaves a proposal on its original branch for explicit acceptance rather than starting background work. Closing Greenlight does not add automatic replay. Retrying an exact saved manager request is conservative/read-only: inspect and explicitly accept its forward.
+
+`greenlight ask`, `/ask` in Commands, and **Ask manager** remain read-only. `/resume`, recovery, restart, permission decisions and human/input gates retain deterministic controls.

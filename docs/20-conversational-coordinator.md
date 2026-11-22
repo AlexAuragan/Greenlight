@@ -1,6 +1,6 @@
 # Conversational coordinator — routing contract v1
 
-**Status: Q&A and explicit idle/live delivery implemented; the full contract remains incremental.** [Manager Q&A](21-manager-qa.md) supplies cited answers and validated unexecuted proposals. [Explicit idle delivery](42-idle-manager-delivery.md) adds user acceptance, scoped original-message delivery, next-visit reservations, withdrawal and request inclusion evidence. Guarded restart binding and the owner-advertised live inbox are implemented, including undelivered-instruction review holds and linked clarification replies. Asking alone still executes nothing, and ordinary-message automatic routing below remains a proposed interface. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
+**Status: implemented on `feat/project-execution-coordination`, pending merge.** [Manager Q&A](21-manager-qa.md) supplies grounded replies. [Guidance delivery](42-idle-manager-delivery.md) covers default Conversation routing, explicit read-only questions, linked clarifications, attempt-scoped live delivery and guarded restart confirmation. `manager.enabled: true` selects Conversation for fresh TUI drafts; Ask manager and CLI `ask` remain read-only. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
 
 ## Product behavior
 
@@ -18,7 +18,7 @@ Examples:
 
 Question grammar alone is insufficient: “Can you retry…” requests action. A question about a failure or suggestion alone does not authorize retry. A clear step name/description wins over an assumption that every instruction belongs to the current step. Match the supplied workflow, not a hard-coded list of names. Unknown or ambiguous targets require clarification.
 
-The default manager is part of this proposed interface, not a requirement for an additional provider account. It may share the coding provider/model. Explicit direct-agent controls can be added later; ordinary messages must not silently bypass the manager based on a heuristic.
+The default manager shares the existing provider account. It may share the coding provider/model. Explicit Step and Commands recipients remain available; Conversation never silently bypasses the manager based on a heuristic.
 
 ## Original message and scope
 

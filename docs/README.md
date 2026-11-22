@@ -14,7 +14,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Rate limits, provider errors and explicit retry | [Provider recovery](19-provider-failures.md) |
 | Full model/tool evidence and local exports | [Conversation dumps](35-conversation-dump.md) |
 | Input/cached-input/output counts and model pricing | [Usage and pricing](18-token-usage-and-pricing.md) |
-| Explicit idle-step guidance, queues and withdrawal | [Idle manager delivery](42-idle-manager-delivery.md) |
+| Conversation routing, live guidance and clarification replies | [Manager guidance delivery](42-idle-manager-delivery.md) |
 | Read-only project/pipeline questions | [Manager Q&A](21-manager-qa.md) |
 | Actual application renders | [Ratatui captures](screenshots/README.md) |
 

@@ -990,7 +990,7 @@ impl App {
             return;
         }
         if let Some(text) = original.strip_prefix("/ask ") {
-            self.start_manager(root, store, text.to_owned());
+            self.start_manager(root, store, text.to_owned(), false);
             return;
         }
         if instruction == "/ask" {
@@ -1101,7 +1101,7 @@ impl App {
             return;
         }
         if instruction != "/resume" && self.manager_enabled {
-            self.start_manager(root, store, original);
+            self.start_manager(root, store, original, true);
             return;
         }
         let input = if instruction == "/resume" {

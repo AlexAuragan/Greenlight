@@ -183,7 +183,7 @@ fn manager_job_runs_beside_owner_preserves_text_and_cannot_answer_approvals() {
         .contains(&shell::Action::ReplyClarification));
     app.activate(shell::Action::ReplyClarification, root.path(), &store)
         .unwrap();
-    assert_eq!(app.compose.mode, compose::Mode::Manager);
+    assert_eq!(app.compose.mode, compose::Mode::Conversation);
     assert_eq!(
         app.compose.clarification.get(&app.compose.scope),
         Some(&event)
@@ -191,7 +191,7 @@ fn manager_job_runs_beside_owner_preserves_text_and_cannot_answer_approvals() {
     assert_eq!(app.focus, Focus::Compose);
     app.activate(shell::Action::AskManager, root.path(), &store)
         .unwrap();
-    assert!(app.compose.clarification.is_empty());
+    assert!(!app.compose.clarification.contains_key(&app.compose.scope));
     store.finish_execution(&s.id, &owner, None).unwrap();
     std::env::remove_var(env_name);
 }

@@ -503,7 +503,9 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                     s.workflow,
                     s.status,
                     s.current_step,
-                    if app.compose.mode == compose::Mode::Manager {
+                    if app.compose.mode == compose::Mode::Conversation {
+                        "The manager answers or routes your original instruction. Restart previews require confirmation."
+                    } else if app.compose.mode == compose::Mode::Manager {
                         "Your question goes to the read-only manager."
                     } else if app.compose.mode == compose::Mode::Command {
                         "Review a Greenlight slash command before running it."

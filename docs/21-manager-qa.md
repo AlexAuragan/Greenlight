@@ -1,6 +1,6 @@
 # Manager Q&A and routing proposals
 
-**Implemented:** bounded context, strict manager decisions, cited answers, linked clarification replies, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Owner-scoped live queues and explicitly confirmed restart delivery are implemented; ordinary messages still require explicit route acceptance.
+**Implemented:** bounded context, strict manager decisions, cited answers, linked clarification replies, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Owner-scoped live queues and explicitly confirmed restart delivery are implemented; Conversation messages can accept validated routes through the host; explicit Ask remains read-only.
 
 This implements the Q&A stage of the [coordinator contract](20-conversational-coordinator.md). It loads the text block in the [manager system prompt](prompts/manager-v1.md); the coding-agent YAML contract stays unchanged.
 
@@ -22,7 +22,7 @@ The manager reuses the existing provider. Optionally select a separate model ID 
 
 ```yaml
 manager:
-  enabled: true         # suggest the manager recipient for a fresh TUI draft
+  enabled: true         # default fresh TUI drafts to Conversation (answers or routed instructions)
   model: example-model # optional; defaults to provider.model
 ```
 
@@ -30,7 +30,7 @@ Default `enabled: false` suggests the step recipient when it can resume; explici
 
 ## TUI
 
-- Ask manager explicitly sends a literal read-only question. Send & resume explicitly delivers literal step instructions, bypassing the manager route. In the separate Commands editor, `/ask QUESTION` also asks the manager; the prefix is removed and remaining text preserved. `/resume`, `/restart`, `/recover`, `/usage`, existing navigation and approvals keep their deterministic behavior.
+- Conversation routes ordinary messages through the manager when enabled; validated forwards use normal host delivery and guarded restart controls. Ask manager explicitly sends a literal read-only question. Send & resume explicitly delivers literal step instructions, bypassing the manager route. In the separate Commands editor, `/ask QUESTION` also asks the manager; the prefix is removed and remaining text preserved. `/resume`, `/restart`, `/recover`, `/usage`, existing navigation and approvals keep their deterministic behavior.
 - `/manager-context` opens a scrollable source/model preview and makes no inference request or history entry. This initial TUI does not implicitly send a selected artifact body; explicit artifact selection is available in the CLI.
 - More → Manager replies (or `/manager` in Commands mode) filters the activity list to manager exchanges. Enter expands the answer and cited captured source text; Escape/Left returns as in normal readers. `F` then Escape clears the filter. Raw mode retains snapshot and model-output records.
 - Stop manager retries in the active manager composer (or `/cancel-manager` in Commands mode) stops future manager requests/retries; an in-flight request may finish. Navigation `x` cancels the manager when no coding cancel handle takes precedence; when both are running, use `/cancel-manager` for the manager. Quitting waits for an active manager job to finish so completion/uncertain usage can be inspected.

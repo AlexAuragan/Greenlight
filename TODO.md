@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-008** — **Explicit delivery implemented, pending merge** on `feat/project-execution-coordination`: explicit validated proposal acceptance, exact original bytes scoped to one attempt, next-visit reservations, FIFO/withdrawal, atomic prepared-request inclusion, guarded restart binding, owner-scoped live delivery with completion-review holds and linked clarification replies. See [idle manager delivery](docs/42-idle-manager-delivery.md). Remaining: proposed default ordinary-message routing. Preserve ownership, input/permission/verification gates and separate side-question accounting.
 - [ ] **GL-030** — Project-status observation can briefly hold the exclusive OS lease before a worker claims execution, causing a false “project control operation in progress” refusal. Observed in `new_session_form_starts_worker_without_draft_loss_and_keeps_approvals` during GL-008 validation. Separate observation from claim contention or bound retries for unpublished transient ownership; preserve real-owner exclusion and retained drafts. Add deterministic interleaving coverage rather than weakening the existing startup assertion.
 - [ ] **GL-009** — Consider an inexpensive **optional summarizer** for long steps or completed workflows, run asynchronously and display evidence-linked output when ready; compare it against coding-agent-authored short activity titles. Never block execution on summarization.
 - [ ] **GL-010** — Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
@@ -39,6 +38,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-008** — **Implemented, pending merge** on `feat/project-execution-coordination`: explicit validated proposal acceptance, exact original bytes scoped to one attempt, next-visit reservations, FIFO/withdrawal, atomic prepared-request inclusion, guarded restart binding, owner-scoped live delivery with completion-review holds linked clarification replies and default Conversation routing. See [idle manager delivery](docs/42-idle-manager-delivery.md). Preserve ownership, input/permission/verification gates and separate side-question accounting.
 
 - [x] **GL-028** — Implemented on `feat/project-execution-coordination` (awaiting merge): one workflow/control lease per project, atomic project/session execution ownership, stable recovery lock order, one lease through restore/fork publication, legacy/interrupted maintenance recovery, truthful busy feedback and retained rejected drafts/goals. Read-only observers/manager questions remain available. See [project execution coordination](docs/41-project-execution-coordination.md).
 

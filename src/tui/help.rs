@@ -53,7 +53,9 @@ Enter sends/starts; Ctrl+J or Alt+Enter inserts a newline.
 Letters h/j/k and pasted text stay literal while typing. Paste never sends.
 Blue denotes user input; focused carets blink.
 Drafts are memory-only, scoped by session, branch and recipient.
-Change recipient selects manager or step; navigation / opens Commands.
+Conversation answers or routes originals; restarts still require confirmation.
+Change recipient selects Conversation, read-only manager or step.
+Navigation / opens Commands.
 Slash-prefixed text in message modes stays literal. Closing never sends.
 
 Mouse and reading
