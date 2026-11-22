@@ -1,12 +1,20 @@
 # Validation
 
-## GL-008 idle-delivery slice — 2026-11-22
+## Current branch review — 2026-11-22
+
+Reviewed `feat/project-execution-coordination` through `cd9e421` against the current remote `master` (`dfc666d`): six commits ahead, no divergence. The review focused on project/session lock order, observation/startup contention, claim/cleanup transactions, manager snapshot and branch revalidation, linked original-message preservation, live inbox withdrawal/inclusion boundaries, saved-request retries, guarded restore/fork publication and TUI draft/approval isolation. No additional blocking code issue was found in those paths; this is not an exhaustive security audit.
+
+Fresh validation passes 483 Rust tests, with the existing Bubblewrap integration and manual profiling tests ignored, strict all-target Clippy, formatting, offline build and six installer tests. Native terminal checks use local fake HTTP providers, covering explicit guidance delivery and cross-client exclusion through provider retry; no paid provider requests or new sandbox validation are involved.
+
+GL-008, GL-028, GL-029 and GL-030 are implemented on this branch, pending merge. The earlier entries below describe the evidence and limitations at each historical slice; they do not override the current runtime documentation. Filesystem restore and SQLite fork publication remain separate operations: a publication failure after restoration is reported explicitly and starts no worker. Exact saved manager retries remain read-only, and older binaries/external editors do not participate in the new coordination protocol.
+
+## GL-008 initial idle-delivery slice (historical) — 2026-11-22
 
 The existing `feat/project-execution-coordination` branch now also contains explicit idle manager delivery, retaining one pending branch. The suite passes 467 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Tests use scripted/local providers and no paid API calls.
 
 New coverage checks exact whitespace/Unicode originals in only the target step; separate FIFO IDs for identical text; stale branch/workflow/artifact rejection; withdrawal; no permission/input-gate bypass; non-executing restart proposals; unresolved/unreachable guidance; atomic attempt binding and prepared-envelope inclusion; saved retries without duplication; withdrawal preventing a saved request from replaying the instruction; and Help-safe TUI controls.
 
-A native PTY/local HTTP scenario asks from the CLI, verifies that asking queued nothing, selects the manager proposal in the TUI and uses **g** to start the blocked current target. Its persisted coding envelope contains the exact original once; the initial attempt did not contain it. Reaccepting via CLI starts nothing. Three central dispatch records account for initial coding, manager inference and routed coding. Confirmed restart binding and live delivery are still unimplemented; GL-008 remains open.
+A native PTY/local HTTP scenario asks from the CLI, verifies that asking queued nothing, selects the manager proposal in the TUI and uses **g** to start the blocked current target. Its persisted coding envelope contains the exact original once; the initial attempt did not contain it. Reaccepting via CLI starts nothing. Three central dispatch records account for initial coding, manager inference and routed coding. At this initial slice, confirmed restart binding and live delivery were not yet implemented; the current branch validation above supersedes that limitation.
 
 ## GL-028 / GL-029 — 2026-11-22
 

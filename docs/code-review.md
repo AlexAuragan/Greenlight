@@ -25,3 +25,11 @@ Validation results are recorded in [validation](06-validation.md). Existing term
 ## Design-pattern follow-up
 
 Use the [architecture pattern notes](04-architecture.md#patterns-used-to-keep-the-implementation-local) for the implemented command registry, decision input ownership, transactions and serialized approval updates. Tests exercise concurrent processes, injected SQL/commit failures and keyboard/direct-action parity. Existing 80×24 result/artifact captures remain unchanged.
+
+## Coordination and coordinator branch review — 2026-11-22
+
+Reviewed the six commits from current `master` to `cd9e421`, focusing on ownership and recovery boundaries rather than adding another abstraction layer. The project observation guard is released before session/native-write locks and executing transactions; the execution lease remains held during provider/tool/approval waits. Owner capability and token checks remain required for mutations, while live producers only append validated control metadata.
+
+Guidance retains immutable originals and linked clarification turns, binds to one branch/attempt, and records inclusion with the prepared request before HTTP dispatch. Withdrawal cannot retract an included request. A saved retry reuses its frozen context; undelivered instructions hold progression for explicit review instead of rewriting the recorded outcome. Restart confirmation revalidates the proposal/checkpoint and atomically publishes the new branch/binding after guarded restoration, with explicit partial-failure reporting.
+
+TUI checks cover explicit read-only versus Conversation recipients, cancellation, stale state, session navigation, filtered activity, new drafts and approval priority. No additional blocking issue was found in the reviewed paths. Historical validation notes were clarified to avoid implying that later GL-008 slices are still missing. Current checks and known implementation limits are recorded in [validation](06-validation.md); this review does not merge or publish the branch.
