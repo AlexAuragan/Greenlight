@@ -46,10 +46,11 @@ impl App {
             Ok(choices) if !choices.is_empty() => {
                 self.restart_cursor = choices
                     .iter()
-                    .position(|candidate| candidate.step == session.current_step)
+                    .rposition(|candidate| candidate.step == session.current_step)
                     .unwrap_or(choices.len() - 1);
                 self.restart_choices = choices;
-                self.notice = "Select the step to restart. Enter previews; Esc cancels.".into();
+                self.notice =
+                    "Select a historical run/checkpoint. Enter previews; Esc cancels.".into();
             }
             Ok(_) => self.notice = "No recorded step attempts to restart.".into(),
             Err(error) => self.notice = format!("Restart unavailable: {error:#}"),
@@ -59,18 +60,45 @@ impl App {
         let Some(candidate) = self.restart_choices.get(self.restart_cursor).cloned() else {
             return;
         };
-        let Some(session) = self.session() else {
+        let Some(session) = self.session().cloned() else {
             return;
         };
         let branch = session.active_branch.clone();
-        match RestorePlan::prepare(root, store, session, candidate.prior_event) {
+        match RestorePlan::prepare(root, store, &session, candidate.prior_event) {
             Ok(plan) => {
                 self.restart_preview = format!(
                     "Restart '{}' from event #{} (the previous checkpoint).\n\n{}",
-                    candidate.step,
+                    tui_actions::restart_label(&self.restart_choices, self.restart_cursor),
                     candidate.prior_event,
                     plan.preview_text(),
                 );
+                let history = store.history(&session);
+                let warnings = (|| -> Result<String> {
+                    let history = history?;
+                    let mut text=String::from("\nLive workspace differences since its last recorded scan (not automatically restored):\n");
+                    if let Some((event, _, before)) = crate::workspace::latest(&history)? {
+                        let current = crate::workspace::scan(root)?;
+                        let changes = crate::workspace::differences(&before, &current);
+                        text.push_str(&format!(
+                            "Compared with scan #{event}; {} changed path(s).\n",
+                            changes.len()
+                        ));
+                        for change in changes {
+                            text.push_str(&format!(
+                                "{} · {}\n",
+                                change.change,
+                                change.path.escape_debug()
+                            ));
+                        }
+                        text.push_str(&format!("Omitted paths: recorded {} · current {}. Excluded files are outside coverage.\n",before.skipped.len(),current.skipped.len()));
+                    } else {
+                        text.push_str("No recorded scan: shell/manual/untracked differences cannot be assessed.\n");
+                    }
+                    crate::resource_limits::Budget::new(store.limits.materialized_bytes)
+                        .charge(text.len())?;
+                    Ok(text)
+                })();
+                match warnings {Ok(text)=>self.restart_preview.push_str(&text),Err(error)=>self.restart_preview.push_str(&format!("\nLive workspace inspection unavailable: {error:#}. Review manual/untracked changes separately.\n"))}
                 self.restart_branch = Some(branch);
                 self.restart_plan = Some(plan);
                 self.detail_scroll = 0;
@@ -167,21 +195,18 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         draw_scrolled(
             frame,
             app,
-            Paragraph::new(app.restart_preview.clone())
+            Paragraph::new(safe_display(&app.restart_preview))
                 .wrap(Wrap { trim: false })
                 .block(border(" Restart preview — y confirm / n cancel ", true)),
             area,
         );
     } else if !app.restart_choices.is_empty() {
-        let choices = app.restart_choices.iter().map(|candidate| {
-            ListItem::new(format!(
-                "{}  — restore before event #{}",
-                candidate.step, candidate.prior_event
-            ))
+        let choices = app.restart_choices.iter().enumerate().map(|(index, _)| {
+            ListItem::new(tui_actions::restart_label(&app.restart_choices, index))
         });
         let choices_widget = List::new(choices)
             .block(border(
-                " Restart from step — Enter to preview / Esc cancel ",
+                " Restart historical run — Enter previews / Esc cancels ",
                 true,
             ))
             .highlight_symbol("▶ ")
@@ -189,5 +214,84 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         let mut state = ListState::default();
         state.select(Some(app.restart_cursor));
         frame.render_stateful_widget(choices_widget, area, &mut state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn historical_picker_previews_the_selected_retry_and_preserves_manual_files() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("workflows/demo");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            root.path().join("greenlight.yaml"),
+            "provider:\n  model: fixture\n",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("workflow.yaml"),
+            "id: demo\ntitle: Demo\nstart: work\nsteps: [work]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("work.md"),
+            "---\nid: work\nverification:\n  type: none\n---\nWork\n",
+        )
+        .unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "Goal", "work").unwrap();
+        crate::workspace::record(root.path(), &store, &session, "work", "before").unwrap();
+        store
+            .begin_attempt(&session, "work", "definition", "fixture")
+            .unwrap();
+        store
+            .apply_native_write(root.path(), &session, "work", "code.txt", None, "first")
+            .unwrap();
+        let checkpoint = store
+            .event(&session, Some("work"), "step.completed", "first done")
+            .unwrap();
+        store
+            .event(&session, Some("work"), "step.started", "retry")
+            .unwrap();
+        store
+            .apply_native_write(
+                root.path(),
+                &session,
+                "work",
+                "code.txt",
+                Some("first"),
+                "second",
+            )
+            .unwrap();
+        std::fs::write(root.path().join("manual.txt"), "keep this").unwrap();
+        let mut app = App::new(Some(&session.id));
+        app.refresh(&store).unwrap();
+        app.open_restart(root.path(), &store);
+        assert_eq!(app.restart_choices.len(), 2);
+        assert_eq!(app.restart_cursor, 1);
+        assert_eq!(app.restart_choices[1].prior_event, checkpoint);
+        app.prepare_restart(root.path(), &store);
+        assert!(app.restart_preview.contains("run 2"));
+        assert!(app.restart_preview.contains("manual.txt"));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("code.txt")).unwrap(),
+            "second"
+        );
+        app.confirm_restart(root.path(), &store);
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("code.txt")).unwrap(),
+            "first"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("manual.txt")).unwrap(),
+            "keep this"
+        );
+        assert_ne!(
+            store.session(&session.id).unwrap().active_branch,
+            session.active_branch
+        );
+        assert!(app.runner.is_none());
     }
 }

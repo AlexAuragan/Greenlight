@@ -69,6 +69,8 @@ Artifact revisions are documents; Edits covers native recorded writes.
 /ask QUESTION asks the read-only manager; routes do not execute.
 More → Generate summary makes an optional background model request.
 Latest summary reopens captured evidence without inference; Stop summary cancels it.
+Restart review lists historical runs; arrows select, Enter previews, y confirms.
+More → Compare branches reads captured file hashes without changing the workspace.
 q quits only when there is no local worker or manager job.
 ";
 

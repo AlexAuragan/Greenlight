@@ -197,6 +197,16 @@ enum Commands {
     },
     /// List session branches and their fork points
     Branches { session: String },
+    /// List every historical run and its guarded restart checkpoint
+    RestartPoints { session: String },
+    /// Compare recorded branch workspace hashes without switching or restoring
+    CompareBranches {
+        session: String,
+        #[arg(long)]
+        left: String,
+        #[arg(long)]
+        right: String,
+    },
     /// Select a historical branch (manual step choice; does NOT restore files)
     Switch {
         session: String,
@@ -575,6 +585,31 @@ async fn main() -> Result<()> {
                         .collect::<String>()
                 );
             }
+        }
+        Commands::RestartPoints { session } => {
+            let store = store::Store::open(&root)?;
+            let s = store.session(&session)?;
+            let choices = tui_actions::candidates_for_session(&root, &store, &s)?;
+            for (index, candidate) in choices.iter().enumerate() {
+                println!(
+                    "{} · step {} · --event {}",
+                    tui_actions::restart_label(&choices, index),
+                    candidate.step,
+                    candidate.prior_event
+                );
+            }
+        }
+        Commands::CompareBranches {
+            session,
+            left,
+            right,
+        } => {
+            let store = store::Store::open(&root)?;
+            let s = store.session(&session)?;
+            println!(
+                "{}",
+                tui_actions::compare_branches(&store, &s, &left, &right)?
+            );
         }
         Commands::Branches { session } => {
             let engine = engine::Engine::open(&root)?;

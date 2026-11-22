@@ -1,5 +1,11 @@
 # Validation
 
+## Historical restart controls (GL-010) — 2026-11-22
+
+GL-010 is implemented alongside GL-009 on `feat/optional-summaries`, not merged. Validation passes 490 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Checks cover every visible retry checkpoint, unchanged canonical manager targets, inherited fork cutoffs, selecting and restoring a second run, preservation of a manually created file, branch hash comparisons, missing scans and cross-session rejection.
+
+A CLI smoke test verifies `restart-points` emits the existing fork command's exact `--event` flag, lists inherited and current runs, then compares recorded branch scans after a manual file addition. Comparison leaves the selected branch/status and manual file unchanged. Its local fixture provider is shut down before restart/comparison inspection; those operations make no inference requests.
+
 ## Optional summaries (GL-009) — 2026-11-22
 
 `feat/optional-summaries` adds explicitly requested background TUI/CLI summaries; it is not merged. Validation passes 488 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. New checks cover live-owner coexistence, pending-approval preservation, model selection and central accounting, strict output/citation validation, stale startup and branch visibility, and preservation of an existing coding checkpoint even when using the same Engine. Background dispatch/failure attention cannot replace the actual workflow's provider diagnostic.

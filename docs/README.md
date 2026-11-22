@@ -15,6 +15,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Full model/tool evidence and local exports | [Conversation dumps](35-conversation-dump.md) |
 | Input/cached-input/output counts and model pricing | [Usage and pricing](18-token-usage-and-pricing.md) |
 | Conversation routing, live guidance and clarification replies | [Manager guidance delivery](42-idle-manager-delivery.md) |
+| Historical restart checkpoints and recorded branch comparisons | [Historical restarts](44-historical-restart-and-branches.md) |
 | Optional background summaries and saved evidence | [Optional summaries](43-optional-summaries.md) |
 | Read-only project/pipeline questions | [Manager Q&A](21-manager-qa.md) |
 | Actual application renders | [Ratatui captures](screenshots/README.md) |

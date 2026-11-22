@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-010** — Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
 - [ ] **GL-011** — Evaluate **snapshotting changed file bodies** at step boundaries only after hash manifests reveal a useful gap; define size/privacy/caches policy and whether external edits should be restored or simply protected from overwrite.
 - [ ] **GL-012** — **Design command-level shell grants together before implementation:** allow selected executables (e.g. `ls`) across approved argument/path variations without approving a whole shell string by prefix. Define argument/option restrictions, path and executable identity, wrappers/interpreters, pipelines/AND/OR/sequences, redirections, substitutions and environment assignments; validate every executed component or request approval for the whole compound command. Regression case: granting `cat` must never auto-approve `cat something.txt | ./harmful_script.sh` (nor hidden substitutions). Keep exact-command grants until this design is agreed.
 - [ ] **GL-013** — Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
@@ -36,6 +35,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-010** — Implemented alongside GL-009 on `feat/optional-summaries` (pending merge): every visible historical run/checkpoint in the restart picker, native restore diffs plus live/manual-change coverage, and read-only recorded branch comparisons in TUI/CLI. Existing guarded restore/fork, branch ancestry and manager binding policies remain authoritative. See [historical restarts](docs/44-historical-restart-and-branches.md).
 
 - [x] **GL-009** — Implemented on `feat/optional-summaries` (pending merge): opt-in TUI background summaries and CLI generation, bounded captured evidence/citations, selectable same-provider model, separate usage accounting and saved branch-visible readers. Activity titles remain the immediate feedback; summaries never gate workflow execution or replace verification. See [optional summaries](docs/43-optional-summaries.md).
 

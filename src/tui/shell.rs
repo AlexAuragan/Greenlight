@@ -173,7 +173,11 @@ impl App {
                 actions.push(Action::RestartReview);
             }
             if self.session().is_some() {
-                actions.extend([Action::GenerateSummary, Action::LatestSummary]);
+                actions.extend([
+                    Action::CompareBranches,
+                    Action::GenerateSummary,
+                    Action::LatestSummary,
+                ]);
             }
             if self.summary_running() {
                 actions.push(Action::CancelSummary);
@@ -257,6 +261,7 @@ impl App {
         }
         if self.session().is_some() {
             actions.extend([
+                Action::CompareBranches,
                 Action::GenerateSummary,
                 Action::LatestSummary,
                 Action::Conversation,
@@ -984,6 +989,30 @@ impl App {
             WriteGuidance => {
                 self.clear_diagnostic();
                 self.context_detail=Some(format!("Native-write recovery\n\nProject: {}\n\nFrom this project, run:\n  greenlight recover-writes\n\nThis reconciles recorded write intents with current disk contents; it does not overwrite source files. Read the CLI result before resuming. Recovery can refuse drift or an active native-write lock.\n\nOwner recovery (/recover) is a separate operation and never resumes work.",root.display()));
+                self.detail_scroll = 0;
+            }
+            CompareBranches => {
+                let session = self.session().context("Select a session")?;
+                let branches = store.branches(&session.id)?;
+                if branches.len() > store.limits.history_events {
+                    bail!("Branch count exceeds configured history limit");
+                }
+                let mut report=String::from("Compare recorded branches against the selected branch. No files or session state are changed.\n\n");
+                for branch in branches.iter().filter(|b| b.id != session.active_branch) {
+                    report.push_str(&tui_actions::compare_branches(
+                        store,
+                        session,
+                        &session.active_branch,
+                        &branch.id,
+                    )?);
+                    report.push('\n');
+                    crate::resource_limits::Budget::new(store.limits.materialized_bytes)
+                        .charge(report.len())?;
+                }
+                if branches.len() < 2 {
+                    report.push_str("No other branches recorded for this session.");
+                }
+                self.context_detail = Some(report);
                 self.detail_scroll = 0;
             }
             RestartReview => {
