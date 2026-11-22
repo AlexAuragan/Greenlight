@@ -292,6 +292,14 @@ impl App {
                 },
             );
         }
+        if self.project_attention() && !self.reading_overlay() && !self.composer_active() {
+            actions.insert(0, Action::RefreshProject);
+            if self.other_project_owner()
+                && self.project.as_ref().is_some_and(|p| p.session.is_some())
+            {
+                actions.insert(0, Action::OpenProjectOwner);
+            }
+        }
         actions
     }
     fn base_footer_actions(&self) -> Vec<Action> {
@@ -659,7 +667,35 @@ impl App {
             self.shell.more = false;
         }
         match action {
+            OpenProjectOwner => {
+                if let Some(owner) = store.project_status()?.and_then(|p| p.session) {
+                    self.remember_creation();
+                    self.new_session = None;
+                    self.requested_session = Some(owner.id);
+                    self.shell.sessions = false;
+                    self.clear_diagnostic();
+                    self.refresh(store)?;
+                    self.notice = "Opened project owner. Other clients' approval/input waits may be unavailable here; browsing does not stop the worker.".into();
+                } else {
+                    self.refresh(store)?;
+                    self.notice = "Project owner changed; refreshed.".into();
+                }
+            }
+            RefreshProject => {
+                self.refresh(store)?;
+                self.notice = self
+                    .project
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| {
+                        "Project available. Start explicitly when ready; no work was queued.".into()
+                    });
+            }
             RetrySaved => {
+                if let Err(error) = store.ensure_project_available() {
+                    self.notice = format!("Not started: {error:#}");
+                    return Ok(false);
+                }
                 if self.runner.is_some() || self.manager_job.is_some() {
                     self.notice = "Stop active execution before retrying the saved request.".into();
                     return Ok(false);
@@ -1587,7 +1623,10 @@ mod tests {
         assert!(app.approval.is_some());
         assert_eq!(app.detail_scroll, 3);
         key(&mut app, root.path(), &store, KeyCode::Char('h'));
-        ft.send(Err("fixture disconnected".into())).unwrap();
+        ft.send(Err(crate::tui_actions::RunnerError::Other(
+            "fixture disconnected".into(),
+        )))
+        .unwrap();
         app.tick();
         key(&mut app, root.path(), &store, KeyCode::Esc);
         assert!(app.approval.is_none());

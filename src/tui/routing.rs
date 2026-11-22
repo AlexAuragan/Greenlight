@@ -855,6 +855,17 @@ impl App {
             return Ok(false);
         }
 
+        if self.project_attention() && !self.reading_overlay() {
+            if let Some(action) = shell::Action::for_key(
+                key.code,
+                &[
+                    shell::Action::OpenProjectOwner,
+                    shell::Action::RefreshProject,
+                ],
+            ) {
+                return self.activate(action, root, store);
+            }
+        }
         let workspace_actions = [
             shell::Action::Preview,
             shell::Action::Expand,

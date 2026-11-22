@@ -73,14 +73,14 @@ impl App {
         let Some(plan) = self.restart_plan.take() else {
             return;
         };
-        if let Err(error) = plan.apply_silent(root, store, &state) {
-            self.raise_diagnostic(format!(
-                "Restore failed: {error:#}. Inspect history before retrying."
-            ));
-            self.restart_choices.clear();
-            return;
-        }
-        match store.fork(&mut state, candidate.prior_event, &candidate.step) {
+        match store.restore_and_fork(
+            root,
+            &mut state,
+            plan,
+            candidate.prior_event,
+            &candidate.step,
+            false,
+        ) {
             Ok(()) => {
                 self.notice = format!(
                     "Forked from event #{} to '{}'. Type an instruction or /resume.",
@@ -88,7 +88,7 @@ impl App {
                 )
             }
             Err(error) => self.raise_diagnostic(format!(
-                "Restore applied, but fork failed: {error:#}. Inspect workspace and history."
+                "Restart failed: {error:#}. Inspect workspace and history before retrying."
             )),
         }
         self.restart_choices.clear();

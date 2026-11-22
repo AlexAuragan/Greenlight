@@ -103,6 +103,8 @@ impl<'a> IntoIterator for &'a History {
 }
 type HistoryCache = (String, String, (u64, i64), History);
 pub struct Store {
+    pub(crate) active_project:
+        std::cell::RefCell<std::sync::Weak<crate::project_execution::ProjectLease>>,
     pub(crate) limits: crate::resource_limits::Limits,
     #[cfg(test)]
     pub(crate) blob_reads: std::cell::Cell<usize>,
@@ -117,6 +119,7 @@ impl Store {
         let db = crate::anchored_sqlite::open(&directory_fd)?;
         db.execute_batch(
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+           BEGIN;
            CREATE TABLE IF NOT EXISTS sessions (
              id TEXT PRIMARY KEY, workflow TEXT NOT NULL, goal TEXT NOT NULL,
              active_branch TEXT NOT NULL, current_step TEXT NOT NULL, status TEXT NOT NULL);
@@ -144,6 +147,10 @@ impl Store {
            CREATE TABLE IF NOT EXISTS execution_owners (
              session TEXT PRIMARY KEY REFERENCES sessions(id), token TEXT NOT NULL,
              pid INTEGER NOT NULL);
+           CREATE TABLE IF NOT EXISTS project_owner (
+             singleton INTEGER PRIMARY KEY CHECK(singleton=1), token TEXT NOT NULL UNIQUE,
+             session TEXT NOT NULL REFERENCES sessions(id), branch TEXT NOT NULL,
+             operation TEXT NOT NULL, pid INTEGER NOT NULL);
            CREATE TABLE IF NOT EXISTS step_attempts (
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              step TEXT NOT NULL, definition_event INTEGER NOT NULL, start_event INTEGER NOT NULL,
@@ -155,9 +162,11 @@ impl Store {
            CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
-           CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);",
+           CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);
+           COMMIT;",
         )?;
         Ok(Self {
+            active_project: std::cell::RefCell::new(std::sync::Weak::new()),
             #[cfg(test)]
             blob_reads: std::cell::Cell::new(0),
             limits: crate::config::load_config(root)
@@ -304,34 +313,49 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub fn switch_branch(&self, s: &mut Session, branch: &str, step: &str) -> Result<()> {
-        let _lock = self.lock_idle_session(&s.id)?;
-        self.ensure_no_pending_writes()?;
-        let found: i64 = self.db.query_row(
-            "SELECT count(*) FROM branches WHERE session=?1 AND id=?2",
-            params![s.id, branch],
-            |r| r.get(0),
-        )?;
-        if found != 1 {
-            bail!("branch does not belong to this session");
-        }
-        let transaction = self.db.unchecked_transaction()?;
-        let mut next = s.clone();
-        next.active_branch = branch.into();
-        next.current_step = step.into();
-        next.status = "ready".into();
-        self.save(&next)?;
-        self.event(
-            &next,
-            Some(step),
-            "branch.selected",
-            "manual selection; filesystem unchanged",
-        )?;
-        transaction.commit()?;
-        *s = next;
-        Ok(())
+        let previous = s.clone();
+        self.with_project_control(&previous, "branch-control", |lease| {
+            self.check_project(lease, s)?;
+            self.ensure_no_pending_writes()?;
+            let found: i64 = self.db.query_row(
+                "SELECT count(*) FROM branches WHERE session=?1 AND id=?2",
+                params![s.id, branch],
+                |r| r.get(0),
+            )?;
+            if found != 1 {
+                bail!("branch does not belong to this session");
+            }
+            let transaction = self.db.unchecked_transaction()?;
+            let mut next = s.clone();
+            next.active_branch = branch.into();
+            next.current_step = step.into();
+            next.status = "ready".into();
+            self.save(&next)?;
+            self.event(
+                &next,
+                Some(step),
+                "branch.selected",
+                "manual selection; filesystem unchanged",
+            )?;
+            transaction.commit()?;
+            *s = next;
+            Ok(())
+        })
     }
     pub fn fork(&self, s: &mut Session, event_id: i64, step: &str) -> Result<()> {
-        let _lock = self.lock_idle_session(&s.id)?;
+        let previous = s.clone();
+        self.with_project_control(&previous, "branch-control", |lease| {
+            self.fork_owned(s, event_id, step, lease)
+        })
+    }
+    pub(crate) fn fork_owned(
+        &self,
+        s: &mut Session,
+        event_id: i64,
+        step: &str,
+        lease: &crate::project_execution::ProjectLease,
+    ) -> Result<()> {
+        self.check_project(lease, s)?;
         self.ensure_no_pending_writes()?;
         let valid: bool = self.history(s)?.iter().any(|(id, _, _, _)| *id == event_id);
         if !valid {

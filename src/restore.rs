@@ -234,7 +234,19 @@ impl RestorePlan {
         session: &Session,
         verbose: bool,
     ) -> Result<()> {
-        let _session_lock = store.lock_idle_session(&session.id)?;
+        store.with_project_control(session, "restore", |lease| {
+            self.apply_owned(root, store, session, verbose, lease)
+        })
+    }
+    pub(crate) fn apply_owned(
+        self,
+        root: &Path,
+        store: &Store,
+        session: &Session,
+        verbose: bool,
+        lease: &crate::project_execution::ProjectLease,
+    ) -> Result<()> {
+        store.check_project(lease, session)?;
         if store.session(&session.id)?.active_branch != session.active_branch {
             bail!("session branch changed since restore preview");
         }
@@ -300,6 +312,24 @@ impl RestorePlan {
             println!("Restore complete: {applied} tracked file(s) updated.");
         }
         Ok(())
+    }
+}
+
+impl Store {
+    pub fn restore_and_fork(
+        &self,
+        root: &Path,
+        session: &mut Session,
+        plan: RestorePlan,
+        event: i64,
+        step: &str,
+        verbose: bool,
+    ) -> Result<()> {
+        let previous = session.clone();
+        self.with_project_control(&previous, "restart", |lease| {
+            plan.apply_owned(root, self, session, verbose, lease)?;
+            self.fork_owned(session, event, step, lease).context("Restore applied but fork publication failed; inspect workspace and history before retrying")
+        })
     }
 }
 

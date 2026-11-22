@@ -24,6 +24,7 @@ mod markdown;
 mod paths;
 mod pricing;
 mod project;
+mod project_execution;
 mod provider;
 mod provider_diagnostic;
 mod provider_failure;
@@ -528,10 +529,16 @@ async fn main() -> Result<()> {
             }
             engine
                 .store
-                .add_artifact(&s, &s.current_step, &name, &content)?;
-            engine
-                .store
-                .event(&s, Some(&s.current_step), "user.artifact_edited", &name)?;
+                .with_project_control(&s, "artifact-edit", |lease| {
+                    engine.store.check_project(lease, &s)?;
+                    engine
+                        .store
+                        .add_artifact(&s, &s.current_step, &name, &content)?;
+                    engine
+                        .store
+                        .event(&s, Some(&s.current_step), "user.artifact_edited", &name)?;
+                    Ok(())
+                })?;
             println!("Registered new artifact version: {name}");
         }
         Commands::Restore {
@@ -563,20 +570,29 @@ async fn main() -> Result<()> {
             if !wf.steps.contains_key(&step) {
                 bail!("unknown step {step}");
             }
+            let mut restoration = None;
             if !no_restore {
                 let plan = restore::RestorePlan::prepare(&root, &engine.store, &state, event)?;
                 plan.preview();
-                if !plan.is_empty() {
-                    if restore::confirm("Restore these tracked files before forking?")? {
-                        plan.apply(&root, &engine.store, &state)?;
-                    } else {
-                        println!("WARNING: forking without restoration; workspace may not match history.");
-                    }
+                if plan.is_empty()
+                    || restore::confirm("Restore these tracked files before forking?")?
+                {
+                    restoration = Some(plan);
+                } else {
+                    println!(
+                        "WARNING: forking without restoration; workspace may not match history."
+                    );
                 }
             } else {
                 println!("WARNING: skipping workspace checks; fork does not restore files.");
             }
-            engine.store.fork(&mut state, event, &step)?;
+            if let Some(plan) = restoration {
+                engine
+                    .store
+                    .restore_and_fork(&root, &mut state, plan, event, &step, true)?;
+            } else {
+                engine.store.fork(&mut state, event, &step)?;
+            }
             println!("New branch {} at step {step}.", state.active_branch);
         }
         Commands::Approvals => {

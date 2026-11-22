@@ -3,6 +3,8 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    OpenProjectOwner,
+    RefreshProject,
     RetrySaved,
     RetrySavedManager,
     RerunTool,
@@ -163,6 +165,8 @@ macro_rules! binding {
 }
 
 pub(super) const BINDINGS: &[Binding] = &[
+    binding!(OpenProjectOwner, 'O', "Open owner"),
+    binding!(RefreshProject, 'R', "Refresh project"),
     binding!(ResumeProvider, 't', "Continue step"),
     binding!(ReviewProviderRetry, 'a', "Review retry"),
     binding!(ReviewPermission, 'a', "Review permission"),
@@ -257,19 +261,23 @@ impl App {
                     self.details.close();
                     self.refresh(store)?;
                     self.focus = Focus::Events;
-                    self.runner = Some(tui_actions::resume(
-                        root.to_path_buf(),
-                        session.id,
-                        String::new(),
-                    ));
+                    let project_busy = match store.ensure_project_available() {
+                        Ok(()) => None,
+                        Err(error) => Some(format!("Created; not started — {error:#}")),
+                    };
+                    if project_busy.is_none() {
+                        self.runner = Some(tui_actions::resume(
+                            root.to_path_buf(),
+                            session.id,
+                            String::new(),
+                        ));
+                    }
                     self.view = View::Conversation;
                     self.follow_activity = true;
                     self.activity_query.clear();
                     self.compose.creation_goal.clear();
                     self.compose.creation_workflow.clear();
-                    self.notice =
-                        "Starting workflow. Model output and approval requests will appear here."
-                            .into();
+                    self.notice = project_busy.unwrap_or_else(|| "Starting workflow. Model output and approval requests will appear here.".into());
                 }
                 Err(error) => form.error = Some(format!("Cannot create session: {error:#}")),
             }

@@ -1,5 +1,13 @@
 # Validation
 
+## GL-028 / GL-029 — 2026-11-22
+
+`feat/project-execution-coordination` implements the project lease and fixes the refresh-generation race; this validation does not merge the branch. The suite passes 454 Rust tests with the existing Bubblewrap integration and manual profiler ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. The original engine-backed diagnostic acceptance test also passed 20 consecutive runs with its assertion unchanged; a deterministic cache-generation regression covers the previously missing blocker.
+
+New tests cover competing stores/threads/processes, independent projects, no loser instruction/status/usage changes, crash and maintenance-unwind recovery, legacy live/multiple owners, atomic claim/cleanup failure, retained drafts/goals and Help-safe owner navigation. Existing continuation, manager, native-intent and restore checks remain enabled.
+
+A native PTY/local HTTP scenario holds a TUI at an HTTP 429 decision, rejects a competing CLI start with zero extra provider calls, retains its goal as a Ready session, and lets a second TUI browse that session and open the owner. The same token remains held through the paused request and explicit retry; earlier tools are not repeated, the original attempt is retained, and cleanup removes the project row. These fixtures use a fake local key and make no paid provider requests. Sandbox isolation was not reconfigured or revalidated on a different host.
+
 ## Merge validation — 2026-11-22
 
 The GL-003/GL-005 implementation and GL-007 design stack is merged into `master`. Formatting, strict all-target Clippy, offline build and six installer tests pass. The first Rust suite run passed 436 tests and failed one diagnostic-presence assertion in the engine-backed workflow UI test; that test passed in isolation and the subsequent complete suite passed 437 tests (two ignored). GL-029 records the intermittent failure for investigation; no runtime change or assertion weakening was made to obtain the rerun.

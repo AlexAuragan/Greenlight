@@ -99,6 +99,7 @@ impl App {
             if self.runner.is_some() {
                 bail!("A workflow worker is already active; this draft was not sent.")
             }
+            store.ensure_project_available()?;
             store.ensure_no_pending_writes()?;
             let selected = self.session().context("Choose a session first")?;
             let session = store.session(&selected.id)?;

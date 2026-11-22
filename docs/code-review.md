@@ -14,7 +14,7 @@ This review prioritizes readable control flow, shared safety policies and concre
 
 ## Deferred findings
 
-[GL-028](../TODO.md) retains runtime project-level coordination, following the [GL-007 design proposal](41-project-execution-coordination.md). GL-003 descriptor anchoring and GL-005 read budgets/caching are merged into `master`; see [anchored file access](39-anchored-file-access.md) and [resource budgets](40-resource-budgets.md). GL-001/GL-002 reruns and durable continuations, GL-004 approval-store locking and GL-006 typed actions are implemented. These changes preserve explicit side-effect and recovery semantics.
+[GL-028](../TODO.md) implements runtime project-level coordination on its review branch, following the [GL-007 contract](41-project-execution-coordination.md). GL-003 descriptor anchoring and GL-005 read budgets/caching are merged into `master`; see [anchored file access](39-anchored-file-access.md) and [resource budgets](40-resource-budgets.md). GL-001/GL-002 reruns and durable continuations, GL-004 approval-store locking and GL-006 typed actions are implemented. These changes preserve explicit side-effect and recovery semantics.
 
 ## Readability conventions
 

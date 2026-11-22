@@ -1,12 +1,12 @@
 # Project execution coordination (GL-007)
 
-Status: proposed implementation contract, 2026-11-22. This document defines GL-007; it does not change runtime behavior. GL-028 implements and validates the contract. GL-021 parallel orchestration remains blocked until that work is complete.
+Status: implemented by GL-028 on `feat/project-execution-coordination`, awaiting merge (2026-11-22). GL-007 supplied the design. This is exclusive project execution, not GL-021 parallel orchestration.
 
 ## Problem and first policy
 
-Greenlight currently owns execution per session and serializes individual native writes across the project. Two different sessions can still run simultaneously. For example, A reads a source file and prepares a change; B changes the same file; A subsequently acts on its earlier interpretation. A successful per-write lock does not make A's conversation or verification current. This is possible across CLI processes, separate TUIs, or workers in the same process.
+Before GL-028, Greenlight owned execution per session and serialized individual native writes across the project. Two different sessions could still run simultaneously. For example, A reads a source file and prepares a change; B changes the same file; A subsequently acts on its earlier interpretation. A successful per-write lock does not make A's conversation or verification current. This is possible across CLI processes, separate TUIs, or workers in the same process.
 
-The first policy is **one executing workflow or workspace control operation per project**. Hold project ownership across model calls, tools, verification, step transitions and interactive waits. Reject competing execution immediately with the owning session and available actions. Browsing, exports and read-only manager questions remain available.
+The implemented policy is **one executing workflow or workspace control operation per project**. Hold project ownership across model calls, tools, verification, step transitions and interactive waits. Reject competing execution immediately with the owning session and available actions. Browsing, exports and read-only manager questions remain available.
 
 This deliberately serializes even workflows that currently request only read tools. Their transitions and later steps may execute work; inferring independence from today's tool choice would need a separate concurrency design. Different projects can run concurrently.
 
@@ -24,6 +24,7 @@ No automatic queue, lock stealing, timeout takeover, per-file scheduling, Git wo
 | Apply a restore/revert or restart with restore | Exclusive from final validation through mutation, journal and branch publication |
 | Recover a session or reconcile native write intents | Exclusive maintenance operation; see recovery below |
 | Switch an execution branch, fork without restore, or otherwise change runnable workflow control | Exclusive short control operation, plus the target session lock |
+| Explicit CLI artifact registration (`put-artifact`) | Exclusive short control operation; cannot replace inputs during live execution |
 | Create an idle session / retain a new goal | Allowed; creation does not authorize execution |
 | List/read history, artifacts, usage, diffs or prepare a restore preview | Allowed; preparation cannot authorize subsequent mutation |
 | Read-only manager question or saved manager retry | Allowed under its existing manager lock; never receives execution authority |
@@ -40,10 +41,10 @@ Use a stable, descriptor-anchored `project-execution.lock` in the selected proje
 
 The scope is the selected project's existing state store, shared by its CLI/TUI clients. Canonical project selection and legacy state migration must resolve to that same store before ownership is attempted. Separate copies/checkouts with separate state stores are separate projects for this policy; shared files reached through other filesystem aliases and external tools are not made mutually exclusive by this lock. Replacing/moving state while clients are running is unsupported.
 
-The OS lock proves live exclusion. A durable singleton project-owner row identifies interruption and supplies UI context. Proposed fields:
+The OS lock proves live exclusion. A durable singleton project-owner row identifies interruption and supplies UI context. Persisted fields:
 
 - Owner token, session ID, captured branch, operation kind (`workflow`, `tool-rerun`, `restore`, `branch-control`, `recover-session`, `recover-writes`) and PID for diagnostics.
-- Schema/version identification as needed for validation. Neither PID nor a timestamp proves liveness.
+- A singleton constraint and foreign key to the owning session. Neither PID nor a timestamp proves liveness.
 
 Workflow/tool execution publishes the project-owner row, existing session execution-owner row, Running status and `runner.started` event in one transaction, after both OS locks and local preconditions succeed. Both owner records share a token. A losing claimant publishes no instruction, runner event, usage dispatch or changed status. A busy explanation is UI/CLI feedback, not fabricated agent history.
 
@@ -66,7 +67,7 @@ Never hold a SQLite transaction or native-write lock while trying to obtain a pr
 
 Acquisition is nonblocking for interactive execution/control actions. Failure returns a typed busy or interrupted-owner result; it is not a generic provider/tool failure and does not consume a model retry. Release any earlier guards when a later precondition fails.
 
-The current `recover_writes` path acquires native-write before per-session locks, whereas restore acquires session before native-write. Refactor recovery to the common order: claim the project, discover affected sessions, acquire their locks in stable order, acquire native-write, then reload and validate pending intents. Discovery is not authority; revalidate before acting. The project guard excludes cooperating changes during this preparation.
+Write recovery now uses the common order. It discovers pending sessions, claims project ownership and locks affected sessions in stable ID order before taking native-write, then reloads pending intents. Initial discovery is not authority; revalidation happens inside the protected scope. The project guard excludes cooperating changes during this preparation. Empty recovery also checks project and native-write availability.
 
 After acquiring all required locks, reload session/branch/status, interrupted-owner records and pending writes before publishing execution. Final restore validation must also recheck history cutoff and current file snapshots. A preview is always provisional. Preserve existing exact-command approvals, project read boundaries, attempt/input pins, verification policies and native-journal uncertainty handling.
 
@@ -97,15 +98,19 @@ All simultaneously active clients must implement this protocol. An older binary 
 
 Show **Project busy** separately from the selected session's own status. Include the owning session goal, current step and whether it is running, awaiting approval/input, retrying or stopping when that evidence is available. If an observer cannot see the worker's UI-local prompt, say **Active in another worker; exact wait state unavailable** rather than inventing its state.
 
-Actions: Open owning session, Refresh and Close. Stop is available only through an existing authenticated/local worker control handle; browsing another process's session does not create a remote kill mechanism. Do not offer a retry countdown, automatic start, Deny or a permission grant for a project-busy result. Preserve drafts and distinguish a saved idle goal from a successfully started run.
+The workspace header shows project contention in amber, independently of the selected session status. **[O] Open owner** navigates to the current owning session and **[R] Refresh project** rechecks availability. Unknown/transient control owners offer Refresh without inventing an owner. Normal navigation closes the context; no modal decision is required. Stop is available only through an existing authenticated/local worker control handle; browsing another process's session does not create a remote kill mechanism. Do not offer a retry countdown, automatic start, Deny or a permission grant for a project-busy result. Preserve drafts and distinguish a saved idle goal from a successfully started run.
 
 For interrupted ownership show Recover owner / Inspect history, followed by Recover writes when needed. Keep diagnostics accessible in the CLI and TUI. Normal readers and manager questions remain usable; manager answers retain their captured-snapshot qualifications and cannot claim atomic filesystem consistency while the worker writes.
 
-## Implementation slices (GL-028)
+## Implementation map (GL-028)
 
-1. Add typed project busy/interrupted state, descriptor lock and transactional durable ownership. Integrate normal run, saved workflow retry and explicit tool rerun. Test competing processes and same-process stores before changing UI projections.
-2. Integrate restore/revert, restart/fork publication, branch control and recovery under the common order. Eliminate ownership gaps and recursive lock acquisition. Preserve native-write failure evidence and existing drift checks.
-3. Expose contextual busy/recovery feedback, retain new-session goals/drafts and keep read-only surfaces working. Update runtime contracts and replace the current test that deliberately permits two different session owners in one project.
+- `project_execution.rs`: typed busy/interrupted diagnostics, descriptor-relative project lock, singleton owner publication and token-checked cleanup, control scopes and native-write capabilities. The owning Store holds only a weak capability; an observer cannot reuse a live worker's lease. Legacy owner counts remain explicit and each interrupted session requires individual recovery.
+- `session_execution.rs`: acquire project then session ownership; atomically publish/clear both owner records with execution state, instructions and runner evidence. Recovery handles interrupted maintenance even when no session is Running.
+- `restore.rs`, `store.rs`, `write_journal.rs`: guarded native writes, stable recovery lock order, branch control and one shared lease through restore/fork publication. Failure still preserves partial-restore/native-intent evidence.
+- `continuation.rs`: the saved coding request is validated inside owned execution, before resuming its attempt or dispatching. Live retries retain the original worker's guards.
+- `tui_actions.rs` and TUI routing: preserve typed project failures across worker channels, retain unsent instruction bytes after a claim race, show idle created goals truthfully, navigate to the owner and refresh without queuing work. Help/approval layers retain input priority.
+
+Maintenance scopes clear their owner row on an ordinary returned validation/action error, while preserving existing audit/intents. An unwind or process death leaves the durable row; a cleanup failure reports explicit recovery required. No source rollback is inferred from cleanup.
 
 ## Required validation
 
@@ -119,8 +124,8 @@ For interrupted ownership show Recover owner / Inspect history, followed by Reco
 - Read-only browsers, exports and manager questions continue while a worker owns the project; they cannot acquire mutation authority through that exception.
 - Legacy live/interrupted owners and inconsistent rows have explicit migration/recovery behavior. No implementation claims coordination with older uncooperative clients or external editors.
 
-These are acceptance requirements for implementation, not claims that the current binary already passes them.
+Automated coverage includes cross-session/process exclusion, retained waits, independent projects, atomic claim/cleanup failure injection, maintenance unwind, legacy/multiple-owner recovery, combined restore/fork, zero-dispatch rejection, retained goals/drafts and owner navigation. Test and native terminal evidence is recorded in [validation](06-validation.md). Advisory locks still do not coordinate old binaries or external editors.
 
-## Source audit
+## Refresh correctness (GL-029)
 
-The current behavior was checked against `session_execution.rs` (`claim_owner`, `lock_idle_session`, recovery and the test permitting a second session owner), `engine.rs` (`run`), `tool_rerun.rs`, `continuation.rs` (saved manager/workflow paths), `restore.rs` (`apply_inner`), `store.rs` (branch operations), `write_journal.rs` (`native_write_lock`, `recover_writes`) and the manager Q&A contract. In particular, restore and branch publication currently have separate guards, and write recovery obtains native-write before session locks. The implementation must address these call boundaries rather than adding only a lock to `Engine::run`.
+While validating ownership updates, the intermittent missing diagnostic was traced to tagging old activity rows with a newer database revision observed later in the same refresh. Refresh now captures its generation before history/derived reads and also includes the visible history cutoff in activity-cache identity. A concurrent commit forces a subsequent rebuild rather than permanently hiding the new blocker. A deterministic regression simulates the old interleaving; the original engine-backed test retains its diagnostic assertion.

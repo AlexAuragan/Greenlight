@@ -4,12 +4,6 @@ Updated 2026-11-22. This is the canonical open backlog; completed work is record
 
 P0/P1 feature work, installer, TUI redesign and recovery improvements merged into master on 2026-11-19. This does not mean no defects remain. Implement one feature at a time, preserve audit evidence and distinguish model claims from recorded verification.
 
-## Next: recovery and correctness
-
-- [ ] **GL-028** — Implement and validate the [GL-007 project execution contract](docs/41-project-execution-coordination.md): one executing workflow/control operation per project, durable ownership and explicit crash recovery, common project → session → native-write lock order, guarded restore/fork publication, and contextual busy feedback. Keep read-only browsing/manager questions available and retain approval/retry waits under the owning worker. GL-007 defines the proposal; runtime coordination is not implemented yet.
-
-- [ ] **GL-029** — Investigate intermittent missing TUI diagnostic in `workflow_at_80x24_covers_deny_inspect_instruct_verify_and_recover`: merge validation once reached Blocked/Needs attention with `app.diagnostic == None` at the evidence-missing assertion. Isolated rerun and full-suite rerun passed. Establish the worker/refresh ordering before changing behavior or weakening the assertion.
-
 ## Supervised workflows and review
 
 - [ ] **GL-008** — Implement the remaining [coordinator contract](docs/20-conversational-coordinator.md): targeted idle delivery and guarded retry/goto/restart proposals first, then a durable live-owner inbox. Preserve original message bytes, consistent evidence snapshots, attempt/branch scope, ownership, permissions and verification. Show Queued / Included / Restart proposed delivery states; define side-question history and retention, and keep deterministic commands/approvals separate.
@@ -41,11 +35,15 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Dependencies and design gates
 
-GL-007 defines the coordination proposal; GL-028 must implement and validate it before GL-021 parallel orchestration. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
+GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
 
-- [x] **GL-007** — Defined the [project execution coordination proposal](docs/41-project-execution-coordination.md): operation scope, waiting/stop semantics, lock order, interrupted/legacy owners, read-only exceptions, UI feedback and acceptance scenarios. Design only; runtime implementation remains GL-028.
+- [x] **GL-028** — Implemented on `feat/project-execution-coordination` (awaiting merge): one workflow/control lease per project, atomic project/session execution ownership, stable recovery lock order, one lease through restore/fork publication, legacy/interrupted maintenance recovery, truthful busy feedback and retained rejected drafts/goals. Read-only observers/manager questions remain available. See [project execution coordination](docs/41-project-execution-coordination.md).
+
+- [x] **GL-029** — Fixed on the same branch: activity rows could be tagged with a newer database revision read after their history snapshot, indefinitely hiding a new blocker. Capture the refresh generation before reads and include the visible history cutoff; deterministic regression and repeated original engine-backed diagnostic checks retain the assertion.
+
+- [x] **GL-007** — Defined the [project execution coordination proposal](docs/41-project-execution-coordination.md): operation scope, waiting/stop semantics, lock order, interrupted/legacy owners, read-only exceptions, UI feedback and acceptance scenarios. Implemented by GL-028; the design document now describes runtime behavior.
 
 - [x] **GL-005** — Merged into `master`: configurable source/include, blob, history/usage and dump budgets; labelled recent-history fallback with exact selected bodies; immutable history/selected-artifact caches and revision-based UI reuse. No schema changes or evidence pruning. See [resource budgets and refresh profile](docs/40-resource-budgets.md).
 

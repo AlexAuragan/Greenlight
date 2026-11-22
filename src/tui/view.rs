@@ -218,6 +218,40 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
             1,
         ),
     );
+    if let Some(project) = &app.project {
+        if app.other_project_owner() || project.interrupted {
+            let owner = project
+                .session
+                .as_ref()
+                .map(|s| {
+                    format!(
+                        "{} · {}",
+                        inline_display(&s.goal),
+                        inline_display(&s.current_step)
+                    )
+                })
+                .unwrap_or_else(|| "control operation in progress".into());
+            let controls = if app.other_project_owner() && project.session.is_some() {
+                "[O] Open owner · [R] Refresh"
+            } else {
+                "[R] Refresh"
+            };
+            let label = format!(
+                "{} · {owner} · {controls}",
+                if project.interrupted {
+                    "Project interrupted"
+                } else {
+                    "Project busy"
+                }
+            );
+            let row = ratatui::layout::Rect::new(outer[0].x, outer[0].y + 1, outer[0].width, 1);
+            frame.render_widget(
+                Paragraph::new(fit(&label, row.width as usize))
+                    .style(Style::default().fg(theme::ATTENTION)),
+                row,
+            );
+        }
+    }
     let mut x = outer[0].x;
     for (action, view) in [
         (shell::Action::Activity, View::Conversation),

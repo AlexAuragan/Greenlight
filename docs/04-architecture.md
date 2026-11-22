@@ -30,6 +30,7 @@ flowchart TD
 - `store.rs` — SQLite session/event/branch history, registered immutable artifacts and native-edit journals.
 - `write_journal.rs` — durable native-write intents, atomic replacement, mutation locking and explicit interrupted-write reconciliation.
 - `locks.rs` — advisory lock guards explicitly unlock on drop, preventing copied descriptors from retaining finished operations during concurrent process spawning.
+- `project_execution.rs` — exclusive project leases, typed contention, durable maintenance ownership and borrowed native-write capabilities; observers remain read-only.
 - `session_execution.rs` — per-session OS execution locks, persisted owner records, guarded cleanup and explicit stale-owner recovery.
 - `workspace.rs` — bounded before/after step manifests and read-only SHA-256 drift inspection; hashes are not snapshots.
 - `restore.rs` — guarded historical reconstruction of journaled native edits and individual-file restore.

@@ -12,13 +12,39 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 
+#[derive(Debug)]
+pub enum RunnerError {
+    Project(crate::project_execution::ProjectConflict),
+    Other(String),
+}
+impl From<anyhow::Error> for RunnerError {
+    fn from(error: anyhow::Error) -> Self {
+        match error.downcast::<crate::project_execution::ProjectConflict>() {
+            Ok(conflict) => Self::Project(conflict),
+            Err(error) => Self::Other(format!("{error:#}")),
+        }
+    }
+}
+impl From<String> for RunnerError {
+    fn from(error: String) -> Self {
+        Self::Other(error)
+    }
+}
+impl std::fmt::Display for RunnerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Project(conflict) => std::fmt::Display::fmt(conflict, f),
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
 pub struct Runner {
     pub tool_rerun: bool,
     pub live: Option<crate::provider::stream::Preview>,
     pub cancel_retry: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub session_id: Option<String>,
     pub prompts: Receiver<ApprovalPrompt>,
-    pub finished: Receiver<Result<(), String>>,
+    pub finished: Receiver<Result<(), RunnerError>>,
     pub answers: Sender<String>,
 }
 
@@ -72,7 +98,7 @@ fn start(root: PathBuf, session_id: String, work: Work) -> Runner {
                 Work::Saved => runtime.block_on(engine.resume_saved(&session_id)),
             }
         })();
-        let _ = finished_tx.send(result.map_err(|error| format!("{error:#}")));
+        let _ = finished_tx.send(result.map_err(RunnerError::from));
     });
 
     Runner {
