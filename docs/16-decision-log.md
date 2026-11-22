@@ -115,3 +115,7 @@ Replace check-then-open path IO with a small Linux directory-capability layer us
 ## D-017 — Exclusive project execution (2026-11-22)
 
 One workflow/tool rerun or workspace control scope owns a project at a time. Ownership spans inference, verification, transitions and approval/input/retry waits. Read-only inspection and manager questions remain available. A busy result never queues work; goals/drafts remain reviewable. Durable owner records require explicit crash recovery, and restore plus fork publication shares one lease. See [project coordination](41-project-execution-coordination.md). Parallel orchestration remains separate work.
+
+## D-018 — External file bodies remain opt-in future work (2026-11-22)
+
+GL-011 confirms that hashes cannot recover external preimages, but after-step changed-file capture cannot recover those preimages either. Keep bounded hash auditing, native-write snapshots and overwrite protection; do not introduce implicit whole-project body retention or broader restore claims. A future implementation requires a concrete recovery case, explicit narrow opt-in, aggregate quotas, privacy/cache exclusions, stable captures and reference-aware retention. See the [evaluation and measured baseline](45-file-body-snapshot-evaluation.md). No runtime/schema/provider behavior changes in this decision.

@@ -70,7 +70,7 @@ The existing guarded native restore remains the way to revert recorded `write` a
 
 ## Why this is intentionally small
 
-We are collecting evidence before deciding whether broader workspace rollback is useful. Journal correlation and measured scanning are now implemented. Storing selected changed-file bytes for actual recovery of external edits remains P2 work; this increment does not expand restore scope.
+Journal correlation and measured scanning are implemented. [GL-011 evaluated the external-preimage gap](45-file-body-snapshot-evaluation.md) and retained hash auditing plus overwrite protection. Broader body collection/recovery needs a concrete opt-in recovery case and the documented size/privacy/retention policy; it is not current restore coverage.
 
 This feature is designed to stand alone: no new provider calls, no changes to approval semantics, no automatic user-file restore, and no dependency on the planned manager/summarizer roles.
 
@@ -98,3 +98,5 @@ Measurements on **2026-11-15**, one cloud Linux workspace, unoptimized debug bui
 Both scans skipped zero oversized/non-UTF8 paths under the standard exclusions. Observed ranges were 17.908–19.833 ms and 88.231–122.684 ms respectively. This is a small/medium source-tree sample, not a monorepo, network filesystem or production performance guarantee. Two scans per step suggest roughly 36 ms / 182 ms of warm scan work here, before SQLite, serialization and journal-correlation costs. Journal-heavy restoration costs were not benchmarked.
 
 Each new manifest records `scan_stats` (included files, bytes hashed, elapsed microseconds); the audit records serialized manifest bytes and correlation microseconds separately. Old manifests retain **unknown** metrics rather than fabricated zeros. Scanning does not store file contents. The 10,000-file and 20 MiB/file bounds remain unchanged. Reproduce on a representative project with `workspace-benchmark --runs 7 --json`; run it while files are stable, and assess local cache/storage behavior before expanding recording/restoration.
+
+GL-011’s [snapshot evaluation](45-file-body-snapshot-evaluation.md) documents the observed recovery gap and the opt-in size/privacy/retention requirements for any future external-body store. Current runtime behavior remains hash-only outside native journaling.

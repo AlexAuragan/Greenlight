@@ -1,5 +1,9 @@
 # Validation
 
+## File-body snapshot evaluation (GL-011) — 2026-11-22
+
+This increment changes documentation/backlog decisions only. Eight existing workspace-audit tests and six restore tests pass, including external-change classification, journal-chain gaps, branch/retry cutoffs and refusal to overwrite manual drift. A three-run read-only workspace benchmark recorded 443 included files, 26,608,001 bytes hashed and a 57,075-byte manifest, with median scan time 0.511585 seconds. The raw aggregate measurements and their limits are retained in the [snapshot evaluation](45-file-body-snapshot-evaluation.md). No new file bodies, schema/configuration changes or provider requests were introduced. Broader recovery remains unimplemented; the completed item is the evaluation and policy decision.
+
 ## Historical restart controls (GL-010) — 2026-11-22
 
 GL-010 is implemented alongside GL-009 on `feat/optional-summaries`, not merged. Validation passes 490 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Checks cover every visible retry checkpoint, unchanged canonical manager targets, inherited fork cutoffs, selecting and restoring a second run, preservation of a manually created file, branch hash comparisons, missing scans and cross-session rejection.
