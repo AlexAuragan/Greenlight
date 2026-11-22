@@ -200,6 +200,7 @@ impl App {
             Action::Usage,
             Action::Provider,
             Action::ConversationDump,
+            Action::RouteStatus,
         ];
         if self.session().is_some_and(|s| s.status == "completed")
             && !(self.result_open && self.view == View::Conversation)
@@ -267,6 +268,30 @@ impl App {
             vec![Action::Sessions, Action::Details, Action::Help]
         }
     }
+    fn selected_route_event(&self) -> Option<i64> {
+        let event = self.event()?;
+        if event.kind != "manager.result" {
+            return None;
+        }
+        let reply: crate::manager::Reply = serde_json::from_str(&event.data).ok()?;
+        (matches!(reply.decision, crate::manager::Decision::Forward { .. })
+            && !reply.snapshot_changed)
+            .then_some(event.id)
+    }
+    fn selected_route_message(&self) -> Option<String> {
+        let event = self.event()?;
+        if event.kind != "manager.delivery" {
+            return None;
+        }
+        let value: serde_json::Value = serde_json::from_str(&event.data).ok()?;
+        if !matches!(
+            value["state"].as_str(),
+            Some("queued" | "needs_review" | "restart_proposed")
+        ) {
+            return None;
+        }
+        value["message_id"].as_str().map(str::to_owned)
+    }
     pub(super) fn selected_tool_request(&self) -> Option<i64> {
         if self.view != View::Conversation {
             return None;
@@ -282,6 +307,18 @@ impl App {
     }
     pub(super) fn footer_actions(&self) -> Vec<Action> {
         let mut actions = self.base_footer_actions();
+        if !self.reading_overlay()
+            && !self.composer_active()
+            && self.runner.is_none()
+            && self.view == View::Conversation
+        {
+            if self.selected_route_event().is_some() {
+                actions.insert(0, Action::DeliverRoute);
+            }
+            if self.selected_route_message().is_some() {
+                actions.insert(0, Action::WithdrawRoute);
+            }
+        }
         if self.approval.is_some() && self.approval_hidden && !self.help && !self.shell.more {
             actions.insert(
                 0,
@@ -667,6 +704,53 @@ impl App {
             self.shell.more = false;
         }
         match action {
+            RouteStatus => {
+                let session = self.session().context("No session selected")?;
+                let routes = store.manager_routes(session)?;
+                self.context_detail = Some(if routes.is_empty() {
+                    "Instruction delivery · no accepted routes on this branch. Select a manager forward proposal and use Deliver original. Ask/Answer alone never executes it.".into()
+                } else {
+                    format!("Instruction delivery · current branch snapshot\nQueued means not included yet. Reopen to refresh.\n\n{}",routes.iter().map(|r|r.display()).collect::<Vec<_>>().join("\n\n"))
+                });
+                self.detail_scroll = 0;
+            }
+            DeliverRoute => {
+                if self.runner.is_some() {
+                    self.notice =
+                        "Stop execution before idle route delivery. Live delivery is unavailable."
+                            .into();
+                    return Ok(false);
+                }
+                let event = self
+                    .selected_route_event()
+                    .context("Select a manager forward proposal")?;
+                let session = self.session().context("No selected session")?.clone();
+                match store.accept_manager_route(root,&session.id,event) {
+                    Ok(accepted) => {
+                        let route = accepted.route;
+                        self.notice=route.display();
+                        if accepted.newly_accepted && accepted.start_current {
+                            let scope=(Some(session.id.clone()),Some(session.active_branch),compose::Mode::Step);
+                            self.compose.last_instruction=Some((scope,route.original.clone()));
+                            self.runner=Some(tui_actions::resume_route(root.to_path_buf(),session.id,route.message_id));
+                            self.notice="Starting the selected idle step with the saved original instruction. Permissions and verification remain separate.".into();
+                        }
+                        self.refresh(store)?;
+                    }
+                    Err(error) => self.notice=format!("Route not delivered: {error:#}. Original message retained; no route was guessed."),
+                }
+            }
+            WithdrawRoute => {
+                let message = self
+                    .selected_route_message()
+                    .context("Select a manager delivery record")?;
+                let session = self.session().context("No session")?.id.clone();
+                self.notice = match store.withdraw_manager_route(&session, &message) {
+                    Ok(()) => "Instruction withdrawn; original evidence retained.".into(),
+                    Err(error) => format!("Cannot withdraw: {error:#}"),
+                };
+                self.refresh(store)?;
+            }
             OpenProjectOwner => {
                 if let Some(owner) = store.project_status()?.and_then(|p| p.session) {
                     self.remember_creation();

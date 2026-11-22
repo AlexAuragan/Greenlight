@@ -866,7 +866,23 @@ impl App {
                 return self.activate(action, root, store);
             }
         }
+        if !self.reading_overlay() {
+            let route_actions = self
+                .footer_actions()
+                .into_iter()
+                .filter(|a| {
+                    matches!(
+                        a,
+                        shell::Action::DeliverRoute | shell::Action::WithdrawRoute
+                    )
+                })
+                .collect::<Vec<_>>();
+            if let Some(action) = shell::Action::for_key(key.code, &route_actions) {
+                return self.activate(action, root, store);
+            }
+        }
         let workspace_actions = [
+            shell::Action::RouteStatus,
             shell::Action::Preview,
             shell::Action::Expand,
             shell::Action::New,

@@ -60,7 +60,12 @@ pub fn resume_saved(root: PathBuf, session_id: String) -> Runner {
     start(root, session_id, Work::Saved)
 }
 
+pub fn resume_route(root: PathBuf, session_id: String, message: String) -> Runner {
+    start(root, session_id, Work::Route(message))
+}
+
 enum Work {
+    Route(String),
     Resume(String),
     Rerun(String, i64),
     Saved,
@@ -96,6 +101,9 @@ fn start(root: PathBuf, session_id: String, work: Work) -> Runner {
                     runtime.block_on(engine.run(&session_id, Some(&instruction), None))
                 }
                 Work::Saved => runtime.block_on(engine.resume_saved(&session_id)),
+                Work::Route(message) => {
+                    runtime.block_on(engine.run_manager_route(&session_id, &message))
+                }
             }
         })();
         let _ = finished_tx.send(result.map_err(RunnerError::from));

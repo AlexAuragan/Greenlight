@@ -1,8 +1,8 @@
-# Manager Q&A — first runtime increment
+# Manager Q&A and routing proposals
 
-**Implemented:** bounded project/pipeline context, strict manager JSON decisions, cited answers, clarification, saved original messages, validated forwarding proposals, independent TUI inference and central usage accounting. **Not implemented:** executing a forward, targeted idle delivery, automatic restart or live instruction queues. A forward is explicitly `forward_unavailable` (or `needs_review` if control state changed). No manager decision executes tools or changes a session's workflow state.
+**Implemented:** bounded context, strict manager decisions, cited answers, clarification, saved originals, independent TUI inference and central accounting. Asking alone executes no route. A forward is `forward_proposed` (or `needs_review` if state changed); the separate [idle delivery action](42-idle-manager-delivery.md) can accept it explicitly. Live queues and automatic/confirmed restart delivery are not implemented.
 
-This implements the first stage of the [coordinator contract](20-conversational-coordinator.md). It loads the text block in the [manager system prompt](prompts/manager-v1.md); the coding-agent YAML contract stays unchanged.
+This implements the Q&A stage of the [coordinator contract](20-conversational-coordinator.md). It loads the text block in the [manager system prompt](prompts/manager-v1.md); the coding-agent YAML contract stays unchanged.
 
 ## CLI
 
@@ -48,7 +48,7 @@ Sources and total input are bounded: at most 20 source entries, a 40 KiB snapsho
 
 The runtime validates JSON types, action variants, version/message/snapshot IDs, content/citation bounds, supplied citations and agent-step destinations. No fences/prose/extra actions, unknown or duplicate fields, replacement instruction bodies or human/command-step targets are accepted. An `answer` requires at least one supplied citation; missing evidence can produce `clarify` instead. Valid citation membership does not prove the model's interpretation; verify important claims against sources.
 
-Fresh session/branch/attempt/owner/workflow/recovery state is checked after inference. A changed fingerprint qualifies an answer as an older snapshot and marks a forward `needs_review`; unrelated manager/usage events do not invalidate every answer. All forwards remain unexecuted regardless of validation. A pure question never joins coding context, creates an attempt, grants approval, restores files or advances a step.
+Fresh session/branch/attempt/owner/workflow/recovery state is checked after inference. A changed fingerprint qualifies an answer as an older snapshot and marks a forward `needs_review`; unrelated manager/usage events do not invalidate every answer. All forwards remain unexecuted until the separate explicit idle-delivery action is accepted. A pure question never joins coding context, creates an attempt, grants approval, restores files or advances a step.
 
 ## Persistence, failures and costs
 

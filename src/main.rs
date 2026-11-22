@@ -20,6 +20,7 @@ mod fs_race_tests;
 mod input_pins;
 mod locks;
 mod manager;
+mod manager_delivery;
 mod markdown;
 mod paths;
 mod pricing;
@@ -98,7 +99,7 @@ enum Commands {
     },
     /// Open the live, read-only session viewer (optional session ID)
     Tui { session: Option<String> },
-    /// Ask the read-only manager; proposed forwarding never executes work in this stage
+    /// Ask for an answer or proposal; this command never executes a route
     Ask {
         session: String,
         #[arg(long, required_unless_present = "file", conflicts_with = "file")]
@@ -108,6 +109,17 @@ enum Commands {
         #[arg(long)]
         artifact: Vec<String>,
     },
+    /// Accept a recorded manager forward; start only if it targets the current idle step
+    DeliverRoute {
+        session: String,
+        decision_event: i64,
+        #[arg(long)]
+        queue_only: bool,
+    },
+    /// Inspect pending/durable guidance for the active branch (no inference)
+    Routes { session: String },
+    /// Withdraw queued guidance while idle; included requests cannot be retracted
+    WithdrawRoute { session: String, message_id: String },
     /// Preview the bounded project/pipeline evidence shared with the manager; no inference
     ManagerContext {
         session: String,
@@ -252,6 +264,37 @@ async fn main() -> Result<()> {
             let engine = engine::Engine::open(&root)?;
             let reply = engine.ask_manager(&session, &text, &artifact).await?;
             println!("{}", reply.display());
+        }
+        Commands::DeliverRoute {
+            session,
+            decision_event,
+            queue_only,
+        } => {
+            let mut engine = engine::Engine::open(&root)?;
+            let accepted = engine
+                .store
+                .accept_manager_route(&root, &session, decision_event)?;
+            let route = &accepted.route;
+            println!("{}", route.display());
+            if accepted.newly_accepted && accepted.start_current && !queue_only {
+                engine
+                    .run_manager_route(&session, &route.message_id)
+                    .await?;
+            }
+        }
+        Commands::Routes { session } => {
+            let store = store::Store::open(&root)?;
+            for route in store.manager_routes(&store.session(&session)?)? {
+                println!("{}\n", route.display());
+            }
+        }
+        Commands::WithdrawRoute {
+            session,
+            message_id,
+        } => {
+            let store = store::Store::open(&root)?;
+            store.withdraw_manager_route(&session, &message_id)?;
+            println!("Instruction withdrawn; original evidence retained.");
         }
         Commands::ManagerContext { session, artifact } => {
             let store = store::Store::open(&root)?;

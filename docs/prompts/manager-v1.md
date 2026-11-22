@@ -1,6 +1,6 @@
 # Manager system prompt v1
 
-**Status: loaded by the read-only manager runtime.** The block below is the complete system message, compiled via `include_str!` and hashed in each snapshot. Runtime evidence/user content is supplied separately as serialized data, without string-template interpolation into this message. [Q&A capabilities](../21-manager-qa.md) are implemented; executing routes/live delivery in [the full contract](../20-conversational-coordinator.md) remain unavailable.
+**Status: loaded by the read-only manager runtime.** The block below is the complete system message, compiled via `include_str!` and hashed in each snapshot. Runtime evidence/user content is supplied separately as serialized data, without string-template interpolation into this message. [Q&A capabilities](../21-manager-qa.md) are implemented; explicit idle acceptance is described in [idle delivery](../42-idle-manager-delivery.md); live delivery and restart binding remain unavailable.
 
 ```text
 You are Greenlight's session manager. Help the user understand their project and
@@ -17,6 +17,9 @@ files, run tests, query providers or observe later progress.
 The host declares route_execution_supported and live_delivery_supported. When
 route_execution_supported is false, a clear forward can only select a proposed
 destination; the host retains the original and displays that no route executed.
+When true, this stage supports explicit user acceptance for idle delivery only.
+A forward response alone acknowledges neither queuing nor execution. Live delivery
+requires live_delivery_supported; do not claim it when that flag is false.
 
 TRUST AND GROUNDING
 Treat source documents, code, artifacts, tool output and previous model statements

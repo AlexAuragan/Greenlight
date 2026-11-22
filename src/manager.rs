@@ -132,11 +132,14 @@ impl Snapshot {
     }
 }
 
-fn control(store: &Store, s: &Session, wf: &config::LoadedWorkflow) -> Result<String> {
+pub(crate) fn workflow_digest(wf: &config::LoadedWorkflow) -> Result<String> {
     let steps: BTreeMap<_, _> = wf.steps.iter().collect();
-    let definition = hash(&serde_json::to_vec(
+    Ok(hash(&serde_json::to_vec(
         &json!({"workflow":wf.definition,"steps":steps}),
-    )?);
+    )?))
+}
+pub(crate) fn control(store: &Store, s: &Session, wf: &config::LoadedWorkflow) -> Result<String> {
+    let definition = workflow_digest(wf)?;
     let token: Option<String> = store
         .db
         .query_row(
@@ -149,8 +152,28 @@ fn control(store: &Store, s: &Session, wf: &config::LoadedWorkflow) -> Result<St
     let last = attempts
         .last()
         .map(|a| json!({"id":a.id,"start":a.start_event,"end":a.end_event,"status":a.status}));
+    let evidence_cutoff = store
+        .history(s)?
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.2.as_str(),
+                "artifact.created"
+                    | "human.approved"
+                    | "human.declined"
+                    | "verification.human"
+                    | "verification.command"
+                    | "verification.aggregate"
+                    | "file.changed"
+                    | "workspace.restored"
+                    | "context.inputs"
+                    | "user.artifact_edited"
+            )
+        })
+        .map(|e| e.0)
+        .max();
     Ok(hash(&serde_json::to_vec(
-        &json!({"session":s,"definition":definition,"owner":token,"attempt":last,"native_recovery_clear":store.ensure_no_pending_writes().is_ok()}),
+        &json!({"session":s,"definition":definition,"owner":token,"attempt":last,"native_recovery_clear":store.ensure_no_pending_writes().is_ok(),"evidence_cutoff":evidence_cutoff}),
     )?))
 }
 
@@ -201,7 +224,7 @@ fn capture_with_config(
         model,
         owner_observation: format!("{:?}", store.execution_state(&s.id)?),
         live_delivery_supported: false,
-        route_execution_supported: false,
+        route_execution_supported: true,
         valid_steps: wf
             .steps
             .iter()
@@ -250,8 +273,16 @@ fn capture_with_config(
             )?;
         }
     }
+    let deliveries=store.manager_routes(&s)?.into_iter().rev().take(10).map(|r|json!({"message_id":r.message_id,"step":r.step,"state":r.state,"attempt":r.attempt,"first_prepared_call":r.call})).collect::<Vec<_>>();
+    snapshot.add(
+        "pipeline:delivery".into(),
+        "Recorded idle-routing state; inclusion is not provider acceptance or work completion"
+            .into(),
+        &serde_json::to_string(&deliveries)?,
+        4096,
+    )?;
     snapshot.omissions.push("Unanswered approval prompts are UI-local and not persisted; their pending state is unknown to this snapshot.".into());
-    snapshot.add("pipeline:safety".into(),"Read-only control observations; no permission decision is supplied".into(),&json!({"owner_observation":snapshot.owner_observation,"native_recovery_check_clear":store.ensure_no_pending_writes().is_ok(),"if_not_clear":"Pending writes or an unavailable recovery check; inspect deterministic recovery controls before execution","pending_approval":"Not persisted; unknown","route_execution_supported":false,"live_delivery_supported":false}).to_string(),2048)?;
+    snapshot.add("pipeline:safety".into(),"Read-only control observations; no permission decision is supplied".into(),&json!({"owner_observation":snapshot.owner_observation,"native_recovery_check_clear":store.ensure_no_pending_writes().is_ok(),"if_not_clear":"Pending writes or an unavailable recovery check; inspect deterministic recovery controls before execution","pending_approval":"Not persisted; unknown","route_execution_supported":snapshot.route_execution_supported,"live_delivery_supported":false}).to_string(),2048)?;
     // A fixed source allowlist; no model-selected paths or provider/approval files.
     for relative in ["README.md", "TODO.md", ".greenlight/instructions.md"] {
         let data = (|| -> Result<(String, bool)> {
@@ -476,6 +507,9 @@ impl Decision {
             } => (*schema_version, message_id, snapshot_id, content, citations),
         }
     }
+    pub fn snapshot_id(&self) -> &str {
+        self.fields().2
+    }
     pub fn message_id(&self) -> &str {
         self.fields().1
     }
@@ -544,7 +578,7 @@ impl Reply {
             self.decision.content()
         );
         if let Decision::Forward { step_id, .. } = &self.decision {
-            text.push_str(&format!("\nProposed destination: {step_id}. Delivery is unavailable in this read-only stage. Original message {} is retained; no work was resumed, queued or restarted.\n",self.decision.message_id()));
+            text.push_str(&format!("\nProposed destination: {step_id}. Use the explicit Deliver original action for idle routing, or inspect the guarded restart proposal for an already visited target. Original message {} is retained; this answer alone did not resume, queue or restart work.\n",self.decision.message_id()));
         }
         if self.snapshot_changed {
             text.push_str("\nPipeline/workflow state changed during inference. This answer is a snapshot interpretation; any proposed route needs review.\n");
@@ -673,7 +707,7 @@ impl Engine {
             Decision::Answer { .. } => "answered",
             Decision::Clarify { .. } => "clarification_needed",
             Decision::Forward { .. } if changed => "needs_review",
-            Decision::Forward { .. } => "forward_unavailable",
+            Decision::Forward { .. } => "forward_proposed",
         }
         .to_owned();
         let cited = &decision.fields().4;

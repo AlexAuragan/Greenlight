@@ -3,6 +3,9 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    RouteStatus,
+    DeliverRoute,
+    WithdrawRoute,
     OpenProjectOwner,
     RefreshProject,
     RetrySaved,
@@ -165,6 +168,9 @@ macro_rules! binding {
 }
 
 pub(super) const BINDINGS: &[Binding] = &[
+    binding!(RouteStatus, 'G', "Instruction delivery"),
+    binding!(DeliverRoute, 'g', "Deliver original"),
+    binding!(WithdrawRoute, 'w', "Withdraw instruction"),
     binding!(OpenProjectOwner, 'O', "Open owner"),
     binding!(RefreshProject, 'R', "Refresh project"),
     binding!(ResumeProvider, 't', "Continue step"),

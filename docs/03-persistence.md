@@ -56,3 +56,5 @@ New model requests also record exact prepared message references in `model.reque
 ## Session and branch publication
 
 Session creation publishes its session, initial branch and start event in one SQLite transaction. Forking and branch selection likewise publish the branch/session update and audit event together. The caller’s in-memory session changes only after commit succeeds. Statement or commit failure leaves the previous history and selection intact, so a caller can safely inspect or retry publication. This does not create a workspace-wide execution lock or a transaction around external tool effects.
+
+Idle manager guidance uses `manager_routes`, a branch-scoped projection backed by immutable `manager.delivery` records. Prepared request/usage registration and first inclusion commit together before dispatch. Branch changes invalidate reservations; included originals are never silently replayed into new attempts. See [idle delivery](42-idle-manager-delivery.md).

@@ -155,6 +155,11 @@ impl Store {
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              step TEXT NOT NULL, definition_event INTEGER NOT NULL, start_event INTEGER NOT NULL,
              end_event INTEGER, status TEXT NOT NULL);
+           CREATE TABLE IF NOT EXISTS manager_routes (
+             message_id TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES sessions(id), branch TEXT NOT NULL,
+             step TEXT NOT NULL, original TEXT NOT NULL, workflow_digest TEXT NOT NULL,
+             decision_event INTEGER NOT NULL, state TEXT NOT NULL, attempt TEXT, call_id TEXT);
+           CREATE INDEX IF NOT EXISTS manager_routes_scope ON manager_routes(session,branch,decision_event);
            CREATE TABLE IF NOT EXISTS model_calls (
              id TEXT PRIMARY KEY, session TEXT NOT NULL, branch TEXT NOT NULL,
              created_event INTEGER NOT NULL, payload TEXT NOT NULL);
@@ -326,6 +331,11 @@ impl Store {
                 bail!("branch does not belong to this session");
             }
             let transaction = self.db.unchecked_transaction()?;
+            self.invalidate_manager_routes(
+                s,
+                false,
+                "Branch selection invalidated the reservation; no cross-branch delivery",
+            )?;
             let mut next = s.clone();
             next.active_branch = branch.into();
             next.current_step = step.into();
@@ -362,6 +372,11 @@ impl Store {
             bail!("fork event is not part of current branch ancestry");
         }
         let transaction = self.db.unchecked_transaction()?;
+        self.invalidate_manager_routes(
+            s,
+            false,
+            "Fork invalidated the reservation; no cross-branch replay",
+        )?;
         let branch = Uuid::new_v4().to_string();
         self.db.execute(
             "INSERT INTO branches(id,session,parent,fork_event) VALUES (?1,?2,?3,?4)",
@@ -738,7 +753,11 @@ impl Store {
         definition: &str,
         model: &str,
     ) -> Result<String> {
-        let tx = self.db.unchecked_transaction()?;
+        let tx = if self.db.is_autocommit() {
+            Some(self.db.unchecked_transaction()?)
+        } else {
+            None
+        };
         let definition_event = self.event(s, Some(step), "step.definition", definition)?;
         let id = Uuid::new_v4().to_string();
         let start = self.event(
@@ -750,7 +769,9 @@ impl Store {
         self.db.execute("UPDATE step_attempts SET status='interrupted',end_event=?2 WHERE session=?1 AND status='running'", params![s.id,start-1])?;
         self.db.execute("INSERT INTO step_attempts(id,session,branch,step,definition_event,start_event,status) VALUES (?1,?2,?3,?4,?5,?6,'running')",
             params![id,s.id,s.active_branch,step,definition_event,start])?;
-        tx.commit()?;
+        if let Some(tx) = tx {
+            tx.commit()?;
+        }
         Ok(id)
     }
     pub fn latest_attempt(&self, s: &Session, step: &str) -> Result<(String, i64)> {

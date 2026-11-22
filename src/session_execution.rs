@@ -82,18 +82,22 @@ impl Store {
     }
 
     pub fn claim_execution(&self, id: &str, instruction: Option<&str>) -> Result<ExecutionOwner> {
-        self.claim_owner(id, instruction, None)
+        self.claim_owner(id, instruction, None, None)
     }
 
     pub fn claim_tool_execution(&self, id: &str, branch: &str) -> Result<ExecutionOwner> {
-        self.claim_owner(id, None, Some(branch))
+        self.claim_owner(id, None, Some(branch), None)
     }
 
+    pub(crate) fn claim_routed_execution(&self, id: &str, message: &str) -> Result<ExecutionOwner> {
+        self.claim_owner(id, None, None, Some(message))
+    }
     fn claim_owner(
         &self,
         id: &str,
         instruction: Option<&str>,
         rerun_branch: Option<&str>,
+        route: Option<&str>,
     ) -> Result<ExecutionOwner> {
         let initial = self.session(id)?;
         let project = self.acquire_project(
@@ -120,6 +124,17 @@ impl Store {
                 "cannot run session in {} state; completed sessions require a fork",
                 session.status
             );
+        }
+        if let Some(message) = route {
+            let valid = self.manager_routes(&session)?.iter().any(|r| {
+                r.message_id == message
+                    && r.step == session.current_step
+                    && r.state == "queued"
+                    && r.attempt.is_none()
+            });
+            if !valid {
+                bail!("Routing target/branch changed or instruction was already consumed; no new attempt started");
+            }
         }
         let token = project.record.token.clone();
         let tx = self.db.unchecked_transaction()?;
@@ -160,6 +175,8 @@ impl Store {
         error: Option<&anyhow::Error>,
     ) -> Result<()> {
         let tx = self.db.unchecked_transaction()?;
+        let scope = self.session(id)?;
+        self.invalidate_manager_routes(&scope,scope.status!="completed","Worker ended before request inclusion; review rather than replay against another attempt")?;
         self.release_project(&owner.project)?;
         let removed = tx.execute(
             "DELETE FROM execution_owners WHERE session=?1 AND token=?2",
@@ -224,6 +241,11 @@ impl Store {
                 [&project.token],
             )?;
         }
+        self.invalidate_manager_routes(
+            &session,
+            true,
+            "Owner recovery cannot replay undelivered attempt-bound instructions",
+        )?;
         tx.execute("DELETE FROM execution_owners WHERE session=?1", [id])?;
         if session.status != "completed" {
             session.status = "blocked".into();

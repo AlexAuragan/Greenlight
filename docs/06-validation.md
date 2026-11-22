@@ -1,5 +1,13 @@
 # Validation
 
+## GL-008 idle-delivery slice — 2026-11-22
+
+The existing `feat/project-execution-coordination` branch now also contains explicit idle manager delivery, retaining one pending branch. The suite passes 467 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Tests use scripted/local providers and no paid API calls.
+
+New coverage checks exact whitespace/Unicode originals in only the target step; separate FIFO IDs for identical text; stale branch/workflow/artifact rejection; withdrawal; no permission/input-gate bypass; non-executing restart proposals; unresolved/unreachable guidance; atomic attempt binding and prepared-envelope inclusion; saved retries without duplication; withdrawal preventing a saved request from replaying the instruction; and Help-safe TUI controls.
+
+A native PTY/local HTTP scenario asks from the CLI, verifies that asking queued nothing, selects the manager proposal in the TUI and uses **g** to start the blocked current target. Its persisted coding envelope contains the exact original once; the initial attempt did not contain it. Reaccepting via CLI starts nothing. Three central dispatch records account for initial coding, manager inference and routed coding. Confirmed restart binding and live delivery are still unimplemented; GL-008 remains open.
+
 ## GL-028 / GL-029 — 2026-11-22
 
 `feat/project-execution-coordination` implements the project lease and fixes the refresh-generation race; this validation does not merge the branch. The suite passes 454 Rust tests with the existing Bubblewrap integration and manual profiler ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. The original engine-backed diagnostic acceptance test also passed 20 consecutive runs with its assertion unchanged; a deterministic cache-generation regression covers the previously missing blocker.

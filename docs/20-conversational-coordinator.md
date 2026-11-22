@@ -1,6 +1,6 @@
 # Conversational coordinator — routing contract v1
 
-**Status: routing contract with its first runtime stage implemented.** [Manager Q&A](21-manager-qa.md) now supplies grounded answers, clarification and validated **unexecuted** routing proposals. The [system prompt](prompts/manager-v1.md) is loaded by that runtime. Targeted delivery, guarded executing routes and live queues below remain requirements for later increments; they are not existing features. Coding-agent YAML and execution ownership remain enforced by the engine. Prompt quality does not substitute for Rust checks.
+**Status: Q&A and explicit idle delivery implemented; the full contract remains incremental.** [Manager Q&A](21-manager-qa.md) supplies cited answers and validated unexecuted proposals. [Explicit idle delivery](42-idle-manager-delivery.md) adds user acceptance, scoped original-message delivery, next-visit reservations, withdrawal and request inclusion evidence. Guarded executing restart binding and the live-owner inbox remain future work. Asking alone still executes nothing, and ordinary-message automatic routing below remains a proposed interface. Coding-agent YAML, permissions and execution ownership remain enforced by Rust.
 
 ## Product behavior
 
@@ -112,7 +112,7 @@ Use the central per-dispatch ledger with purpose `manager`, including failures, 
 
 ## Runtime acceptance and implementation order
 
-The first runtime stage covers schema/context/Q&A tests and read-only TUI behavior. Executing delivery tests below remain **required future tests**, not claims that the whole contract exists today:
+Q&A and idle delivery have runtime coverage; restart binding and live-delivery cases below remain required future tests. This is not a claim that the whole contract exists today:
 
 1. Store/deserialize the tagged response union and validate limits, unknown/duplicate fields, IDs, target/citation membership, Unicode and hostile source contents. The manager cannot emit agent YAML, grants, restore commands or fabricated destinations.
 2. Capture a consistent database snapshot plus qualified immutable file/artifact evidence. Test TODO-vs-pipeline distinctions, missing sources, mixed intents, stale control state and completed-verification/model-claim distinctions.

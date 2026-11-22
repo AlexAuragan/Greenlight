@@ -194,8 +194,10 @@ async fn answers_and_forwards_preserve_original_and_never_execute_or_change_stat
     assert_eq!(reply.status, "answered");
     assert!(!reply.snapshot_changed);
     let route = f.ask("forward: write a file").await.unwrap();
-    assert_eq!(route.status, "forward_unavailable");
-    assert!(route.display().contains("Delivery is unavailable"));
+    assert_eq!(route.status, "forward_proposed");
+    assert!(route
+        .display()
+        .contains("this answer alone did not resume, queue or restart work"));
     let session = f.engine.store.session(&f.s.id).unwrap();
     assert_eq!(session.status, "ready");
     assert_eq!(session.current_step, "work");

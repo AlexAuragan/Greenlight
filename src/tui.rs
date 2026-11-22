@@ -1258,3 +1258,7 @@ mod presentation_tests;
 #[cfg(test)]
 #[path = "tui_project_tests.rs"]
 mod project_tests;
+
+#[cfg(test)]
+#[path = "tui_delivery_tests.rs"]
+mod delivery_tests;

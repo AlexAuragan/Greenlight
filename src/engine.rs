@@ -69,6 +69,20 @@ impl Engine {
         model_override: Option<&str>,
     ) -> Result<()> {
         let owner = self.store.claim_execution(session_id, extra)?;
+        self.run_claimed(session_id, extra, model_override, owner)
+            .await
+    }
+    pub async fn run_manager_route(&mut self, session_id: &str, message: &str) -> Result<()> {
+        let owner = self.store.claim_routed_execution(session_id, message)?;
+        self.run_claimed(session_id, None, None, owner).await
+    }
+    async fn run_claimed(
+        &mut self,
+        session_id: &str,
+        extra: Option<&str>,
+        model_override: Option<&str>,
+        owner: crate::session_execution::ExecutionOwner,
+    ) -> Result<()> {
         let result = self.run_owned(session_id, extra, model_override).await;
         let cleanup = self
             .store
@@ -100,6 +114,9 @@ impl Engine {
         }
         while s.status != "completed" && steps < 100 {
             let workflow = config::load_workflow(&self.root, &s.workflow)?;
+            if !continuing {
+                self.store.validate_manager_routes(&s, &workflow)?;
+            }
             let step = workflow
                 .steps
                 .get(&s.current_step)
@@ -135,8 +152,11 @@ impl Engine {
             } else {
                 *self.frame.borrow_mut() = crate::continuation::Frame::None;
                 self.checks.borrow_mut().clear();
+                let tx = self.store.db.unchecked_transaction()?;
                 self.store
                     .begin_attempt(&s, &step.id, &definition, &resolved_model)?;
+                self.store.bind_manager_routes(&s, &step.id)?;
+                tx.commit()?;
             }
             s.status = "running".into();
             self.store.save(&s)?;
@@ -631,20 +651,31 @@ impl Engine {
             if let Some(tier) = &self.cfg.provider.service_tier {
                 call.counts.notes.push(format!("Requested service_tier: {tier}. Standard-tier catalog pricing is not verified for this request."));
             }
-            self.store.begin_model_call(s, &mut call)?;
-            if let Err(error) = crate::conversation_dump::record_request(
-                &self.store,
-                s,
-                step,
-                &call.id,
-                purpose,
-                model,
-                messages,
-            ) {
+            let registration = (|| -> Result<()> {
+                let tx = self.store.db.unchecked_transaction()?;
+                self.store.begin_model_call(s, &mut call)?;
+                crate::conversation_dump::record_request(
+                    &self.store,
+                    s,
+                    step,
+                    &call.id,
+                    purpose,
+                    model,
+                    messages,
+                )?;
+                if purpose == "coding" {
+                    self.store
+                        .include_manager_guidance(s, step, &call.id, messages)?;
+                }
+                tx.commit()?;
+                Ok(())
+            })();
+            if let Err(error) = registration {
                 call.status = "not-sent".into();
                 call.counts
                     .notes
-                    .push("Trace persistence failed; no HTTP request sent.".into());
+                    .push("Prepared request persistence failed; no HTTP request sent.".into());
+                self.store.begin_model_call(s, &mut call)?;
                 self.store.finish_model_call(s, &call)?;
                 return Err(error.context("Cannot persist prepared conversation; request not sent"));
             }
@@ -1075,6 +1106,13 @@ impl Engine {
             json!({"role":"user","content":context}),
         ];
         let mut replay = None;
+        if !matches!(
+            *self.frame.borrow(),
+            crate::continuation::Frame::Coding { .. }
+        ) {
+            self.store
+                .append_manager_guidance(s, &step.id, &mut messages)?;
+        }
         if let crate::continuation::Frame::Coding {
             messages: saved,
             response,

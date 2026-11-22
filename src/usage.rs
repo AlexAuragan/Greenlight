@@ -656,11 +656,17 @@ impl Store {
         } else {
             self.db.query_row("SELECT id FROM step_attempts WHERE session=?1 AND branch=?2 AND step=?3 ORDER BY start_event DESC LIMIT 1",params![s.id,s.active_branch,call.step],|r|r.get(0)).optional()?
         };
-        let tx = self.db.unchecked_transaction()?;
+        let tx = if self.db.is_autocommit() {
+            Some(self.db.unchecked_transaction()?)
+        } else {
+            None
+        };
         let event = self.event(s, Some(&call.step), "model.call-started", &call.id)?;
         call.created_event = Some(event);
         self.db.execute("INSERT INTO model_calls(id,session,branch,created_event,payload) VALUES (?1,?2,?3,?4,?5)",params![call.id,s.id,s.active_branch,event,serde_json::to_string(call)?])?;
-        tx.commit()?;
+        if let Some(tx) = tx {
+            tx.commit()?;
+        }
         Ok(())
     }
     pub fn finish_model_call(&self, s: &Session, call: &Call) -> Result<()> {
