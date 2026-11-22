@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-009** — Consider an inexpensive **optional summarizer** for long steps or completed workflows, run asynchronously and display evidence-linked output when ready; compare it against coding-agent-authored short activity titles. Never block execution on summarization.
 - [ ] **GL-010** — Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
 - [ ] **GL-011** — Evaluate **snapshotting changed file bodies** at step boundaries only after hash manifests reveal a useful gap; define size/privacy/caches policy and whether external edits should be restored or simply protected from overwrite.
 - [ ] **GL-012** — **Design command-level shell grants together before implementation:** allow selected executables (e.g. `ls`) across approved argument/path variations without approving a whole shell string by prefix. Define argument/option restrictions, path and executable identity, wrappers/interpreters, pipelines/AND/OR/sequences, redirections, substitutions and environment assignments; validate every executed component or request approval for the whole compound command. Regression case: granting `cat` must never auto-approve `cat something.txt | ./harmful_script.sh` (nor hidden substitutions). Keep exact-command grants until this design is agreed.
@@ -37,6 +36,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-009** — Implemented on `feat/optional-summaries` (pending merge): opt-in TUI background summaries and CLI generation, bounded captured evidence/citations, selectable same-provider model, separate usage accounting and saved branch-visible readers. Activity titles remain the immediate feedback; summaries never gate workflow execution or replace verification. See [optional summaries](docs/43-optional-summaries.md).
 
 - [x] **GL-008** — **Merged into `master` (2026-11-22)**: explicit validated proposal acceptance, exact original bytes scoped to one attempt, next-visit reservations, FIFO/withdrawal, atomic prepared-request inclusion, guarded restart binding, owner-scoped live delivery with completion-review holds, linked clarification replies and default Conversation routing. See [idle manager delivery](docs/42-idle-manager-delivery.md). Preserve ownership, input/permission/verification gates and separate side-question accounting.
 

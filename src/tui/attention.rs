@@ -133,24 +133,28 @@ pub(super) fn project(
             return None;
         }
         let value: serde_json::Value = serde_json::from_str(&e.3).ok()?;
-        if value["purpose"].as_str()? == "manager" {
+        if matches!(value["purpose"].as_str()?, "manager" | "summarizer") {
             return None;
         }
         let failure = serde_json::from_value::<Failure>(value["failure"].clone()).ok()?;
         Some((e.0, value["call_id"].as_str()?.to_owned(), failure))
     });
-    let non_manager_call = |id: &str| {
+    let workflow_call = |id: &str| {
         calls
             .iter()
             .find(|c| c.id == id)
-            .is_none_or(|c| c.purpose != "manager")
+            .is_none_or(|c| !matches!(c.purpose.as_str(), "manager" | "summarizer"))
     };
     let last_control = current.iter().rev().find(|e| {
         (e.2 != "provider.retry"
             || serde_json::from_str::<serde_json::Value>(&e.3)
                 .ok()
-                .is_some_and(|v| v["purpose"].as_str().is_some_and(|p| p != "manager")))
-            && (e.2 != "model.call-started" || non_manager_call(&e.3))
+                .is_some_and(|v| {
+                    v["purpose"]
+                        .as_str()
+                        .is_some_and(|p| !matches!(p, "manager" | "summarizer"))
+                }))
+            && (e.2 != "model.call-started" || workflow_call(&e.3))
             && matches!(
                 e.2.as_str(),
                 "provider.retry"
@@ -166,7 +170,9 @@ pub(super) fn project(
     if local && session.status == "running" {
         if let Some(event) = last_control.filter(|e| e.2 == "provider.retry") {
             let value = serde_json::from_str::<serde_json::Value>(&event.3).ok()?;
-            if value["purpose"].as_str().is_some_and(|p| p != "manager")
+            if value["purpose"]
+                .as_str()
+                .is_some_and(|p| !matches!(p, "manager" | "summarizer"))
                 && provider
                     .as_ref()
                     .is_some_and(|(_, call, _)| Some(call.as_str()) == value["call_id"].as_str())
@@ -202,7 +208,7 @@ pub(super) fn project(
         // A later dispatch, successful output or recovery supersedes an earlier failure.
         let superseded = current.iter().any(|e| {
             e.0 > id
-                && (e.2 != "model.call-started" || non_manager_call(&e.3))
+                && (e.2 != "model.call-started" || workflow_call(&e.3))
                 && matches!(
                     e.2.as_str(),
                     "model.call-started" | "model.output" | "step.completed" | "runner.recovered"
@@ -497,19 +503,23 @@ mod tests {
             .unwrap()
             .reason
             .contains("fixture-secret"));
-        // A read-only manager dispatch must not hide the coding failure.
-        let mut call = crate::usage::Call::new(
-            &session,
-            &session.current_step,
-            "manager",
-            "fixture",
-            "http://fixture",
-            Default::default(),
-            &[],
-        );
-        store.begin_model_call(&session, &mut call).unwrap();
-        app.refresh(&store).unwrap();
-        assert_eq!(app.attention.as_ref().unwrap().kind, Kind::Provider);
+        // Read-only background requests must not hide or replace the coding failure.
+        for role in ["manager", "summarizer"] {
+            let mut call = crate::usage::Call::new(
+                &session,
+                &session.current_step,
+                role,
+                "fixture",
+                "http://fixture",
+                Default::default(),
+                &[],
+            );
+            store.begin_model_call(&session, &mut call).unwrap();
+            failure(&store, &session, role, ProviderKind::Credentials);
+            app.refresh(&store).unwrap();
+            assert_eq!(app.attention.as_ref().unwrap().kind, Kind::Provider);
+            assert!(app.attention.as_ref().unwrap().title.contains("billing"));
+        }
         store
             .event(
                 &session,

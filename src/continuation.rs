@@ -237,6 +237,11 @@ impl Engine {
         Ok(())
     }
     pub(crate) fn validate_pending_retry(&self, s: &Session, purpose: &str) -> Result<()> {
+        // Summaries have frozen evidence, no executable continuation, and must not
+        // consume or validate an unrelated paused workflow request.
+        if purpose == "summarizer" {
+            return Ok(());
+        }
         if let Some(cp) = self.store.pending_continuation(s, purpose == "manager")? {
             if cp.purpose != purpose {
                 bail!("Saved request phase changed before retry");

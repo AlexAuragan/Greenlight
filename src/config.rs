@@ -114,6 +114,14 @@ pub struct Config {
     pub notifications: Notifications,
     #[serde(default)]
     pub manager: ManagerConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summarizer: Option<SummarizerConfig>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SummarizerConfig {
+    pub model: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -267,6 +275,14 @@ pub fn load_config(root: &Path) -> Result<Config> {
         .is_some_and(|v| v.trim().is_empty())
     {
         bail!("manager model must not be empty");
+    }
+    if cfg
+        .summarizer
+        .as_ref()
+        .and_then(|s| s.model.as_ref())
+        .is_some_and(|m| m.trim().is_empty())
+    {
+        bail!("summarizer model must not be empty");
     }
     if cfg
         .provider

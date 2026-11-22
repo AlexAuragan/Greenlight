@@ -234,7 +234,7 @@ pub fn capture(
     let cfg = config::load_config(root)?;
     capture_with_config(root, store, session, message_id, artifacts, &cfg)
 }
-fn capture_with_config(
+pub(crate) fn capture_with_config(
     root: &Path,
     store: &Store,
     session: &str,

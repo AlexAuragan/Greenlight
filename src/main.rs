@@ -36,6 +36,7 @@ mod sandbox;
 mod session_execution;
 mod session_picker;
 mod store;
+mod summarizer;
 mod tool_rerun;
 mod tools;
 mod tui;
@@ -113,6 +114,10 @@ enum Commands {
         #[arg(long)]
         reply_to: Option<i64>,
     },
+    /// Generate a read-only, evidence-linked summary (one optional provider request)
+    Summarize { session: String },
+    /// Inspect the latest branch-visible summary without inference
+    Summary { session: String },
     /// Accept a recorded manager forward; start only if it targets the current idle step
     DeliverRoute {
         session: String,
@@ -285,6 +290,17 @@ async fn main() -> Result<()> {
                 engine.ask_manager(&session, &text, &artifact).await?
             };
             println!("{}", reply.display());
+        }
+        Commands::Summarize { session } => {
+            let engine = engine::Engine::open(&root)?;
+            println!("{}", engine.summarize(&session, None).await?.display());
+        }
+        Commands::Summary { session } => {
+            let store = store::Store::open(&root)?;
+            let summary = store
+                .latest_summary(&store.session(&session)?)?
+                .context("No recorded summary on this branch")?;
+            println!("{}", summary.display());
         }
         Commands::DeliverRoute {
             session,

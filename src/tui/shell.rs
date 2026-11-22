@@ -172,6 +172,12 @@ impl App {
             {
                 actions.push(Action::RestartReview);
             }
+            if self.session().is_some() {
+                actions.extend([Action::GenerateSummary, Action::LatestSummary]);
+            }
+            if self.summary_running() {
+                actions.push(Action::CancelSummary);
+            }
             return actions;
         }
 
@@ -251,10 +257,15 @@ impl App {
         }
         if self.session().is_some() {
             actions.extend([
+                Action::GenerateSummary,
+                Action::LatestSummary,
                 Action::Conversation,
                 Action::AskManager,
                 Action::ManagerReplies,
             ]);
+        }
+        if self.summary_running() {
+            actions.push(Action::CancelSummary);
         }
         actions.push(Action::Sessions);
         if self.session().is_some() {
@@ -948,6 +959,18 @@ impl App {
                 self.clear_diagnostic();
                 self.set_message_mode(compose::Mode::Conversation);
                 self.focus_composer();
+            }
+            CancelSummary => self.cancel_manager(),
+            GenerateSummary => {
+                self.start_summary(root)?;
+            }
+            LatestSummary => {
+                let session = self.session().context("Select a session")?;
+                let summary = store.latest_summary(session)?.context(
+                    "No recorded summary on this branch. Use Generate summary to request one.",
+                )?;
+                self.context_detail = Some(summary.display());
+                self.detail_scroll = 0;
             }
             AskManager => {
                 self.clear_diagnostic();

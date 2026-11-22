@@ -483,7 +483,12 @@ mod tests {
                 let input = request["messages"][1]["content"]
                     .as_str()
                     .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
-                let content = if let Some(input) = input.filter(|v| v.get("message_id").is_some()) {
+                let content = if request["messages"][0]["content"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with("Summarize the supplied"))
+                {
+                    serde_json::json!({"text":"Recorded progress remains unverified.","citations":["workflow:demo"]}).to_string()
+                } else if let Some(input) = input.filter(|v| v.get("message_id").is_some()) {
                     let mut reply = serde_json::json!({"schema_version":1,"message_id":input["message_id"],"snapshot_id":input["evidence"]["snapshot_id"],"action":action,"content":"Fixture manager reply.","citations":["workflow:demo"]});
                     if action == "forward" {
                         reply["step_id"] = serde_json::json!("work");
@@ -794,5 +799,49 @@ mod tests {
         assert_eq!(app.compose.mode, Mode::Manager);
         assert!(app.runner.is_none());
         assert!(app.manager_job.is_none());
+    }
+    #[test]
+    fn optional_summary_runs_beside_an_owner_and_does_not_dismiss_its_approval() {
+        let (root, store, session, mut app) = setup();
+        let (http, env) = server(root.path());
+        let owner = store.claim_execution(&session.id, None).unwrap();
+        app.refresh(&store).unwrap();
+        app.approval = Some(ApprovalPrompt {
+            review: None,
+            command: None,
+            content: "Existing human gate".into(),
+            mode: ApprovalMode::Human,
+        });
+        app.start_summary(root.path()).unwrap();
+        assert!(app.summary_running());
+        assert!(app.runner.is_none());
+        assert!(app.more_actions().contains(&shell::Action::CancelSummary));
+        wait(&mut app);
+        http.join().unwrap();
+        std::env::remove_var(env);
+        assert!(app.approval.is_some());
+        assert!(app.context_detail.is_none());
+        assert_eq!(store.session(&session.id).unwrap().status, "running");
+        assert!(store
+            .latest_summary(&store.session(&session.id).unwrap())
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            store
+                .usage_report(&session, crate::usage::Scope::Session)
+                .unwrap()
+                .calls
+                .len(),
+            1
+        );
+        app.approval = None;
+        app.activate(shell::Action::LatestSummary, root.path(), &store)
+            .unwrap();
+        assert!(app
+            .context_detail
+            .as_ref()
+            .unwrap()
+            .contains("Model-authored summary"));
+        store.finish_execution(&session.id, &owner, None).unwrap();
     }
 }

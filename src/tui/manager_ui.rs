@@ -11,6 +11,7 @@ pub(super) struct ManagerJob {
     finished: mpsc::Receiver<std::result::Result<i64, String>>,
     root: PathBuf,
     automatic: bool,
+    summary: bool,
     cancel: Arc<AtomicBool>,
 }
 impl App {
@@ -22,7 +23,7 @@ impl App {
         automatic: bool,
     ) {
         if self.manager_job.is_some() {
-            self.notice = "A manager request is already running; your draft is retained.".into();
+            self.notice = "A background request is already running; your draft is retained.".into();
             return;
         }
         let Some(session) = self.session().map(|s| s.id.clone()) else {
@@ -83,6 +84,7 @@ impl App {
             branch,
             root: job_root,
             automatic,
+            summary: false,
             finished,
             cancel,
         });
@@ -96,6 +98,59 @@ impl App {
             "Question saved. Manager is answering (read-only)."
         }
         .into();
+    }
+    pub(super) fn summary_running(&self) -> bool {
+        self.manager_job.as_ref().is_some_and(|j| j.summary)
+    }
+    pub(super) fn start_summary(&mut self, root: &Path) -> Result<()> {
+        if self.manager_job.is_some() {
+            bail!("A background request is already running; wait or stop it first");
+        }
+        let session = self.session().context("Select a session")?.clone();
+        let scope = session.clone();
+        let job_root = root.to_path_buf();
+        let root = root.to_path_buf();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let (sent, finished) = mpsc::channel();
+        // The coding runner remains independent and retains all its own gates.
+        std::thread::spawn(move || {
+            let result = (|| -> Result<i64> {
+                let mut engine = crate::engine::Engine::open(&root)?;
+                engine.provider.retry_cancel = worker_cancel;
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let summary =
+                    runtime.block_on(engine.summarize(&scope.id, Some(&scope.active_branch)))?;
+                engine
+                    .store
+                    .history(&scope)?
+                    .iter()
+                    .rev()
+                    .find(|e| {
+                        e.2 == "summary.result"
+                            && serde_json::from_str::<crate::summarizer::SavedSummary>(&e.3)
+                                .is_ok_and(|v| {
+                                    v.snapshot.snapshot_id == summary.snapshot.snapshot_id
+                                })
+                    })
+                    .map(|e| e.0)
+                    .context("Summary result was not persisted")
+            })();
+            let _ = sent.send(result.map_err(|e| format!("{e:#}")));
+        });
+        self.manager_job = Some(ManagerJob {
+            session: session.id,
+            branch: session.active_branch,
+            root: job_root,
+            automatic: false,
+            summary: true,
+            finished,
+            cancel,
+        });
+        self.notice="Generating an optional summary in the background (provider usage is recorded). Workflow continues independently.".into();
+        Ok(())
     }
     pub(super) fn retry_saved_manager(&mut self, root: &Path, store: &Store) {
         if self.manager_job.is_some() {
@@ -143,6 +198,7 @@ impl App {
             branch: session.active_branch,
             root: job_root,
             automatic: false,
+            summary: false,
             cancel,
             finished,
         });
@@ -167,22 +223,40 @@ impl App {
         let root = job.root.clone();
         let automatic = job.automatic && !job.cancel.load(Ordering::SeqCst);
         let scope = (job.session.clone(), job.branch.clone());
+        let summary = job.summary;
         self.manager_job = None;
         let handled = (|| -> Result<()> {
             let event = result.map_err(anyhow::Error::msg)?;
             let store = Store::open(&root)?;
             let state = store.session(&scope.0)?;
             if !selected || state.active_branch != scope.1 {
-                self.notice="Manager result saved for its original session/branch; open it and accept any route explicitly. No background execution started.".into();
+                self.notice="Background result saved for its original session/branch; inspect its recorded history. No workflow execution started.".into();
                 return Ok(());
             }
             let may_present = !self.reading_overlay() && self.focus != Focus::Compose;
             let history = store.history(&state)?;
             let raw = &history
                 .iter()
-                .find(|e| e.0 == event && e.2 == "manager.result")
+                .find(|e| {
+                    e.0 == event
+                        && e.2
+                            == if summary {
+                                "summary.result"
+                            } else {
+                                "manager.result"
+                            }
+                })
                 .context("Manager result unavailable")?
                 .3;
+            if summary {
+                let saved: crate::summarizer::SavedSummary = serde_json::from_str(raw)?;
+                if may_present {
+                    self.context_detail = Some(saved.display());
+                    self.detail_scroll = 0;
+                }
+                self.notice="Summary saved for its captured evidence. More → Latest summary reopens it; workflow state is unchanged.".into();
+                return Ok(());
+            }
             let reply: crate::manager::Reply = serde_json::from_str(raw)?;
             self.refresh(&store)?;
             if automatic && matches!(reply.decision, crate::manager::Decision::Forward { .. }) {
@@ -203,7 +277,7 @@ impl App {
             Ok(())
         })();
         if let Err(error) = handled {
-            self.notice=format!("Manager result/routing unavailable: {error:#}. Original retained; inspect Manager replies. No fallback execution was attempted.");
+            self.notice=format!("Background request/result unavailable: {error:#}. Inspect recorded history and provider diagnostics; no fallback execution was attempted.");
         }
     }
     pub(super) fn deliver_manager_result(
@@ -269,9 +343,9 @@ impl App {
         if let Some(job) = &self.manager_job {
             job.cancel.store(true, Ordering::SeqCst);
             self.notice =
-                "Stopping manager request… Remote processing/billing may be uncertain.".into();
+                "Stopping background request… Remote processing/billing may be uncertain.".into();
         } else {
-            self.notice = "No manager request is active.".into();
+            self.notice = "No background request is active.".into();
         }
     }
 }
@@ -367,6 +441,7 @@ mod tests {
             branch: session.active_branch.clone(),
             root: root.path().to_path_buf(),
             automatic: true,
+            summary: false,
             finished,
             cancel: Arc::new(AtomicBool::new(false)),
         });

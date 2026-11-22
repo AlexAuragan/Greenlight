@@ -527,6 +527,9 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             Tone::Info,
         ),
         "provider.failure" => {
+            let summarizer = serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .is_some_and(|v| v["purpose"] == "summarizer");
             let manager = serde_json::from_str::<serde_json::Value>(raw)
                 .ok()
                 .is_some_and(|v| v["purpose"] == "manager");
@@ -540,7 +543,9 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                 Some(f) => card(
                     format!(
                         "{} · {}",
-                        if manager {
+                        if summarizer {
+                            "Summary provider"
+                        } else if manager {
                             "Manager provider"
                         } else {
                             "Provider"
@@ -591,6 +596,9 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             ),
         },
         "provider.retry" => {
+            let summarizer = serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .is_some_and(|v| v["purpose"] == "summarizer");
             let v = serde_json::from_str::<serde_json::Value>(raw).ok();
             let manager = v.as_ref().is_some_and(|v| v["purpose"] == "manager");
             let summary = v
@@ -603,12 +611,20 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                             format!("Request {}", v["next_request"].as_u64()?)
                         },
                         v["wait_ms"].as_u64()?,
-                        if manager { "/cancel-manager" } else { "x" }
+                        if summarizer {
+                            "More → Stop summary"
+                        } else if manager {
+                            "/cancel-manager"
+                        } else {
+                            "x"
+                        }
                     ))
                 })
                 .unwrap_or_else(|| "Inspect recorded retry schedule".into());
             card(
-                if manager {
+                if summarizer {
+                    "Summary provider retry scheduled"
+                } else if manager {
                     "Manager provider retry scheduled"
                 } else {
                     "Provider retry scheduled"
@@ -635,6 +651,20 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
         }
         "event.invalid" => card("Malformed record", short(raw), Tone::Error),
         "step.error" | "runner.error" => card("Execution error", short(raw), Tone::Error),
+        "summary.requested" => card(
+            "Summary requested",
+            "Optional model request · workflow execution continues independently",
+            Tone::Info,
+        ),
+        "summary.result" => card(
+            "Model-authored summary",
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .and_then(|v| v["summary"]["text"].as_str().map(short))
+                .unwrap_or_else(|| "Open Latest summary to inspect the recorded result".into()),
+            Tone::Info,
+        ),
+        "summary.failed" => card("Summary unavailable", short(raw), Tone::Attention),
         "step.blocked" => card("Step blocked", short(raw), Tone::Attention),
         "step.completed" => card("Step completed", short(raw), Tone::Good),
         "attempt.continued" => card(

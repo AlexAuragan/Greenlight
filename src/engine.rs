@@ -613,7 +613,7 @@ impl Engine {
         }
         result.context(crate::provider_failure::ModelCallFailed)
     }
-    async fn dispatch_model_call(
+    pub(crate) async fn dispatch_model_call(
         &self,
         s: &Session,
         step: &str,
@@ -748,7 +748,7 @@ impl Engine {
             .context("Cannot persist returned conversation; inspect usage before retrying")?;
             if let Some(failure) = failure {
                 self.checkpoint_failure(s, purpose, &failure)?;
-                if purpose != "manager" {
+                if !matches!(purpose, "manager" | "summarizer") {
                     console_eprintln!(self, "[provider] {failure}");
                     if let Some(diagnostic) = &failure.diagnostic {
                         console_eprintln!(self, "[provider diagnostic]\n{}", diagnostic.text());
@@ -756,7 +756,7 @@ impl Engine {
                 }
                 self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"purpose":purpose,"request_number":attempt,"failure":failure}))?)?;
                 if let Some(delay) = failure.delay(attempt) {
-                    if purpose != "manager" {
+                    if !matches!(purpose, "manager" | "summarizer") {
                         console_eprintln!(
                             self,
                             "[provider retry] request {}/{} in {:.2}s",
@@ -765,14 +765,18 @@ impl Engine {
                             delay.as_secs_f64()
                         );
                     }
-                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; k in TUI stops execution"}}).to_string())?;
+                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="summarizer" {"Waiting before summary retry; More → Stop summary cancels this background request"} else if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; k in TUI stops execution"}}).to_string())?;
                     if let Err(cancelled) =
                         crate::provider_failure::wait(delay, &self.provider.retry_cancel).await
                     {
                         self.store.event(
                             s,
                             Some(step),
-                            "provider.retry-cancelled",
+                            if purpose == "summarizer" {
+                                "summary.retry-cancelled"
+                            } else {
+                                "provider.retry-cancelled"
+                            },
                             &cancelled.to_string(),
                         )?;
                         return Err(cancelled.into());
@@ -780,7 +784,7 @@ impl Engine {
                     continue;
                 }
                 if failure.retryable {
-                    self.store.event(s,Some(step),"provider.retry-stopped","Automatic retry budget exhausted or Retry-After exceeds the 15-second per-wait limit; resume explicitly later.")?;
+                    self.store.event(s,Some(step),if purpose=="summarizer" {"summary.retry-stopped"} else {"provider.retry-stopped"},"Automatic retry budget exhausted or Retry-After exceeds the 15-second per-wait limit; resume explicitly later.")?;
                     return Err(anyhow::Error::new(failure).context("Automatic retry budget exhausted or requested wait exceeds 15s; resume explicitly later."));
                 }
                 return Err(failure.into());

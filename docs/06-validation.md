@@ -1,5 +1,11 @@
 # Validation
 
+## Optional summaries (GL-009) — 2026-11-22
+
+`feat/optional-summaries` adds explicitly requested background TUI/CLI summaries; it is not merged. Validation passes 488 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. New checks cover live-owner coexistence, pending-approval preservation, model selection and central accounting, strict output/citation validation, stale startup and branch visibility, and preservation of an existing coding checkpoint even when using the same Engine. Background dispatch/failure attention cannot replace the actual workflow's provider diagnostic.
+
+A CLI/local HTTP smoke test generates one summary on the selected summarizer model, checks its captured source references and ledger purpose, then shuts down the fake provider and reopens the saved summary offline. The workflow's status, branch and step remain unchanged. Tests use scripted/local providers and no paid inference. Activity-title versus summary comparisons document request/latency/evidence differences; they do not claim measured real-model quality or cost improvements.
+
 ## Coordination merge validation — 2026-11-22
 
 Final review of the GL-008/GL-028/GL-029/GL-030 stack against remote `master` found no additional blockers in the reviewed ownership, routing, persistence and recovery paths. The feature branch had no divergence from `master`. Merge validation passes 483 Rust tests (two existing integration/profiling tests ignored), six installer tests, strict all-target Clippy, formatting and offline build. Both native terminal scenarios pass: exact original guidance delivery and cross-client project exclusion through a provider retry. Tests use local/scripted providers, with no paid requests.

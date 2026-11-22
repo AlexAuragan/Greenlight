@@ -67,6 +67,8 @@ Live output and model claims are not executed/verified evidence.
 Artifact revisions are documents; Edits covers native recorded writes.
 /resume continues ready/blocked work; /recover never resumes it.
 /ask QUESTION asks the read-only manager; routes do not execute.
+More → Generate summary makes an optional background model request.
+Latest summary reopens captured evidence without inference; Stop summary cancels it.
 q quits only when there is no local worker or manager job.
 ";
 
