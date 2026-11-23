@@ -56,6 +56,9 @@ pub(super) struct Edits {
     pub files: Vec<File>,
     pub index: usize,
     pub text: String,
+    pub hunk: Option<usize>,
+    hunks: Vec<std::ops::Range<usize>>,
+    hunk_text: String,
     pub error: Option<String>,
     pub pending: Option<Pending>,
     generation: Option<(String, String, Option<i64>)>,
@@ -128,6 +131,8 @@ impl Edits {
             }
         }
         if scope_changed {
+            self.hunk = None;
+            self.hunk_text.clear();
             self.index = 0;
             self.overview = files.values().filter(|f| f.changed() || f.gap).count() != 1;
         }
@@ -168,6 +173,8 @@ impl Edits {
             .position(|v| *v == current)
             .map(|position| (position + if reverse { views.len() - 1 } else { 1 }) % views.len())
             .unwrap_or(0);
+        self.hunk = None;
+        self.hunk_text.clear();
         self.overview = views[next].is_none();
         if let Some(i) = views[next] {
             self.index = i;
@@ -176,7 +183,7 @@ impl Edits {
     }
     pub fn select(&mut self, delta: isize) {
         self.index = move_index(self.index, delta, self.files.len());
-        self.text=match self.files.get(self.index) {
+        let text=match self.files.get(self.index) {
             None=>"No recorded native edits on this branch.\n\nArtifact documents are not source edits. Shell/manual changes are outside this journal.".into(),
             Some(file)=>{
                 let mut diff=changes::unified(&file.path,file.before.as_deref(),file.after.as_deref().unwrap_or(""));
@@ -184,9 +191,66 @@ impl Edits {
                 format!("Net recorded diff: first tracked state → latest recorded state.\n{}\n{}",if file.gap {"History gap: Keep and automatic revert are unavailable."}else{""},diff)
             }
         };
+        if self.text != text {
+            self.hunk = None;
+            self.hunk_text.clear();
+            self.hunks = changes::hunks(&text);
+        }
+        self.text = text;
+    }
+    pub(super) fn display_text(&self) -> &str {
+        if self.hunk.is_some() {
+            &self.hunk_text
+        } else {
+            &self.text
+        }
+    }
+    pub(super) fn has_hunks(&self) -> bool {
+        !self.overview && self.error.is_none() && !self.hunks.is_empty()
     }
 }
 impl App {
+    pub(super) fn navigate_hunk(&mut self, reverse: bool) {
+        if !self.edits.has_hunks() {
+            self.notice = "No recorded diff hunks in this view.".into();
+            return;
+        }
+        let count = self.edits.hunks.len();
+        let index = self
+            .edits
+            .hunk
+            .map(|i| {
+                if reverse {
+                    i.saturating_sub(1)
+                } else {
+                    (i + 1).min(count - 1)
+                }
+            })
+            .unwrap_or(if reverse { count - 1 } else { 0 });
+        let header_start = self.edits.text.find("--- ").unwrap_or(0);
+        let headers = &self.edits.text[header_start..self.edits.hunks[0].start];
+        self.edits.hunk_text = format!("Recorded native diff · Hunk {} of {}\nJournal evidence; not a live disk comparison or verification.\n{}{}",index+1,count,headers,&self.edits.text[self.edits.hunks[index].clone()]);
+        if self
+            .edits
+            .files
+            .get(self.edits.index)
+            .is_some_and(|file| file.gap)
+        {
+            self.edits.hunk_text.insert_str(
+                0,
+                "History gap: Keep and automatic revert are unavailable.\n",
+            );
+        }
+        self.edits.hunk = Some(index);
+        self.focus = Focus::Detail;
+        self.detail_scroll = 0;
+        self.rendered_scroll.set(None);
+        self.notice = format!(
+            "Hunk {} of {} · [ Previous · ] Next · D Full file diff",
+            index + 1,
+            count
+        );
+    }
     pub(super) fn keep_edits(&mut self, root: &Path, store: &Store, all: bool) {
         let result = (|| -> Result<usize> {
             if self.runner.is_some() || self.edits.pending.is_some() {
@@ -591,20 +655,23 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             }
         }
     } else {
-        let source = if compact {
+        let source = if compact && app.edits.hunk.is_none() {
             app.edits
                 .text
                 .find("\n--- ")
                 .map(|i| &app.edits.text[i + 1..])
                 .unwrap_or(&app.edits.text)
         } else {
-            &app.edits.text
+            app.edits.display_text()
         };
         reader::draw_diff_document(
             frame,
             app,
             reader::Document {
-                tag: format!("edits:{:?}:{}", app.edits.generation, app.edits.index),
+                tag: format!(
+                    "edits:{:?}:{}:{:?}",
+                    app.edits.generation, app.edits.index, app.edits.hunk
+                ),
                 source,
                 markdown: false,
                 headers: vec![],

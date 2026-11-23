@@ -8,6 +8,11 @@ Sessions opens search; arrows select candidates, Enter opens the selected sessio
 Back/Esc cancels browsing; Clear search resets the filter.
 Search letters and paste stay literal. Compose closes without discarding its draft.
 
+Diff review
+Edits: [ and ] open the previous/next recorded hunk; D returns to the full file diff.
+Tab still cycles files. Hunk navigation changes no files or review decisions.
+V exports historical verification evidence (also More / Details). No checks are rerun.
+
 Artifacts
 e edits the selected artifact into a new version; N adds a version-specific comment.
 b reads comments. These actions also appear in More. Stop workers before editing.

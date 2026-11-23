@@ -123,3 +123,5 @@ The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the p
 The `optimize-performance` example loops on `target_not_met` and stops on regressions; automatic code rollback is intentionally **not** implemented. For safe rollback, restore the repository from a known Git checkpoint before resuming.
 
 See the [documentation index](docs/README.md) for runtime contracts, current controls, verification and unfinished design work. [Actual Ratatui captures](docs/screenshots/README.md) show implementation renders; they supplement the manual smoke tests and do not establish real-terminal or live-model compatibility on their own.
+
+Recorded verification evidence can be exported without rerunning checks: `greenlight verification-evidence SESSION_ID`, or **More → Export verification evidence** in the TUI. See [diff hunks and verification evidence](docs/50-diff-hunks-and-verification-evidence.md).

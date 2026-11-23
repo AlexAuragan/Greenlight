@@ -68,12 +68,16 @@ impl App {
             ("recorded native edits overview".into(),format!("Edits · selected session / active branch\nNative journal only; shell/manual changes are outside coverage.\n{}\n\nKeep records historical review intent, not live disk validation, tool permission or Git staging.",self.edits.files.iter().map(|f|format!("{} · {} · revision #{} · {}",f.path,f.label(),f.revision,if f.kept{"Kept revision"}else{"Not kept"})).collect::<Vec<_>>().join("\n")))
         } else if self.view == View::Edits {
             (
-                "recorded code diff".into(),
+                if self.edits.hunk.is_some() {
+                    "selected recorded diff hunk".into()
+                } else {
+                    "recorded code diff".into()
+                },
                 self.edits
                     .error
-                    .as_ref()
-                    .unwrap_or(&self.edits.text)
-                    .clone(),
+                    .as_deref()
+                    .unwrap_or_else(|| self.edits.display_text())
+                    .to_owned(),
             )
         } else if self.restart_plan.is_some() {
             ("restore preview".into(), self.restart_preview.clone())
@@ -325,6 +329,21 @@ pub(super) fn with_terminal_suspended<T>(action: impl FnOnce() -> Result<T>) -> 
     let result = action();
     resume.restore().context("Could not restore TUI terminal")?;
     Ok(result)
+}
+
+impl App {
+    pub(super) fn export_verification(&mut self, store: &Store) {
+        let result = self
+            .session()
+            .context("No selected session")
+            .and_then(|s| store.save_verification_export(s));
+        self.notice = match result {
+            Ok(path) => format!("Saved historical verification evidence: {}", path.display()),
+            Err(error) => {
+                format!("Verification export failed; no complete export produced: {error:#}")
+            }
+        };
+    }
 }
 
 #[cfg(test)]

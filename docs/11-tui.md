@@ -270,3 +270,7 @@ Supported GL-012 inspection commands and GL-032 read-only pipelines can run with
 ## Artifact comments and user revisions
 
 In Artifacts or Versions, More exposes `[e] Edit artifact (new version)`, `[N] Add review comment` and `[b] Review comments`. Save and close the external editor to publish; unchanged edits and blank comments save nothing. Originals remain immutable, comments stay on their exact version, and edits record user authorship. Conflicting saves retain a private recovery draft. `[E] Editor` remains a read-only export. These actions neither approve work nor send instructions to the agent. See [artifact review](49-artifact-review.md) for limits, conflicts and workflow-input behavior.
+
+## Hunk navigation and verification exports
+
+Edits exposes `[` Previous hunk, `]` Next hunk and `D` Full file diff through More and the hunk reader footer. Hunk mode shows one recorded change block; Tab still cycles files. C/E exports that selected block, so return to Full file diff to export the whole file. No hunk approval/staging or partial revert is introduced. More / Details exposes `V` Export verification evidence, which saves a private JSON snapshot of recorded checks and exact references without rerunning them. See [diff hunks and verification evidence](50-diff-hunks-and-verification-evidence.md).

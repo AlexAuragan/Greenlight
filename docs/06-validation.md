@@ -1,5 +1,9 @@
 # Validation
 
+## Diff hunks and verification evidence (GL-015) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 526 Rust tests (four existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Seven new tests cover exact UTF-8 hunk ranges, real Previous/Next/full-file actions and narrow/normal rendering, selected/full export scope and file-cycle reset, private TUI export without history changes, historical artifact bodies and correlated tool requests, branch/session isolation, stale selection, missing blobs, event/reference/JSON-escaping limits, empty/legacy histories and symlink export-directory refusal. The CLI help exposes `verification-evidence SESSION`. No provider calls or fresh verification commands were used. See [diff hunks and evidence](50-diff-hunks-and-verification-evidence.md).
+
 ## Artifact comments and user revisions (GL-014) — 2026-11-23
 
 Implemented on `feat/optional-summaries`, pending merge. The full suite passes 519 Rust tests (four existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Seven new tests cover original preservation and user/source attribution, version/branch-scoped comments, stale/latest and active-owner rejection, no-op/size bounds, rollback of failed attribution publication, real TUI shortcut/actions with an external-editor fixture, symlink/failed-editor rejection and recoverable conflict drafts. No paid provider calls were used. See [artifact review](49-artifact-review.md).

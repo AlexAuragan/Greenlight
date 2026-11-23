@@ -273,6 +273,22 @@ impl App {
             && self.view == View::Edits
             && !self.blocking_surface()
             && !self.shell.actions_focus
+        {
+            if let Some(action) = shell::Action::for_key(
+                key.code,
+                &[
+                    shell::Action::PreviousHunk,
+                    shell::Action::NextHunk,
+                    shell::Action::FullDiff,
+                ],
+            ) {
+                return self.activate(action, root, store);
+            }
+        }
+        if !typing
+            && self.view == View::Edits
+            && !self.blocking_surface()
+            && !self.shell.actions_focus
             && self.focus != Focus::Sessions
         {
             match key.code {
@@ -902,6 +918,7 @@ impl App {
             }
         }
         let workspace_actions = [
+            shell::Action::ExportVerification,
             shell::Action::RouteStatus,
             shell::Action::Preview,
             shell::Action::Expand,

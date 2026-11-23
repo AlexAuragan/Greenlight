@@ -44,6 +44,7 @@ mod tools;
 mod tui;
 mod tui_actions;
 mod usage;
+mod verification_export;
 mod workspace;
 mod workspace_audit;
 mod workspace_view;
@@ -260,6 +261,8 @@ enum Commands {
         #[arg(long)]
         session: Option<String>,
     },
+    /// Save historical verification evidence for the selected session/active branch
+    VerificationEvidence { session: String },
     /// List native agent edits on the active branch
     Changes { session: String },
     /// Show a unified diff for one native agent write
@@ -758,6 +761,11 @@ async fn main() -> Result<()> {
                 approvals.bind_session(&selected.id)?;
             }
             print!("{}", approvals.describe()?);
+        }
+        Commands::VerificationEvidence { session } => {
+            let store = store::Store::open(&root)?;
+            let selected = store.session(&session)?;
+            println!("{}", store.save_verification_export(&selected)?.display());
         }
         Commands::Changes { session } => {
             let engine = engine::Engine::open(&root)?;

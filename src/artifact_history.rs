@@ -15,7 +15,7 @@ pub struct Version {
     pub user_source: Option<i64>,
     pub attempt: Option<String>,
     pub definition: Option<i64>,
-    blob: String,
+    pub(crate) blob: String,
 }
 impl Store {
     pub fn artifact_versions(&self, s: &Session, name: &str) -> Result<Vec<Version>> {

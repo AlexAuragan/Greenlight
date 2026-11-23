@@ -45,8 +45,8 @@ impl Details {
         use shell::Action::*;
         match self.page {
             Some(Page::Conversation) => vec![Close, RefreshDump, SaveDump, CopyDump],
-            Some(Page::Run) => vec![DetailsBack, Provider, Usage, Technical],
-            Some(Page::Technical) => vec![DetailsBack, Usage, Copy],
+            Some(Page::Run) => vec![DetailsBack, Provider, Usage, Technical, ExportVerification],
+            Some(Page::Technical) => vec![DetailsBack, Usage, Copy, ExportVerification],
             Some(Page::Usage) => {
                 let mut actions = vec![DetailsBack];
                 if self.report.as_ref().is_some_and(|r| !r.calls.is_empty()) {

@@ -97,8 +97,9 @@ impl App {
             ":{:?}:{}:{}",
             self.compose.mode, self.checkpoint.reading, self.checkpoint.index
         ) + &format!(
-            ":{}:{:?}:{:?}",
+            ":{}:{:?}:{:?}:{:?}",
             self.edits.overview,
+            self.edits.hunk,
             self.navigation.selected,
             self.navigation
                 .candidates
@@ -214,6 +215,7 @@ impl App {
             Action::Usage,
             Action::Provider,
             Action::ConversationDump,
+            Action::ExportVerification,
             Action::RouteStatus,
         ];
         if self.session().is_some_and(|s| s.status == "completed")
@@ -226,6 +228,9 @@ impl App {
         }
         if self.view == View::Edits && !self.edits.files.is_empty() {
             actions.splice(0..0, [Action::OpenEdit, Action::EditAll, Action::RevertAll]);
+            if self.edits.has_hunks() {
+                actions.extend([Action::PreviousHunk, Action::NextHunk, Action::FullDiff]);
+            }
         }
         if self.focus != Focus::Compose {
             actions.extend([Action::Copy, Action::Editor]);
@@ -565,6 +570,19 @@ impl App {
                 },
                 Action::ReviewEdits,
                 Action::Overview,
+                Action::More,
+            ];
+        }
+        if self.view == View::Edits
+            && self.edits.hunk.is_some()
+            && !self.edits.overview
+            && self.edits.pending.is_none()
+            && self.edits.error.is_none()
+        {
+            return vec![
+                Action::PreviousHunk,
+                Action::NextHunk,
+                Action::FullDiff,
                 Action::More,
             ];
         }
@@ -1136,6 +1154,14 @@ impl App {
                 self.switch_view(View::Edits);
                 self.refresh_edits(store);
             }
+            PreviousHunk | NextHunk => self.navigate_hunk(action == PreviousHunk),
+            FullDiff => {
+                self.edits.hunk = None;
+                self.detail_scroll = 0;
+                self.rendered_scroll.set(None);
+                self.notice = "Full recorded file diff; no files changed.".into();
+            }
+            ExportVerification => self.export_verification(store),
             EditArtifact | CommentArtifact => {
                 if let Err(error) = self.prepare_artifact_review(store, action == CommentArtifact) {
                     self.notice = format!("Artifact review unavailable: {error:#}");
@@ -1249,6 +1275,7 @@ impl App {
                 self.notice = "Revert cancelled; no files changed.".into();
             }
             OpenEdit => {
+                self.edits.hunk = None;
                 self.edits.overview = false;
                 self.edits.select(0);
                 self.focus = Focus::Detail;
@@ -1267,6 +1294,7 @@ impl App {
                 self.prepare_revert(root, store, true);
             }
             EditAll => {
+                self.edits.hunk = None;
                 self.edits.overview = true;
                 self.focus = Focus::Artifacts;
                 self.detail_scroll = 0;
