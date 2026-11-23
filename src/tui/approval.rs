@@ -78,6 +78,7 @@ impl App {
             'y' if confirmation => "Confirmed persistent grant; awaiting engine result.".into(),
             'y' => "Sent approval to the engine; awaiting its recorded outcome.".into(),
             'a' => "Sent process-wide approval to the engine.".into(),
+            's' => "Requested session grant; awaiting engine result.".into(),
             'p' => "Requested project-wide grant; awaiting engine result.".into(),
             'g' => "Requested global grant; awaiting engine result.".into(),
             'n' => "Denied this request; the agent may attempt another action.".into(),
@@ -115,6 +116,7 @@ pub(super) fn approval_options(mode: ApprovalMode) -> Vec<Line<'static>> {
         options.push(approval_line('a', "Allow for this process", Color::Cyan));
     }
     if mode == ApprovalMode::Persistent {
+        options.push(approval_line('s', "Review session grant", Color::Yellow));
         options.push(approval_line('p', "Review project grant", Color::Yellow));
         options.push(approval_line('g', "Review global grant", Color::Yellow));
     }
@@ -204,7 +206,7 @@ pub(super) fn draw(
     let choices_height = match prompt.mode {
         ApprovalMode::Human | ApprovalMode::ConfirmPersistent | ApprovalMode::ProviderRetry => 5,
         ApprovalMode::Tool => 6,
-        ApprovalMode::Persistent => 8,
+        ApprovalMode::Persistent => 9,
     };
     let approval_areas =
         Layout::vertical([Constraint::Min(3), Constraint::Length(choices_height)]).split(area);
@@ -234,7 +236,7 @@ pub(super) fn draw(
                 ))),
         approval_areas[0],
     );
-    let keys = ['y', 'a', 'p', 'g', 'n']
+    let keys = ['y', 'a', 's', 'p', 'g', 'n']
         .into_iter()
         .filter(|key| prompt.mode.accepts(*key))
         .collect::<Vec<_>>();

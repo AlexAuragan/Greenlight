@@ -1818,7 +1818,7 @@ mod tests {
         key(&mut app, root.path(), &store, KeyCode::Char('h'));
         let text = render(&mut app, 80, 24);
         assert!(text.contains("Approval pending"));
-        for c in ['y', 'a', 'p', 'g', 'n'] {
+        for c in ['y', 'a', 's', 'p', 'g', 'n'] {
             key(&mut app, root.path(), &store, KeyCode::Char(c));
         }
         assert!(received.try_recv().is_err());

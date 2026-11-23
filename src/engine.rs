@@ -111,6 +111,7 @@ impl Engine {
     ) -> Result<()> {
         self.store.ensure_no_pending_writes()?;
         let mut s = self.store.session(session_id)?;
+        self.tools.approvals.bind_session(&s.id)?;
         let mut steps = 0usize;
         let mut continuing = self.continuation.borrow().is_some();
         if !continuing {

@@ -90,7 +90,7 @@ impl ApprovalMode {
                 matches!(answer, 'y' | 'n')
             }
             Self::Tool => matches!(answer, 'y' | 'a' | 'n'),
-            Self::Persistent => matches!(answer, 'y' | 'a' | 'p' | 'g' | 'n'),
+            Self::Persistent => matches!(answer, 'y' | 'a' | 's' | 'p' | 'g' | 'n'),
         }
     }
 }
@@ -300,11 +300,11 @@ impl Tools {
                 prompt
                     .push_str("Shell is isolated: read-only project, no network, private HOME.\n");
                 prompt.push_str("Scope: this exact command (including arguments and operators).\n");
-                prompt.push_str("[y] once / [a] this process / [p] this project / [g] globally / [n] deny (default)");
+                prompt.push_str("[y] once / [a] this process / [s] this session / [p] this project / [g] globally / [n] deny (default)");
             }
             "write" => {
                 prompt.push_str("Scope: ANY native write (not just the shown path).\n");
-                prompt.push_str("[y] once / [a] this process / [p] all writes in project / [g] globally / [n] deny (default)");
+                prompt.push_str("[y] once / [a] this process / [s] this session / [p] all writes in project / [g] globally / [n] deny (default)");
             }
             _ => prompt.push_str("[y] once / [a] this process / [n] deny (default)"),
         }
@@ -330,8 +330,10 @@ impl Tools {
                     .push(format!("{kind}: approved for this process — {detail}"));
                 Ok(())
             }
-            "p" | "g" if kind == "shell" || kind == "write" => {
-                let scope = if answer.trim().eq_ignore_ascii_case("p") {
+            "s" | "p" | "g" if kind == "shell" || kind == "write" => {
+                let scope = if answer.trim().eq_ignore_ascii_case("s") {
+                    Scope::Session
+                } else if answer.trim().eq_ignore_ascii_case("p") {
                     Scope::Project
                 } else {
                     Scope::Global
@@ -342,6 +344,9 @@ impl Tools {
                     "this exact shell command, including arguments and operators"
                 };
                 let location = match scope {
+                    Scope::Session => {
+                        "this session only (all steps and branches, including after restart)".into()
+                    }
                     Scope::Project => format!("this project ({})", self.root.display()),
                     Scope::Global => "ALL projects using this user account".into(),
                 };
@@ -723,11 +728,15 @@ mod tests {
 
     #[test]
     fn persistent_grants_require_a_separate_confirmation() {
-        for scope in ['p', 'g'] {
+        for scope in ['s', 'p', 'g'] {
             for confirmed in [true, false] {
                 let root = tempfile::tempdir().unwrap();
                 let mut tools = Tools::new(root.path().into(), Permissions::default()).unwrap();
                 tools.approvals = ApprovalStore::isolated(root.path()).unwrap();
+                tools
+                    .approvals
+                    .bind_session("00000000-0000-0000-0000-000000000001")
+                    .unwrap();
                 let (prompt_tx, prompts) = std::sync::mpsc::channel();
                 let (answers, answer_rx) = std::sync::mpsc::channel();
                 tools.use_tui(prompt_tx, answer_rx);
@@ -750,6 +759,8 @@ mod tests {
                 assert!(question.content.contains("ALL permitted native writes"));
                 assert!(question.content.contains(if scope == 'g' {
                     "ALL projects"
+                } else if scope == 's' {
+                    "this session only"
                 } else {
                     "this project"
                 }));
@@ -771,28 +782,66 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_confirmation_never_saves_a_grant() {
+    fn saved_session_permissions_obey_deny_and_do_not_follow_session_switches() {
         let root = tempfile::tempdir().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
         let mut tools = Tools::new(root.path().into(), Permissions::default()).unwrap();
         tools.approvals = ApprovalStore::isolated(root.path()).unwrap();
-        let (prompt_tx, prompts) = std::sync::mpsc::channel();
-        let (answers, answer_rx) = std::sync::mpsc::channel();
-        tools.use_tui(prompt_tx, answer_rx);
-        let worker = std::thread::spawn(move || tools.permission("shell", "cargo test"));
-        prompts
-            .recv_timeout(std::time::Duration::from_secs(5))
+        tools.approvals.bind_session(&id).unwrap();
+        tools
+            .approvals
+            .grant(Scope::Session, "shell", "fixture-command")
             .unwrap();
-        answers.send("p".into()).unwrap();
-        let confirmation = prompts
-            .recv_timeout(std::time::Duration::from_secs(5))
+        tools.approvals.grant(Scope::Session, "write", "").unwrap();
+        // Reopen like a fresh TUI worker or CLI resume; do not inherit process grants.
+        tools.approvals = ApprovalStore::isolated(root.path()).unwrap();
+        tools.approvals.bind_session(&id).unwrap();
+        let (requests, prompts) = std::sync::mpsc::channel();
+        let (answers, responses) = std::sync::mpsc::channel();
+        tools.use_tui(requests, responses);
+        tools.permission("shell", "fixture-command").unwrap();
+        tools.permission("write", "another.txt").unwrap();
+        assert!(prompts.try_recv().is_err());
+        assert!(tools.decisions.last().unwrap().contains("Session"));
+        tools.policies.shell = "deny".into();
+        assert!(tools.permission("shell", "fixture-command").is_err());
+        tools.policies.shell = "ask".into();
+        tools
+            .approvals
+            .bind_session(&uuid::Uuid::new_v4().to_string())
             .unwrap();
-        assert!(confirmation.content.contains("this exact shell command"));
-        drop(answers);
-        assert!(worker.join().unwrap().is_err());
-        assert!(ApprovalStore::isolated(root.path())
-            .unwrap()
-            .matched_scope("shell", "cargo test")
-            .is_none());
+        answers.send("n".into()).unwrap();
+        assert!(tools.permission("shell", "fixture-command").is_err());
+        assert_eq!(prompts.try_recv().unwrap().mode, ApprovalMode::Persistent);
+    }
+
+    #[test]
+    fn disconnected_confirmation_never_saves_a_grant() {
+        for choice in ['s', 'p'] {
+            let root = tempfile::tempdir().unwrap();
+            let mut tools = Tools::new(root.path().into(), Permissions::default()).unwrap();
+            tools.approvals = ApprovalStore::isolated(root.path()).unwrap();
+            let id = uuid::Uuid::new_v4().to_string();
+            tools.approvals.bind_session(&id).unwrap();
+            let (prompt_tx, prompts) = std::sync::mpsc::channel();
+            let (answers, answer_rx) = std::sync::mpsc::channel();
+            tools.use_tui(prompt_tx, answer_rx);
+            let worker = std::thread::spawn(move || tools.permission("shell", "cargo test"));
+            prompts
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            answers.send(choice.to_string()).unwrap();
+            let confirmation = prompts
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            assert!(confirmation.content.contains("this exact shell command"));
+            drop(answers);
+            assert!(worker.join().unwrap().is_err());
+            let mut saved = ApprovalStore::isolated(root.path()).unwrap();
+            saved.bind_session(&id).unwrap();
+            assert!(saved.matched_scope("shell", "cargo test").is_none());
+            assert!(!root.path().join("session-approvals").exists());
+        }
     }
     #[test]
     fn failed_grant_save_does_not_authorize_the_request() {

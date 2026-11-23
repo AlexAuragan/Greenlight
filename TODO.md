@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-013** — Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
 - [ ] **GL-014** — Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
 - [ ] **GL-015** — Extend diff review with hunk navigation and exportable verification evidence.
 - [ ] **GL-016** — Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
@@ -33,6 +32,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-013** — Implemented on `feat/optional-summaries` (pending merge): confirmed session-only saved exact-shell/native-write grants, retained across restarts and branches, isolated by project/session identity, with CLI inspection and TUI decision rows. Unanswered/dismissed prompts save nothing. See [saved approvals](docs/08-persistent-approvals.md).
 
 - [x] **GL-032** — Implemented on `feat/optional-summaries` (pending merge): fully validated 2–4-stage read-only pipelines, stdin-only filters, shared filtered view, isolated fixed executables, bounded output, per-stage outcomes and whole-pipeline cancellation. Live Bubblewrap validation remains host-blocked. See [runtime guide](docs/48-safe-inspection-pipelines.md).
 

@@ -1,5 +1,9 @@
 # Validation
 
+## Session-scoped saved permissions (GL-013) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 512 Rust tests (four existing integration/profiling tests ignored). Strict all-target Clippy, formatting, offline build and six installer tests pass. New and extended checks cover same-session reload, session/project separation, exact shell matching, configured deny precedence, confirmed/cancelled session grants, disconnected confirmation saving nothing, and session rows in 80×24/120×36 permission popups. Session grants reuse anchored reads, scope locks and atomic saves; they do not change sandbox authority. No paid provider calls were used. See [saved approvals](08-persistent-approvals.md).
+
 ## Safe read-only pipelines (GL-032) — 2026-11-23
 
 Implemented on `feat/optional-summaries`, pending merge. The full suite passes 510 Rust tests, with four integration/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. New coverage checks complete-plan classification, stdin-only roles, malformed/unsafe whole-command fallback, stable shared snapshots, per-stage statuses, finite head draining without guessing from exit 141, bounded stdout/combined stderr, cancellation/deadline cleanup, partial launch and early namespace failures. Direct trusted commands are test fixtures only; production always uses Bubblewrap.

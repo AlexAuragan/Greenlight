@@ -254,8 +254,11 @@ enum Commands {
         #[arg(long)]
         no_restore: bool,
     },
-    /// Show the project/global persistent approvals and their file paths
-    Approvals,
+    /// Show saved approvals and their file paths; optionally include one session
+    Approvals {
+        #[arg(long)]
+        session: Option<String>,
+    },
     /// List native agent edits on the active branch
     Changes { session: String },
     /// Show a unified diff for one native agent write
@@ -746,8 +749,13 @@ async fn main() -> Result<()> {
             }
             println!("New branch {} at step {step}.", state.active_branch);
         }
-        Commands::Approvals => {
-            let approvals = approvals::ApprovalStore::open(&root)?;
+        Commands::Approvals { session } => {
+            let mut approvals = approvals::ApprovalStore::open(&root)?;
+            if let Some(id) = session {
+                let engine = engine::Engine::open(&root)?;
+                let selected = engine.store.session(&id)?;
+                approvals.bind_session(&selected.id)?;
+            }
             print!("{}", approvals.describe()?);
         }
         Commands::Changes { session } => {
