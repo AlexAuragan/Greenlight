@@ -1,6 +1,6 @@
 # Model roles and session budgets — GL-017
 
-Implemented on `feat/optional-summaries`, pending merge. Both features are optional; existing configurations keep their model choices and unlimited dispatch policy.
+Merged into `master` on 2026-11-23. Both features are optional; existing configurations keep their model choices and unlimited dispatch policy.
 
 ## Role defaults
 

@@ -1,6 +1,6 @@
 # Project inspection permissions (GL-012, first version)
 
-Implemented on `feat/optional-summaries`, pending merge. This implements the agreed simple-command subset. It does not add wildcard/prefix grants. GL-032 extends this profile to [validated read-only pipelines](48-safe-inspection-pipelines.md).
+Merged into `master` on 2026-11-23. This implements the agreed simple-command subset. It does not add wildcard/prefix grants. GL-032 extends this profile to [validated read-only pipelines](48-safe-inspection-pipelines.md).
 
 ## Policy and controls
 

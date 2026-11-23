@@ -1,6 +1,6 @@
 # Historical restarts and branch comparison (GL-010)
 
-Implemented alongside GL-009 on `feat/optional-summaries`, pending merge. There is one pending feature branch.
+Merged into `master` on 2026-11-23 alongside GL-009.
 
 ## Choose a recorded run
 

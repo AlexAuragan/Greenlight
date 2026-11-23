@@ -1,6 +1,6 @@
 # Optional evidence-linked summaries (GL-009)
 
-Implemented on `feat/optional-summaries`, pending merge. This is an on-demand background reader for long-running steps and completed workflows. Nothing schedules summaries automatically, and workflow execution never waits for one.
+Merged into `master` on 2026-11-23. This is an on-demand background reader for long-running steps and completed workflows. Nothing schedules summaries automatically, and workflow execution never waits for one.
 
 ## Use
 

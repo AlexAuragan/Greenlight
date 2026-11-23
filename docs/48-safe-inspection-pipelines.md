@@ -1,6 +1,6 @@
 # Safe read-only inspection pipelines — GL-032
 
-Implemented on `feat/optional-summaries`, pending merge. This extends [project inspection](46-project-inspection-permissions.md), without introducing wildcard grants.
+Merged into `master` on 2026-11-23. This extends [project inspection](46-project-inspection-permissions.md), without introducing wildcard grants.
 
 ## Eligible requests
 

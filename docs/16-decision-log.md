@@ -123,3 +123,7 @@ GL-011 confirms that hashes cannot recover external preimages, but after-step ch
 ## D-019 — Auto-approve a bounded project-inspection language (2026-11-22)
 
 GL-012 uses a static supported argv/option subset, fixed system executables and private filtered per-command views inside the existing sandbox. It does not turn shell strings into prefix/wildcard grants. Preserve explicit policy/grant/rerun semantics; reject private/outside/parent paths from automatic classification, and retain exact approval for shell syntax/unsupported forms. Temporary inspection views do not become persistent recovery snapshots. Metadata-dependent commands remain approved through the original path rather than reporting staged metadata as original. See [inspection permissions](46-project-inspection-permissions.md); safe pipelines remain GL-031.
+
+## 2026-11-23 — Merge supervised review and inspection stack
+
+Merged GL-009 through GL-017, the GL-031 design and GL-032 implementation into `master` after review and 546 passing serial tests. Preserve existing grant/deny precedence and explicit user control; summaries, grouped review and role/budget defaults remain optional. Corrected artifact review feedback for post-publication ownership-cleanup failure. GL-027 and GL-033 remain deferred sandbox work, and live namespace validation is still host-blocked.

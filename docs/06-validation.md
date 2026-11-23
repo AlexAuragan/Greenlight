@@ -1,5 +1,13 @@
 # Validation
 
+## Reviewed feature stack merged — 2026-11-23
+
+The pending summary/inspection/supervised-review stack and its review fix are merged into `master`. Review covered role/budget dispatch and retry boundaries, session grant scope, immutable artifact publication and provenance, branch-visible journal/evidence readers, restart/restore guards, and structured inspection classification/execution. One edge case was fixed: an artifact version or comment can commit before project-ownership cleanup fails, so the UI now avoids falsely claiming that nothing was saved and retains the recovery draft. A deterministic injected-cleanup regression covers both versions and comments.
+
+Final validation: 546 Rust tests pass in a full serial run (20.66 seconds), with four existing integration/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. No paid provider calls were used. Merge was conflict-free and preserves the reviewed source tree. Earlier per-feature entries below retain their original branch/status descriptions as historical records.
+
+Known deferred limitations remain explicit: GL-027 sandbox practicality and GL-033 startup-helper/process-tree cleanup. This cloud host cannot establish successful live Bubblewrap namespace isolation; passing scripted/lifecycle tests is not that proof. Existing restoration partial-failure and estimate-based token/cost limits remain as documented.
+
 ## Model roles and session budgets (GL-017) — 2026-11-23
 
 Implemented on `feat/optional-summaries`, pending merge. A full serial run passes 545 Rust tests in 21.21 seconds (four existing integration/profiling tests ignored), alongside strict all-target Clippy, formatting, offline build and six installer tests. Twelve new tests cover workflow/verification/manager/summary role precedence, first-request token/unpriced-cost denial without phantom dispatches, retry and side-purpose budget sharing, independent-connection reservation contention, cross-branch accounting, cached-input subset semantics, maximum context-rate reservations, unknown/foreign-currency/tier cost handling, old ledger JSON, empty/invalid/default configuration, exact saved-message continuation after budget-only changes and TUI budget blockers/status. Scripted providers make no paid calls. See [model roles and session budgets](52-model-roles-and-session-budgets.md).

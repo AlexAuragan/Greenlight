@@ -1,6 +1,6 @@
 # Safe inspection pipelines — GL-031 design
 
-**Implemented by GL-032 on `feat/optional-summaries`, pending merge.** See the [runtime guide](48-safe-inspection-pipelines.md) and [validation record](06-validation.md). Live namespace validation remains blocked on this cloud host.
+**Implemented by GL-032; merged into `master` on 2026-11-23.** See the [runtime guide](48-safe-inspection-pipelines.md) and [validation record](06-validation.md). Live namespace validation remains blocked on this cloud host.
 
 ## Selected first scope
 

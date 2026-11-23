@@ -1,6 +1,6 @@
 # Artifact review comments and human revisions — GL-014
 
-Implemented on `feat/optional-summaries`, pending merge.
+Merged into `master` on 2026-11-23.
 
 ## TUI actions
 

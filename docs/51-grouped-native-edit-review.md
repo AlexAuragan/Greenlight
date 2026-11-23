@@ -1,6 +1,6 @@
 # Optional grouped native edit review — GL-016
 
-Implemented on `feat/optional-summaries`, pending merge.
+Merged into `master` on 2026-11-23.
 
 ## Open and navigate
 

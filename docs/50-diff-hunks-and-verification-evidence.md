@@ -1,6 +1,6 @@
 # Diff hunks and verification evidence — GL-015
 
-Implemented on `feat/optional-summaries`, pending merge.
+Merged into `master` on 2026-11-23.
 
 ## Native diff review
 
