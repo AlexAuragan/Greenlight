@@ -12,9 +12,10 @@ pub struct Version {
     pub step: String,
     pub branch: String,
     pub timestamp: String,
+    pub user_source: Option<i64>,
     pub attempt: Option<String>,
     pub definition: Option<i64>,
-    blob: String,
+    pub(crate) blob: String,
 }
 impl Store {
     pub fn artifact_versions(&self, s: &Session, name: &str) -> Result<Vec<Version>> {
@@ -30,17 +31,28 @@ impl Store {
             budget.charge(bytes)?;
             let mut query=self.db.prepare("SELECT a.event_id,a.name,a.step,e.timestamp,a.blob_path,
                 (SELECT t.id FROM step_attempts t WHERE t.session=a.session AND t.branch=a.branch AND t.step=a.step AND t.start_event<a.event_id AND (t.end_event IS NULL OR t.end_event>=a.event_id) ORDER BY t.start_event DESC LIMIT 1),
-                (SELECT t.definition_event FROM step_attempts t WHERE t.session=a.session AND t.branch=a.branch AND t.step=a.step AND t.start_event<a.event_id AND (t.end_event IS NULL OR t.end_event>=a.event_id) ORDER BY t.start_event DESC LIMIT 1)
+                (SELECT t.definition_event FROM step_attempts t WHERE t.session=a.session AND t.branch=a.branch AND t.step=a.step AND t.start_event<a.event_id AND (t.end_event IS NULL OR t.end_event>=a.event_id) ORDER BY t.start_event DESC LIMIT 1),
+                (SELECT json_extract(u.data,'$.source') FROM events u WHERE u.session=a.session AND u.branch=a.branch AND u.kind='artifact.user-edit' AND json_valid(u.data) AND json_extract(u.data,'$.version')=a.event_id LIMIT 1)
                 FROM artifacts a JOIN events e ON e.id=a.event_id WHERE a.session=?1 AND a.branch=?2 AND a.name=?3 AND a.event_id<=?4 ORDER BY a.event_id")?;
             let rows = query.query_map(rusqlite::params![s.id, branch, name, cutoff], |r| {
+                let user_source: Option<i64> = r.get(7)?;
                 Ok(Version {
                     event_id: r.get(0)?,
                     name: r.get(1)?,
                     step: r.get(2)?,
                     timestamp: r.get(3)?,
                     blob: r.get(4)?,
-                    attempt: r.get(5)?,
-                    definition: r.get(6)?,
+                    user_source,
+                    attempt: if user_source.is_some() {
+                        None
+                    } else {
+                        r.get(5)?
+                    },
+                    definition: if user_source.is_some() {
+                        None
+                    } else {
+                        r.get(6)?
+                    },
                     branch: branch.clone(),
                 })
             })?;
@@ -78,6 +90,9 @@ impl Store {
             bail!("artifact version is no longer visible on this branch")
         }
         let mut text=format!("Artifact: {}\nCreation event: #{}\nCreated: {} UTC\nProducing step: {}\nSource branch: {}{}\nProducer attempt: {}\nDefinition event: {}\n",v.name,v.event_id,v.timestamp,v.step,v.branch,if v.branch!=s.active_branch{" (inherited)"}else{""},v.attempt.as_deref().unwrap_or("not recorded / outside an attempt"),v.definition.map(|id|format!("#{id}")).unwrap_or_else(||"not recorded".into()));
+        if let Some(source) = v.user_source {
+            text.push_str(&format!("\nAuthor: user\nEdited from exact version #{source}\nThis is a human revision, not agent output or a new verification verdict.\n"));
+        }
         let mut consumers = Vec::new();
         let mut approvals = Vec::new();
         let mut warnings = Vec::new();
@@ -139,6 +154,7 @@ impl Store {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
+    Comments,
     Content,
     Provenance,
     Diff,
@@ -181,6 +197,7 @@ impl Browser {
                 .get(self.index)
                 .context("No version selected")?;
             match self.mode {
+                Mode::Comments => store.artifact_comments(s, &self.name, current.event_id),
                 Mode::Provenance => store.artifact_provenance(s, current),
                 Mode::Content => Ok(store
                     .artifact_version(s, &self.name, current.event_id)?
@@ -228,8 +245,8 @@ impl Browser {
         self.index = selected
             .and_then(|id| self.versions.iter().position(|v| v.event_id == id))
             .context("Selected artifact version is no longer visible")?;
-        // Content and diffs are immutable. Only provenance can gain new references.
-        if self.mode == Mode::Provenance {
+        // Content/diffs are immutable; provenance and comments can gain records.
+        if matches!(self.mode, Mode::Provenance | Mode::Comments) {
             self.load(store, s);
         }
         Ok(())

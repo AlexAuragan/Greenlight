@@ -4,6 +4,7 @@ use crate::usage::{Call, Report, TokenCount, TokenTotals};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Page {
+    GroupedEdits,
     Run,
     Technical,
     Provider,
@@ -15,10 +16,16 @@ pub(super) enum Page {
 }
 #[derive(Default)]
 pub(super) struct Details {
+    pub groups: Option<crate::edit_groups::Review>,
+    pub group_index: usize,
+    pub groups_by_step: bool,
+    group_rendered: Option<(bool, usize)>,
     pub page: Option<Page>,
     pub report: Option<Report>,
     pub selected: Option<String>,
     pub configured_model: Option<String>,
+    pub budget_config: Option<crate::model_budget::Config>,
+    pub model_roles: Option<crate::config::ModelRoles>,
     pub provider: Option<crate::provider::ConnectionInfo>,
     pub text: String,
     pub dump: Option<crate::conversation_dump::Dump>,
@@ -30,6 +37,8 @@ pub(super) struct Details {
 impl Details {
     pub fn close(&mut self) {
         self.page = None;
+        self.groups = None;
+        self.group_rendered = None;
         self.dump = None;
         self.back.clear();
         self.scope = None;
@@ -44,9 +53,19 @@ impl Details {
     pub fn actions(&self) -> Vec<shell::Action> {
         use shell::Action::*;
         match self.page {
+            Some(Page::GroupedEdits) => vec![
+                PreviousGroup,
+                NextGroup,
+                if self.groups_by_step {
+                    GroupAttempts
+                } else {
+                    GroupSteps
+                },
+                DetailsBack,
+            ],
             Some(Page::Conversation) => vec![Close, RefreshDump, SaveDump, CopyDump],
-            Some(Page::Run) => vec![DetailsBack, Provider, Usage, Technical],
-            Some(Page::Technical) => vec![DetailsBack, Usage, Copy],
+            Some(Page::Run) => vec![DetailsBack, Provider, Usage, Technical, ExportVerification],
+            Some(Page::Technical) => vec![DetailsBack, Usage, Copy, ExportVerification],
             Some(Page::Usage) => {
                 let mut actions = vec![DetailsBack];
                 if self.report.as_ref().is_some_and(|r| !r.calls.is_empty()) {
@@ -153,6 +172,9 @@ fn request_text(call: &Call) -> String {
     } else {
         text.push_str("Pricing snapshot: Not recorded\n");
     }
+    if let Some(reservation) = &call.reservation {
+        text.push_str(&format!("\nDispatch reservation (estimates, not additional billed usage):\nInput {} · max output {} · estimated USD {:?}\n",reservation.input_tokens,reservation.output_tokens,reservation.estimated_cost_usd));
+    }
     if !call.counts.notes.is_empty() {
         text.push_str(&format!(
             "\nAccounting notes\n{}\n",
@@ -163,6 +185,34 @@ fn request_text(call: &Call) -> String {
     text
 }
 impl App {
+    pub(super) fn open_grouped_review(&mut self, store: &Store) {
+        let result = self
+            .session()
+            .context("No selected session")
+            .and_then(|s| store.grouped_edits(s));
+        match result {
+            Ok(review) => {
+                self.open_run_details(Page::GroupedEdits, store);
+                if self.details.page != Some(Page::GroupedEdits)
+                    || self.session().is_none_or(|s| {
+                        s.id != review.session.id || s.active_branch != review.session.active_branch
+                    })
+                {
+                    self.raise_diagnostic(
+                        "Grouped snapshot scope changed; reopen the current branch.".into(),
+                    );
+                    return;
+                }
+                self.details.group_rendered = None;
+                self.details.groups = Some(review);
+                self.details.group_index = 0;
+                self.details.groups_by_step = false;
+                self.refresh_run_details(store);
+                self.notice="Read-only grouped snapshot; [ / ] select groups, t toggles step/attempt. Reopen to refresh.".into();
+            }
+            Err(error) => self.raise_diagnostic(format!("Grouped review unavailable: {error:#}")),
+        }
+    }
     pub(super) fn open_conversation_dump(&mut self, store: &Store) {
         self.open_run_details(Page::Conversation, store);
         self.reload_conversation_dump(store);
@@ -315,6 +365,21 @@ impl App {
             self.details.close();
             return;
         }
+        if page == Page::GroupedEdits {
+            let key = (self.details.groups_by_step, self.details.group_index);
+            if self.details.group_rendered != Some(key) {
+                self.details.text = match &self.details.groups {
+                    Some(review) => review
+                        .text(key.0, key.1)
+                        .unwrap_or_else(|error| format!("Grouped review unavailable: {error:#}")),
+                    None => "Grouped review not loaded; reopen explicitly.".into(),
+                };
+                self.details.group_rendered = Some(key);
+                self.details.revision = self.details.revision.wrapping_add(1);
+            }
+            return;
+        }
+        self.details.group_rendered = None;
         if self.details.selected.is_none() {
             self.details.selected = self
                 .details
@@ -347,6 +412,7 @@ impl App {
             }
         };
         let mut text = match page {
+            Page::GroupedEdits => unreachable!("grouped snapshots render above"),
             Page::Conversation => self.details.dump.as_ref().map(|d|format!("Conversation snapshot · previews limited to 800 characters per body\n[R] Refresh · [w] Save full dump · [C] Copy full dump\n\n{}",d.preview())).unwrap_or_else(||"Conversation dump not loaded; R refreshes the snapshot.".into()),
             Page::Run => {
                 let mut text = format!("Run details · this session / active branch\n\nGoal\n{}\n\nWorkflow and current state\n{} · {} · {}\n", session.goal, session.workflow, session.status, session.current_step);
@@ -431,6 +497,24 @@ impl App {
                             text.push_str("No original provider response text was recorded; older discarded bodies cannot be backfilled.");
                         }
                     }
+                }
+            }
+        }
+        if matches!(page, Page::Usage | Page::Technical) {
+            if let Some(config) = &self.details.budget_config {
+                text.push_str(&format!(
+                    "\n\n{}\n",
+                    store
+                        .model_budget_status(&session, config)
+                        .unwrap_or_else(|e| format!("Model budgets unavailable: {e:#}"))
+                ));
+            }
+            if page == Page::Technical {
+                if let Some(roles) = &self.details.model_roles {
+                    text.push_str(&format!(
+                        "\nConfigured model role defaults (same provider/account):\n{}",
+                        serde_yaml::to_string(roles).unwrap_or_default()
+                    ));
                 }
             }
         }
@@ -549,7 +633,12 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             .text
             .split_once('\n')
             .unwrap_or((&app.details.text, ""));
-        reader::draw_document(
+        let draw = if page == Page::GroupedEdits {
+            reader::draw_diff_document
+        } else {
+            reader::draw_document
+        };
+        draw(
             frame,
             app,
             reader::Document {

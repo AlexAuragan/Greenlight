@@ -140,6 +140,9 @@ impl Engine {
         let workflow = crate::config::load_workflow(&self.root, &s.workflow)?;
         let mut definitions: Vec<_> = workflow.steps.values().collect();
         definitions.sort_by(|a, b| a.id.cmp(&b.id));
+        // Budget changes authorize dispatch capacity, not different prepared messages.
+        let mut checkpoint_config = self.cfg.clone();
+        checkpoint_config.budgets = Default::default();
         let bytes = serde_json::to_vec(&(
             s.workflow.as_str(),
             s.current_step.as_str(),
@@ -149,7 +152,7 @@ impl Engine {
             definitions,
             &self.cfg.provider.base_url,
             self.cfg.provider.max_tokens,
-            &self.cfg,
+            &checkpoint_config,
             crate::agent_protocol::SYSTEM,
             crate::manager::system_prompt(),
         ))?;
@@ -237,6 +240,11 @@ impl Engine {
         Ok(())
     }
     pub(crate) fn validate_pending_retry(&self, s: &Session, purpose: &str) -> Result<()> {
+        // Summaries have frozen evidence, no executable continuation, and must not
+        // consume or validate an unrelated paused workflow request.
+        if purpose == "summarizer" {
+            return Ok(());
+        }
         if let Some(cp) = self.store.pending_continuation(s, purpose == "manager")? {
             if cp.purpose != purpose {
                 bail!("Saved request phase changed before retry");

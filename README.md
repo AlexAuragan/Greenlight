@@ -43,7 +43,7 @@ For source development, use `cargo build`, `cargo test --locked` and `cargo run 
 
 Run `greenlight restore SESSION_ID --event EVENT_ID --dry-run` to preview restoring tracked files to a historical event. `fork` now offers workspace restoration before creating a new execution branch; see `docs/09-workspace-restore.md` for limitations.
 
-`.greenlight/config.yaml` (or legacy `greenlight.yaml`) specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. `greenlight approvals` shows stored grants and their paths (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
+`.greenlight/config.yaml` (or legacy `greenlight.yaml`) specifies the provider model and default host tool approval policies. When asked to approve shell commands or native writes, use `[s]` to save a session-only grant (including across restarts), `[p]` to save a project whitelist entry or `[g]` to save a global entry. Shell grants match the exact command string; write grants cover native writes to permitted project files. Supported read-only commands can use the bounded project inspection profile without prompting when read policy allows; see [inspection permissions](docs/46-project-inspection-permissions.md) for supported forms, scope and opt-out. `greenlight approvals` shows project/global grants; `greenlight approvals --session ID` includes that session’s grants and file path (edit the YAML files to revoke grants). See `docs/08-persistent-approvals.md` for details. Replace the default model with one available to your account if needed, using `cargo run -- models` to discover models.
 
 **Important:** Agent shell commands, workflow command steps and command verification now run **inside Bubblewrap**, with a read-only `/workspace`, private `HOME`, no inherited API keys and no network. Shell writes are limited to an isolated `/tmp` and a project-local build cache under `.greenlight/state/sandbox-cache`. Source edits must use native `write` to keep diffs and history. There is **no unsandboxed fallback** if Bubblewrap is unavailable. This is not complete protection against untrusted programs or resource exhaustion; see `docs/10-shell-sandbox.md`.
 
@@ -99,7 +99,7 @@ When execution blocks, use `history`, inspect artifacts and then `resume --instr
 - Required artifacts checked per attempt; additional artifacts are always allowed.
 - Explicit verification, including `type: none`; composite `all` and `any` supported with the nesting limits described in [the execution contract](docs/01-execution-contract.md).
 - Deviations named by step, actions `pause`, `goto`, or bounded `retry`; optional independent model-based detector prompt.
-- Human approval for risky tools, with once, process, project or global trust scopes; no automatic hidden error recovery.
+- Human approval for risky tools, with once, process, session, project or global trust scopes; no automatic hidden error recovery.
 - Append-only SQLite event stream with fork ancestry, artifact snapshots and immutable historical branches.
 - DeepInfra/OpenAI-compatible chat-completions transport and model listing.
 - Read-only, network-disabled sandboxed shell; project read/journaled native write tools; optional Brave web search and Discord notifications.
@@ -123,3 +123,7 @@ The OpenAI-compatible DeepInfra HTTP API requires **JSON transport**; only the p
 The `optimize-performance` example loops on `target_not_met` and stops on regressions; automatic code rollback is intentionally **not** implemented. For safe rollback, restore the repository from a known Git checkpoint before resuming.
 
 See the [documentation index](docs/README.md) for runtime contracts, current controls, verification and unfinished design work. [Actual Ratatui captures](docs/screenshots/README.md) show implementation renders; they supplement the manual smoke tests and do not establish real-terminal or live-model compatibility on their own.
+
+Recorded verification evidence can be exported without rerunning checks: `greenlight verification-evidence SESSION_ID`, or **More → Export verification evidence** in the TUI. See [diff hunks and verification evidence](docs/50-diff-hunks-and-verification-evidence.md).
+
+Optional `model_roles` defaults select coding, verification, manager and summary models on the same provider. `budgets.session` guards new dispatches by request count, token reservations and estimated USD cost; inspect with `greenlight model-budget SESSION_ID`. These estimates are not provider invoice caps. See [model roles and session budgets](docs/52-model-roles-and-session-budgets.md).

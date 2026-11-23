@@ -294,6 +294,8 @@ impl Counts {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Call {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reservation: Option<crate::model_budget::Reservation>,
     pub id: String,
     pub started_at_utc: String,
     pub created_event: Option<i64>,
@@ -334,6 +336,7 @@ impl Call {
             counts.notes.push(note.clone());
         }
         Self {
+            reservation: None,
             id: Uuid::new_v4().to_string(),
             started_at_utc: chrono::Utc::now().to_rfc3339(),
             created_event: None,

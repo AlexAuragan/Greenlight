@@ -1,5 +1,59 @@
 # Validation
 
+## Model roles and session budgets (GL-017) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. A full serial run passes 545 Rust tests in 21.21 seconds (four existing integration/profiling tests ignored), alongside strict all-target Clippy, formatting, offline build and six installer tests. Twelve new tests cover workflow/verification/manager/summary role precedence, first-request token/unpriced-cost denial without phantom dispatches, retry and side-purpose budget sharing, independent-connection reservation contention, cross-branch accounting, cached-input subset semantics, maximum context-rate reservations, unknown/foreign-currency/tier cost handling, old ledger JSON, empty/invalid/default configuration, exact saved-message continuation after budget-only changes and TUI budget blockers/status. Scripted providers make no paid calls. See [model roles and session budgets](52-model-roles-and-session-budgets.md).
+
+The parallel run reached the known GL-033 Bubblewrap helper stall in the unrelated project-inspection test. Terminating only its orphaned test helper allowed all 545 tests to finish in 188.62 seconds; that intervention is not evidence of automatic sandbox cleanup. The subsequent full serial run needed no intervention. GL-033 remains deferred; no sandbox bypass was added.
+
+## Optional grouped native edit review (GL-016) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 533 Rust tests (four existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Seven new tests cover multi-file attempt/step grouping and retry separation, discontinuous-chain per-write fallback, rerun/restore/unattributed provenance, fork/source-branch and session isolation, frozen read-only snapshots, missing/empty/over-budget evidence, real TUI keys and narrow/normal rendering, full selected-group export, cached idle refresh, explicit reopening, scope-change closure and permission precedence. A lookup index is added on existing attempt columns; no new journal/staging schema or body snapshots are introduced. No paid provider calls were used. See [grouped native edit review](51-grouped-native-edit-review.md).
+
+The earlier full default-parallel run passed 533 tests in 8.40 seconds. A final run stalled in the existing project-inspection test: a pre-namespace Bubblewrap helper survived failed UID-map setup with stdio still open. After explicitly terminating only that owned test helper, the run completed with 533 passes in 118.83 seconds. This was manual test cleanup, not proof of automatic containment. GL-033 tracks the deferred process-tree/capture-drain defect; no runtime sandbox bypass or cleanup workaround was added to this feature.
+
+## Diff hunks and verification evidence (GL-015) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 526 Rust tests (four existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Seven new tests cover exact UTF-8 hunk ranges, real Previous/Next/full-file actions and narrow/normal rendering, selected/full export scope and file-cycle reset, private TUI export without history changes, historical artifact bodies and correlated tool requests, branch/session isolation, stale selection, missing blobs, event/reference/JSON-escaping limits, empty/legacy histories and symlink export-directory refusal. The CLI help exposes `verification-evidence SESSION`. No provider calls or fresh verification commands were used. See [diff hunks and evidence](50-diff-hunks-and-verification-evidence.md).
+
+## Artifact comments and user revisions (GL-014) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 519 Rust tests (four existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Seven new tests cover original preservation and user/source attribution, version/branch-scoped comments, stale/latest and active-owner rejection, no-op/size bounds, rollback of failed attribution publication, real TUI shortcut/actions with an external-editor fixture, symlink/failed-editor rejection and recoverable conflict drafts. No paid provider calls were used. See [artifact review](49-artifact-review.md).
+
+Initial suite attempts stalled in the existing project-inspection policy test; the isolated test and a subsequent full default-parallel suite passed. No sandbox fallback or production change was made to bypass that test. The previously recorded host restriction on live Bubblewrap integration remains.
+
+## Session-scoped saved permissions (GL-013) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 512 Rust tests (four existing integration/profiling tests ignored). Strict all-target Clippy, formatting, offline build and six installer tests pass. New and extended checks cover same-session reload, session/project separation, exact shell matching, configured deny precedence, confirmed/cancelled session grants, disconnected confirmation saving nothing, and session rows in 80×24/120×36 permission popups. Session grants reuse anchored reads, scope locks and atomic saves; they do not change sandbox authority. No paid provider calls were used. See [saved approvals](08-persistent-approvals.md).
+
+## Safe read-only pipelines (GL-032) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 510 Rust tests, with four integration/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. New coverage checks complete-plan classification, stdin-only roles, malformed/unsafe whole-command fallback, stable shared snapshots, per-stage statuses, finite head draining without guessing from exit 141, bounded stdout/combined stderr, cancellation/deadline cleanup, partial launch and early namespace failures. Direct trusted commands are test fixtures only; production always uses Bubblewrap.
+
+The explicitly attempted live pipeline integration fails at `bwrap: setting up uid map: Read-only file system`. This host cannot establish live namespace isolation; no host fallback was added or used. Live acceptance remains required on a suitable Linux host. No paid provider calls were made. See the [runtime guide](48-safe-inspection-pipelines.md).
+
+## Project inspection permissions (GL-012) — 2026-11-22
+
+Implemented on the existing `feat/optional-summaries` branch, pending merge. The normal suite passes 500 Rust tests, with three integration/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. New checks cover argv/option classification and injection rejection, path/private/symlink scope, filtered snapshot stability and limits, literal coreutils argv semantics, fixed-executable sandbox construction, output bounds, policy opt-out/deny, exact grants, explicit reruns and early cancellation. Test-only direct coreutils execution checks argv semantics; production never has an unsandboxed fallback.
+
+The explicitly attempted new Bubblewrap integration fails before executing the inspection command: `bwrap: setting up uid map: Read-only file system`. This cloud host cannot validate live namespace isolation, consistent with the previously deferred sandbox limitation. The failure remains closed; it was not bypassed or converted into a passing result. No paid provider calls were used. See [policy and host reproduction](46-project-inspection-permissions.md).
+
+## File-body snapshot evaluation (GL-011) — 2026-11-22
+
+This increment changes documentation/backlog decisions only. Eight existing workspace-audit tests and six restore tests pass, including external-change classification, journal-chain gaps, branch/retry cutoffs and refusal to overwrite manual drift. A three-run read-only workspace benchmark recorded 443 included files, 26,608,001 bytes hashed and a 57,075-byte manifest, with median scan time 0.511585 seconds. The raw aggregate measurements and their limits are retained in the [snapshot evaluation](45-file-body-snapshot-evaluation.md). No new file bodies, schema/configuration changes or provider requests were introduced. Broader recovery remains unimplemented; the completed item is the evaluation and policy decision.
+
+## Historical restart controls (GL-010) — 2026-11-22
+
+GL-010 is implemented alongside GL-009 on `feat/optional-summaries`, not merged. Validation passes 490 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Checks cover every visible retry checkpoint, unchanged canonical manager targets, inherited fork cutoffs, selecting and restoring a second run, preservation of a manually created file, branch hash comparisons, missing scans and cross-session rejection.
+
+A CLI smoke test verifies `restart-points` emits the existing fork command's exact `--event` flag, lists inherited and current runs, then compares recorded branch scans after a manual file addition. Comparison leaves the selected branch/status and manual file unchanged. Its local fixture provider is shut down before restart/comparison inspection; those operations make no inference requests.
+
+## Optional summaries (GL-009) — 2026-11-22
+
+`feat/optional-summaries` adds explicitly requested background TUI/CLI summaries; it is not merged. Validation passes 488 Rust tests (two existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. New checks cover live-owner coexistence, pending-approval preservation, model selection and central accounting, strict output/citation validation, stale startup and branch visibility, and preservation of an existing coding checkpoint even when using the same Engine. Background dispatch/failure attention cannot replace the actual workflow's provider diagnostic.
+
+A CLI/local HTTP smoke test generates one summary on the selected summarizer model, checks its captured source references and ledger purpose, then shuts down the fake provider and reopens the saved summary offline. The workflow's status, branch and step remain unchanged. Tests use scripted/local providers and no paid inference. Activity-title versus summary comparisons document request/latency/evidence differences; they do not claim measured real-model quality or cost improvements.
+
 ## Coordination merge validation — 2026-11-22
 
 Final review of the GL-008/GL-028/GL-029/GL-030 stack against remote `master` found no additional blockers in the reviewed ownership, routing, persistence and recovery paths. The feature branch had no divergence from `master`. Merge validation passes 483 Rust tests (two existing integration/profiling tests ignored), six installer tests, strict all-target Clippy, formatting and offline build. Both native terminal scenarios pass: exact original guidance delivery and cross-client project exclusion through a provider retry. Tests use local/scripted providers, with no paid requests.

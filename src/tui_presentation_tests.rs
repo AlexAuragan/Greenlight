@@ -1235,7 +1235,7 @@ fn permission_popup_is_modal_dismissible_and_keeps_the_worker_waiting() {
         let output = text(&screen(&mut app, w, h, "permission-popup"));
         assert!(output.contains("Permission required"));
         assert!(output.contains("find . -maxdepth 2 -type f"));
-        for key in ['y', 'a', 'p', 'g', 'n'] {
+        for key in ['y', 'a', 's', 'p', 'g', 'n'] {
             assert!(output.contains(&format!("[{key}]")));
         }
         for kind in [

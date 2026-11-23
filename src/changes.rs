@@ -187,6 +187,23 @@ pub fn unified(path: &str, before: Option<&str>, after: &str) -> String {
     out
 }
 
+/// Byte ranges of real unified-diff hunks; +/- body lines cannot become headers.
+pub fn hunks(diff: &str) -> Vec<std::ops::Range<usize>> {
+    let mut starts = Vec::new();
+    let mut offset = 0;
+    for line in diff.split_inclusive('\n') {
+        if line.starts_with("@@ -") && line.contains(" +") && line.contains(" @@") {
+            starts.push(offset);
+        }
+        offset += line.len();
+    }
+    starts
+        .iter()
+        .enumerate()
+        .map(|(i, start)| *start..starts.get(i + 1).copied().unwrap_or(diff.len()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::unified;
@@ -270,5 +287,24 @@ mod tests {
     fn empty_creation_shows_file_headers() {
         let diff = unified("empty.txt", None, "");
         assert_eq!(diff, "--- /dev/null\n+++ b/empty.txt\n");
+    }
+}
+
+#[cfg(test)]
+mod hunk_tests {
+    #[test]
+    fn ranges_preserve_utf8_and_exact_hunks_without_matching_body_markers() {
+        let old = (0..40).map(|i| format!("漢字 {i}\n")).collect::<String>();
+        let new = old
+            .replace("漢字 2\n", "@@ fake body\n")
+            .replace("漢字 32\n", "changed\n");
+        let diff = super::unified("notes", Some(&old), &new);
+        let hunks = super::hunks(&diff);
+        assert_eq!(hunks.len(), 2);
+        assert!(diff[hunks[0].clone()].contains("+@@ fake body"));
+        assert!(!diff[hunks[0].clone()].contains("+changed"));
+        assert!(diff[hunks[1].clone()].contains("+changed"));
+        assert!(super::hunks("No net changes").is_empty());
+        assert_eq!(hunks.last().unwrap().end, diff.len());
     }
 }

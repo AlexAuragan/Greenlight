@@ -1,0 +1,29 @@
+[
+  {
+    "manifest_json_bytes": 57075,
+    "scan": {
+      "bytes_hashed": 26608001,
+      "elapsed_us": 640665,
+      "files": 443
+    },
+    "skipped": 0
+  },
+  {
+    "manifest_json_bytes": 57075,
+    "scan": {
+      "bytes_hashed": 26608001,
+      "elapsed_us": 509379,
+      "files": 443
+    },
+    "skipped": 0
+  },
+  {
+    "manifest_json_bytes": 57075,
+    "scan": {
+      "bytes_hashed": 26608001,
+      "elapsed_us": 511585,
+      "files": 443
+    },
+    "skipped": 0
+  }
+]

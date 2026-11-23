@@ -6,6 +6,7 @@ mod anchored_fs;
 mod anchored_sqlite;
 mod approvals;
 mod artifact_history;
+mod artifact_review;
 mod changes;
 mod config;
 mod continuation;
@@ -13,6 +14,7 @@ mod conversation_dump;
 mod credentials;
 #[cfg(test)]
 mod deviation_tests;
+mod edit_groups;
 mod engine;
 mod file_discovery;
 #[cfg(test)]
@@ -23,10 +25,12 @@ mod manager;
 mod manager_delivery;
 mod manager_inbox;
 mod markdown;
+mod model_budget;
 mod paths;
 mod pricing;
 mod project;
 mod project_execution;
+mod project_inspection;
 mod provider;
 mod provider_diagnostic;
 mod provider_failure;
@@ -36,11 +40,13 @@ mod sandbox;
 mod session_execution;
 mod session_picker;
 mod store;
+mod summarizer;
 mod tool_rerun;
 mod tools;
 mod tui;
 mod tui_actions;
 mod usage;
+mod verification_export;
 mod workspace;
 mod workspace_audit;
 mod workspace_view;
@@ -113,6 +119,10 @@ enum Commands {
         #[arg(long)]
         reply_to: Option<i64>,
     },
+    /// Generate a read-only, evidence-linked summary (one optional provider request)
+    Summarize { session: String },
+    /// Inspect the latest branch-visible summary without inference
+    Summary { session: String },
     /// Accept a recorded manager forward; start only if it targets the current idle step
     DeliverRoute {
         session: String,
@@ -192,6 +202,16 @@ enum Commands {
     },
     /// List session branches and their fork points
     Branches { session: String },
+    /// List every historical run and its guarded restart checkpoint
+    RestartPoints { session: String },
+    /// Compare recorded branch workspace hashes without switching or restoring
+    CompareBranches {
+        session: String,
+        #[arg(long)]
+        left: String,
+        #[arg(long)]
+        right: String,
+    },
     /// Select a historical branch (manual step choice; does NOT restore files)
     Switch {
         session: String,
@@ -238,8 +258,15 @@ enum Commands {
         #[arg(long)]
         no_restore: bool,
     },
-    /// Show the project/global persistent approvals and their file paths
-    Approvals,
+    /// Show saved approvals and their file paths; optionally include one session
+    Approvals {
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// Save historical verification evidence for the selected session/active branch
+    VerificationEvidence { session: String },
+    /// Show configured session model budgets, reservations and model roles
+    ModelBudget { session: String },
     /// List native agent edits on the active branch
     Changes { session: String },
     /// Show a unified diff for one native agent write
@@ -285,6 +312,17 @@ async fn main() -> Result<()> {
                 engine.ask_manager(&session, &text, &artifact).await?
             };
             println!("{}", reply.display());
+        }
+        Commands::Summarize { session } => {
+            let engine = engine::Engine::open(&root)?;
+            println!("{}", engine.summarize(&session, None).await?.display());
+        }
+        Commands::Summary { session } => {
+            let store = store::Store::open(&root)?;
+            let summary = store
+                .latest_summary(&store.session(&session)?)?
+                .context("No recorded summary on this branch")?;
+            println!("{}", summary.display());
         }
         Commands::DeliverRoute {
             session,
@@ -560,6 +598,31 @@ async fn main() -> Result<()> {
                 );
             }
         }
+        Commands::RestartPoints { session } => {
+            let store = store::Store::open(&root)?;
+            let s = store.session(&session)?;
+            let choices = tui_actions::candidates_for_session(&root, &store, &s)?;
+            for (index, candidate) in choices.iter().enumerate() {
+                println!(
+                    "{} · step {} · --event {}",
+                    tui_actions::restart_label(&choices, index),
+                    candidate.step,
+                    candidate.prior_event
+                );
+            }
+        }
+        Commands::CompareBranches {
+            session,
+            left,
+            right,
+        } => {
+            let store = store::Store::open(&root)?;
+            let s = store.session(&session)?;
+            println!(
+                "{}",
+                tui_actions::compare_branches(&store, &s, &left, &right)?
+            );
+        }
         Commands::Branches { session } => {
             let engine = engine::Engine::open(&root)?;
             let s = engine.store.session(&session)?;
@@ -694,9 +757,29 @@ async fn main() -> Result<()> {
             }
             println!("New branch {} at step {step}.", state.active_branch);
         }
-        Commands::Approvals => {
-            let approvals = approvals::ApprovalStore::open(&root)?;
+        Commands::Approvals { session } => {
+            let mut approvals = approvals::ApprovalStore::open(&root)?;
+            if let Some(id) = session {
+                let engine = engine::Engine::open(&root)?;
+                let selected = engine.store.session(&id)?;
+                approvals.bind_session(&selected.id)?;
+            }
             print!("{}", approvals.describe()?);
+        }
+        Commands::ModelBudget { session } => {
+            let config = config::load_config(&root)?;
+            let store = store::Store::open(&root)?;
+            let selected = store.session(&session)?;
+            println!(
+                "{}\nModel role defaults:\n{}",
+                store.model_budget_status(&selected, &config.budgets)?,
+                serde_yaml::to_string(&config.model_roles)?
+            );
+        }
+        Commands::VerificationEvidence { session } => {
+            let store = store::Store::open(&root)?;
+            let selected = store.session(&session)?;
+            println!("{}", store.save_verification_export(&selected)?.display());
         }
         Commands::Changes { session } => {
             let engine = engine::Engine::open(&root)?;

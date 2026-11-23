@@ -1,22 +1,16 @@
 # Remaining work
 
-Updated 2026-11-22. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
+Updated 2026-11-23. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
 
 P0/P1 feature work, installer, TUI redesign and recovery improvements merged into master on 2026-11-19. This does not mean no defects remain. Implement one feature at a time, preserve audit evidence and distinguish model claims from recorded verification.
 
 ## Supervised workflows and review
 
-- [ ] **GL-009** — Consider an inexpensive **optional summarizer** for long steps or completed workflows, run asynchronously and display evidence-linked output when ready; compare it against coding-agent-authored short activity titles. Never block execution on summarization.
-- [ ] **GL-010** — Add richer restart controls: choose a specific historical attempt/checkpoint, inspect changed files, compare branches, understand untracked/manual edits.
-- [ ] **GL-011** — Evaluate **snapshotting changed file bodies** at step boundaries only after hash manifests reveal a useful gap; define size/privacy/caches policy and whether external edits should be restored or simply protected from overwrite.
-- [ ] **GL-012** — **Design command-level shell grants together before implementation:** allow selected executables (e.g. `ls`) across approved argument/path variations without approving a whole shell string by prefix. Define argument/option restrictions, path and executable identity, wrappers/interpreters, pipelines/AND/OR/sequences, redirections, substitutions and environment assignments; validate every executed component or request approval for the whole compound command. Regression case: granting `cat` must never auto-approve `cat something.txt | ./harmful_script.sh` (nor hidden substitutions). Keep exact-command grants until this design is agreed.
-- [ ] **GL-013** — Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
-- [ ] **GL-014** — Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
-- [ ] **GL-015** — Extend diff review with hunk navigation and exportable verification evidence.
-- [ ] **GL-016** — Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
-- [ ] **GL-017** — Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
+No open items in this section; completed work below remains pending merge where noted.
 
 ## Deferred sandbox follow-up
+
+- [ ] **GL-033** — Contain and clean up Bubblewrap pre-namespace helper descendants on setup failure/cancellation, and bound capture-drain cleanup after leader exit. On this cloud host, UID-map setup failure can leave an orphaned helper retaining stdout/stderr; the project-inspection test then stalls beyond normal execution cleanup. Reproduced during GL-016; killing only that test helper released the capture. Cover startup-failure descendants and cleanup deadlines without a host-execution fallback. Deferred with sandbox work.
 
 - [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Deferred by the user after the clock-hover test.
 
@@ -37,6 +31,28 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-017** — Implemented on `feat/optional-summaries` (pending merge): optional coding/verification/manager/summary role defaults on one provider, atomic session-wide request/input/output/estimated USD reservations across branches and retries, fail-closed unknown cost accounting, budget blockers/status and budget-only saved-request continuation. Estimates are not invoice caps; workers retain startup policy. See [roles and budgets](docs/52-model-roles-and-session-budgets.md).
+
+- [x] **GL-016** — Implemented on `feat/optional-summaries` (pending merge): opt-in grouped native journal readers by step/attempt, separate rerun/restore/unattributed groups, combined continuous diffs with per-write fallback on gaps, frozen branch-visible snapshots and full selected-group C/E exports. No staging or group approval/undo. See [grouped review](docs/51-grouped-native-edit-review.md).
+
+- [x] **GL-015** — Implemented on `feat/optional-summaries` (pending merge): native diff hunk readers with Previous/Next/full-file controls, plus TUI/CLI exports of bounded branch-visible verification records and exact referenced artifacts/tool evidence. No new verification, hunk staging or permissions. See [diff hunks and evidence](docs/50-diff-hunks-and-verification-evidence.md).
+
+- [x] **GL-014** — Implemented on `feat/optional-summaries` (pending merge): external-editor human artifact revisions, exact-version branch-visible review comments, user/source provenance, immutable originals, guarded publication and retained conflict drafts. Comments do not approve work or automatically message the agent. See [artifact review](docs/49-artifact-review.md).
+
+- [x] **GL-013** — Implemented on `feat/optional-summaries` (pending merge): confirmed session-only saved exact-shell/native-write grants, retained across restarts and branches, isolated by project/session identity, with CLI inspection and TUI decision rows. Unanswered/dismissed prompts save nothing. See [saved approvals](docs/08-persistent-approvals.md).
+
+- [x] **GL-032** — Implemented on `feat/optional-summaries` (pending merge): fully validated 2–4-stage read-only pipelines, stdin-only filters, shared filtered view, isolated fixed executables, bounded output, per-stage outcomes and whole-pipeline cancellation. Live Bubblewrap validation remains host-blocked. See [runtime guide](docs/48-safe-inspection-pipelines.md).
+
+- [x] **GL-031** — Design completed on `feat/optional-summaries` (pending merge): narrow pipe-only language, source/filter roles, complete preflight, shared snapshot/budgets, per-stage isolation, failure/SIGPIPE semantics and cancellation/launch-failure acceptance checks. Runtime support is implemented by GL-032. See [safe pipeline design](docs/47-safe-inspection-pipeline-design.md).
+
+- [x] **GL-012** — First version implemented on `feat/optional-summaries` (pending merge): supported read-only argv forms auto-approve under project inspection policy, using trusted executables and bounded filtered private views inside Bubblewrap. Private/outside paths, symlinks and shell syntax cannot broaden automatic authority. Exact grants, denies, user reruns and opt-out remain intact. Supported pipe-only pipelines are now implemented by GL-032; see and [project inspection](docs/46-project-inspection-permissions.md). Live namespace validation remains host-blocked as documented.
+
+- [x] **GL-011** — Evaluated on `feat/optional-summaries` (pending merge): confirmed the external-preimage gap, measured the current hash baseline, and defined privacy/size/cache/retention and external-edit protection requirements. Decision: no automatic external-body capture or restore expansion; a future implementation needs explicit opt-in and a concrete recovery case. See [snapshot evaluation](docs/45-file-body-snapshot-evaluation.md).
+
+- [x] **GL-010** — Implemented alongside GL-009 on `feat/optional-summaries` (pending merge): every visible historical run/checkpoint in the restart picker, native restore diffs plus live/manual-change coverage, and read-only recorded branch comparisons in TUI/CLI. Existing guarded restore/fork, branch ancestry and manager binding policies remain authoritative. See [historical restarts](docs/44-historical-restart-and-branches.md).
+
+- [x] **GL-009** — Implemented on `feat/optional-summaries` (pending merge): opt-in TUI background summaries and CLI generation, bounded captured evidence/citations, selectable same-provider model, separate usage accounting and saved branch-visible readers. Activity titles remain the immediate feedback; summaries never gate workflow execution or replace verification. See [optional summaries](docs/43-optional-summaries.md).
 
 - [x] **GL-008** — **Merged into `master` (2026-11-22)**: explicit validated proposal acceptance, exact original bytes scoped to one attempt, next-visit reservations, FIFO/withdrawal, atomic prepared-request inclusion, guarded restart binding, owner-scoped live delivery with completion-review holds, linked clarification replies and default Conversation routing. See [idle manager delivery](docs/42-idle-manager-delivery.md). Preserve ownership, input/permission/verification gates and separate side-question accounting.
 

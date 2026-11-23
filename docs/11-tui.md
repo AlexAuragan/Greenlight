@@ -262,3 +262,23 @@ A new goal created while busy stays saved as a Ready session with **Created; not
 ## Idle manager instruction delivery
 
 Select a manager forward in Activity and use **[g] Deliver original** to explicitly accept its destination. Current idle targets start through normal execution, unvisited targets reserve their next visit, and old targets record Restart proposed without changing workflow state. **[G] Instruction delivery** shows current-branch status; **[w] Withdraw instruction** on a pending delivery event withdraws it while idle. Asking alone executes nothing. Live delivery and binding guidance through confirmed restart remain unavailable; see [idle manager delivery](42-idle-manager-delivery.md).
+
+## Project inspection feedback
+
+Supported GL-012 inspection commands and GL-032 read-only pipelines can run without an approval popup when policy permits. Their tool results identify the filtered snapshot scope, and raw permission evidence records automatic classification. Unsupported commands/options/pipelines still show the full exact-command permission popup; no control approves a command prefix. `permissions.project_inspection: false` restores prompt-only shell classification. Existing exact grants, explicit shell allow/deny and user-requested reruns preserve their earlier behavior. See [inspection permissions](46-project-inspection-permissions.md), including the sandbox integration prerequisite.
+
+## Artifact comments and user revisions
+
+In Artifacts or Versions, More exposes `[e] Edit artifact (new version)`, `[N] Add review comment` and `[b] Review comments`. Save and close the external editor to publish; unchanged edits and blank comments save nothing. Originals remain immutable, comments stay on their exact version, and edits record user authorship. Conflicting saves retain a private recovery draft. `[E] Editor` remains a read-only export. These actions neither approve work nor send instructions to the agent. See [artifact review](49-artifact-review.md) for limits, conflicts and workflow-input behavior.
+
+## Hunk navigation and verification exports
+
+Edits exposes `[` Previous hunk, `]` Next hunk and `D` Full file diff through More and the hunk reader footer. Hunk mode shows one recorded change block; Tab still cycles files. C/E exports that selected block, so return to Full file diff to export the whole file. No hunk approval/staging or partial revert is introduced. More / Details exposes `V` Export verification evidence, which saves a private JSON snapshot of recorded checks and exact references without rerunning them. See [diff hunks and verification evidence](50-diff-hunks-and-verification-evidence.md).
+
+## Optional grouped native edit review
+
+In Edits, `g` or More → Grouped review opens a historical combined diff reader. `[` / `]` select groups; `t` switches attempt/step grouping; C/E exports the selected group in full. Reruns, restores and missing attempt IDs are labelled separately. Discontinuous chains show individual write diffs rather than a misleading combined attribution. This is a frozen read-only snapshot, not staging or group approval; close and reopen to refresh. See [grouped review](51-grouped-native-edit-review.md).
+
+## Model roles and session budgets
+
+Usage and Technical details show configured session model budgets and accounted/reserved usage; request details retain individual dispatch reservations. Budget stops have their own activity/blocker message and supersede an earlier provider error. After changing only budget settings, a saved request can be retried with its exact original messages; other continuation checks still apply. Active workers retain startup policy, so restart them after configuration changes. Model-role defaults and estimate limitations are described in [roles and budgets](52-model-roles-and-session-budgets.md).

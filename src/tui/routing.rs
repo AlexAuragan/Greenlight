@@ -273,6 +273,23 @@ impl App {
             && self.view == View::Edits
             && !self.blocking_surface()
             && !self.shell.actions_focus
+        {
+            if let Some(action) = shell::Action::for_key(
+                key.code,
+                &[
+                    shell::Action::GroupedReview,
+                    shell::Action::PreviousHunk,
+                    shell::Action::NextHunk,
+                    shell::Action::FullDiff,
+                ],
+            ) {
+                return self.activate(action, root, store);
+            }
+        }
+        if !typing
+            && self.view == View::Edits
+            && !self.blocking_surface()
+            && !self.shell.actions_focus
             && self.focus != Focus::Sessions
         {
             match key.code {
@@ -487,6 +504,22 @@ impl App {
                 _ => {}
             }
             return Ok(false);
+        }
+        if (self.view == View::Artifacts || self.artifact_browser.is_some())
+            && !typing
+            && !self.shell.actions_focus
+            && key.kind == KeyEventKind::Press
+        {
+            if let Some(action) = shell::Action::for_key(
+                key.code,
+                &[
+                    shell::Action::EditArtifact,
+                    shell::Action::CommentArtifact,
+                    shell::Action::ArtifactComments,
+                ],
+            ) {
+                return self.activate(action, root, store);
+            }
         }
         if self.artifact_browser.is_some()
             && key.code == KeyCode::Char('s')
@@ -886,6 +919,7 @@ impl App {
             }
         }
         let workspace_actions = [
+            shell::Action::ExportVerification,
             shell::Action::RouteStatus,
             shell::Action::Preview,
             shell::Action::Expand,

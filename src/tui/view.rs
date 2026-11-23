@@ -349,7 +349,11 @@ fn draw_workspace(frame: &mut Frame, app: &App) {
                 "{}\n{}",
                 inline_display(&format!(
                     "{}{}",
-                    v.step,
+                    if v.user_source.is_some() {
+                        "user revision"
+                    } else {
+                        &v.step
+                    },
                     if app.session().is_some_and(|s| s.active_branch != v.branch) {
                         " · inherited"
                     } else {

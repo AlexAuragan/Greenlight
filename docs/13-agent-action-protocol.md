@@ -193,3 +193,7 @@ Malformed action replies pause the attempt after three consecutive failures, or 
 Each step receives the exact required artifact names and configured deviation IDs. Required reports use `action: artifact`, including when native project writes are disabled. On another attempt, up to three latest same-step artifacts can be supplied as unapproved draft references, with at most 24,000 bytes of bodies within the assembled-context budget. These references neither satisfy new outputs nor transfer approvals. Recorded native-write paths are hints to reread current files, not evidence of their current contents.
 
 `session.max_conversation_bytes` defaults to 256,000 bytes and must be positive. Before each coding-agent request, the runtime checks the serialized message list and pauses if it exceeds this budget. This is a byte guard, not a token count or adaptive compaction. Increase the configured budget or reduce inputs before starting another attempt. Artifacts, history and already-applied edits survive these pauses; pausing does not roll back source changes.
+
+## Project inspection profile
+
+Simple supported shell calls can use GL-012's [project inspection profile](46-project-inspection-permissions.md) when enabled by host policy. These run as fixed argument vectors in a filtered temporary view inside Bubblewrap. Workflow tool enablement, sensitive-path checks and explicit denies remain authoritative. Unsupported forms retain exact-command approval; no command-name or prefix grant is introduced.

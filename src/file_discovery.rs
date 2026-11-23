@@ -39,6 +39,9 @@ fn included(root: &Path, path: &Path) -> bool {
     crate::workspace::path_in_scope(relative) && !crate::paths::is_private_path(relative)
         && !relative.components().any(|c|matches!(c,Component::Normal(name) if name==crate::paths::PROJECT_DIR || name==crate::paths::LEGACY_PROJECT_DIR))
 }
+pub(crate) fn path_in_scope(relative: &Path) -> bool {
+    included(Path::new(""), relative)
+}
 #[cfg(test)]
 pub fn list(root: &Path, directory: &Path, filter: Option<&str>) -> Result<String> {
     let root = root.canonicalize()?;
@@ -54,7 +57,7 @@ pub fn list_anchored(
     directory: &Path,
     filter: Option<&str>,
 ) -> Result<String> {
-    if !included(Path::new(""), directory) {
+    if !path_in_scope(directory) {
         bail!("directory is outside discovery scope");
     }
     root.open_dir(directory)?;

@@ -629,3 +629,221 @@ fn keep_rechecks_snapshot_bodies_even_when_the_event_revision_did_not_change() {
         "candidate"
     );
 }
+
+#[test]
+fn hunk_controls_select_one_block_preserve_full_export_and_reset_on_file_switch() {
+    let (root, store, session, mut app) = setup();
+    let before = (0..50)
+        .map(|i| format!("long unicode 漢字 line {i}\n"))
+        .collect::<String>();
+    let after = before
+        .replace("line 2\n", "line two\n")
+        .replace("line 42\n", "line forty-two\n");
+    edit(
+        root.path(),
+        &store,
+        &session,
+        "many.txt",
+        Some(&before),
+        &after,
+    );
+    edit(
+        root.path(),
+        &store,
+        &session,
+        "other.txt",
+        Some("old\n"),
+        "new\n",
+    );
+    app.refresh(&store).unwrap();
+    key(&mut app, root.path(), &store, KeyCode::Char('3'));
+    app.edits.overview = false;
+    app.edits.index = app
+        .edits
+        .files
+        .iter()
+        .position(|f| f.path == "many.txt")
+        .unwrap();
+    app.edits.select(0);
+    let full = app.edits.text.clone();
+    key(&mut app, root.path(), &store, KeyCode::Char(']'));
+    assert_eq!(app.edits.hunk, Some(0));
+    assert!(app.edits.display_text().contains("Hunk 1 of 2"));
+    assert!(!app
+        .edits
+        .display_text()
+        .contains("+long unicode 漢字 line forty-two"));
+    assert!(app.footer_actions().contains(&shell::Action::NextHunk));
+    for (width, height) in [(80, 24), (45, 18)] {
+        app.viewport = (width, height);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| view::draw(frame, &app)).unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Hunk 1 of 2"));
+    }
+
+    let snapshot = app.export_snapshot().unwrap();
+    assert!(snapshot.label.contains("hunk"));
+    assert_eq!(snapshot.text, app.edits.display_text());
+    key(&mut app, root.path(), &store, KeyCode::Char(']'));
+    assert_eq!(app.edits.hunk, Some(1));
+    assert!(app
+        .edits
+        .display_text()
+        .contains("+long unicode 漢字 line forty-two"));
+    key(&mut app, root.path(), &store, KeyCode::Char(']'));
+    assert_eq!(app.edits.hunk, Some(1));
+    key(&mut app, root.path(), &store, KeyCode::Char('['));
+    assert_eq!(app.edits.hunk, Some(0));
+    key(&mut app, root.path(), &store, KeyCode::Char('D'));
+    assert_eq!(app.edits.hunk, None);
+    assert_eq!(app.export_snapshot().unwrap().text, full);
+    key(&mut app, root.path(), &store, KeyCode::Char(']'));
+    key(&mut app, root.path(), &store, KeyCode::Tab);
+    assert_eq!(app.edits.hunk, None);
+    assert!(!store
+        .history(&session)
+        .unwrap()
+        .iter()
+        .any(|e| e.2 == "edits.kept" || e.2 == "workspace.restored"));
+}
+
+#[test]
+fn verification_export_action_writes_private_json_without_mutating_history() {
+    let (root, store, session, mut app) = setup();
+    store
+        .event(&session, Some("evaluate"), "verification.none", "")
+        .unwrap();
+    store
+        .event(&session, Some("evaluate"), "verification.passed", "")
+        .unwrap();
+    app.refresh(&store).unwrap();
+    let history = store.history(&session).unwrap();
+    key(&mut app, root.path(), &store, KeyCode::Char('V'));
+    assert!(app
+        .notice
+        .contains("Saved historical verification evidence"));
+    let dir = store.directory.parent().unwrap().join("exports");
+    let path = std::fs::read_dir(dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(value["session"]["id"], session.id);
+    assert!(value["limitations"]
+        .as_str()
+        .unwrap()
+        .contains("not measured validation"));
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(store.history(&session).unwrap(), history);
+}
+
+#[test]
+fn grouped_reader_is_opt_in_navigable_exportable_and_stable_until_reopened() {
+    let (root, store, session, mut app) = setup();
+    store
+        .begin_attempt(&session, "optimize", "definition", "fixture")
+        .unwrap();
+    edit(
+        root.path(),
+        &store,
+        &session,
+        "a.txt",
+        Some("old a\n"),
+        "new a\n",
+    );
+    edit(root.path(), &store, &session, "b.txt", None, "new b\n");
+    store
+        .event(&session, Some("optimize"), "step.completed", "")
+        .unwrap();
+    store
+        .begin_attempt(&session, "optimize", "definition", "fixture")
+        .unwrap();
+    edit(root.path(), &store, &session, "c.txt", None, "new c\n");
+    app.refresh(&store).unwrap();
+    key(&mut app, root.path(), &store, KeyCode::Char('3'));
+    assert!(app.details.groups.is_none());
+    assert!(app.more_actions().contains(&shell::Action::GroupedReview));
+    let before = store.history(&session).unwrap();
+    key(&mut app, root.path(), &store, KeyCode::Char('g'));
+    assert_eq!(app.details.page, Some(details::Page::GroupedEdits));
+    assert_eq!(app.details.groups.as_ref().unwrap().len(false), 2);
+    assert!(app.details.text.contains("File: a.txt") && app.details.text.contains("File: b.txt"));
+    assert!(!app.details.text.contains("File: c.txt"));
+    assert_eq!(app.export_snapshot().unwrap().text, app.details.text);
+    for (width, height) in [(80, 24), (45, 18)] {
+        app.viewport = (width, height);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| view::draw(frame, &app)).unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Grouped native edit review"));
+    }
+    key(&mut app, root.path(), &store, KeyCode::Char(']'));
+    assert_eq!(app.details.group_index, 1);
+    assert!(app.details.text.contains("File: c.txt"));
+    key(&mut app, root.path(), &store, KeyCode::Char('['));
+    key(&mut app, root.path(), &store, KeyCode::Char('t'));
+    assert!(app.details.groups_by_step);
+    assert!(app.details.text.contains("File: a.txt") && app.details.text.contains("File: c.txt"));
+    let snapshot = app.details.text.clone();
+    let revision = app.details.revision;
+    app.refresh(&store).unwrap();
+    assert_eq!(
+        app.details.revision, revision,
+        "idle refresh must not regenerate combined diffs"
+    );
+    assert_eq!(store.history(&session).unwrap(), before);
+    edit(root.path(), &store, &session, "later.txt", None, "later\n");
+    app.refresh(&store).unwrap();
+    assert_eq!(app.details.text, snapshot);
+    key(&mut app, root.path(), &store, KeyCode::Esc);
+    assert!(app.details.groups.is_none());
+    key(&mut app, root.path(), &store, KeyCode::Char('g'));
+    key(&mut app, root.path(), &store, KeyCode::Char('t'));
+    assert!(app.details.text.contains("File: later.txt"));
+}
+
+#[test]
+fn grouped_reader_closes_on_branch_change_and_approval_layers_keep_input() {
+    let (root, store, mut session, mut app) = setup();
+    edit(root.path(), &store, &session, "a.txt", None, "ancestor\n");
+    let cutoff = store.history(&session).unwrap().last().unwrap().0;
+    app.refresh(&store).unwrap();
+    key(&mut app, root.path(), &store, KeyCode::Char('3'));
+    key(&mut app, root.path(), &store, KeyCode::Char('g'));
+    app.approval = Some(crate::tools::ApprovalPrompt {
+        review: None,
+        command: None,
+        mode: crate::tools::ApprovalMode::Persistent,
+        content: "pending".into(),
+    });
+    key(&mut app, root.path(), &store, KeyCode::Char(']'));
+    key(&mut app, root.path(), &store, KeyCode::Char('t'));
+    assert_eq!(app.details.group_index, 0);
+    assert!(!app.details.groups_by_step);
+    app.approval = None;
+    store.fork(&mut session, cutoff, "evaluate").unwrap();
+    app.refresh(&store).unwrap();
+    assert!(app.details.groups.is_none());
+    assert_ne!(app.details.page, Some(details::Page::GroupedEdits));
+}

@@ -94,11 +94,17 @@ impl App {
                 .and(self.details.report.as_ref())
                 .map(|r| r.calls.iter().map(|c| c.id.as_str()).collect::<Vec<_>>())
         ) + &format!(
+            ":groups:{}:{}:{:?}",
+            self.details.group_index,
+            self.details.groups_by_step,
+            self.details.groups.as_ref().and_then(|g| g.cutoff)
+        ) + &format!(
             ":{:?}:{}:{}",
             self.compose.mode, self.checkpoint.reading, self.checkpoint.index
         ) + &format!(
-            ":{}:{:?}:{:?}",
+            ":{}:{:?}:{:?}:{:?}",
             self.edits.overview,
+            self.edits.hunk,
             self.navigation.selected,
             self.navigation
                 .candidates
@@ -172,11 +178,24 @@ impl App {
             {
                 actions.push(Action::RestartReview);
             }
+            if self.session().is_some() {
+                actions.extend([
+                    Action::CompareBranches,
+                    Action::GenerateSummary,
+                    Action::LatestSummary,
+                ]);
+            }
+            if self.summary_running() {
+                actions.push(Action::CancelSummary);
+            }
             return actions;
         }
 
         if self.artifact_browser.is_some() {
             let mut actions = vec![
+                Action::EditArtifact,
+                Action::CommentArtifact,
+                Action::ArtifactComments,
                 Action::ConversationDump,
                 Action::Versions,
                 Action::Provenance,
@@ -201,6 +220,7 @@ impl App {
             Action::Usage,
             Action::Provider,
             Action::ConversationDump,
+            Action::ExportVerification,
             Action::RouteStatus,
         ];
         if self.session().is_some_and(|s| s.status == "completed")
@@ -213,6 +233,10 @@ impl App {
         }
         if self.view == View::Edits && !self.edits.files.is_empty() {
             actions.splice(0..0, [Action::OpenEdit, Action::EditAll, Action::RevertAll]);
+            actions.push(Action::GroupedReview);
+            if self.edits.has_hunks() {
+                actions.extend([Action::PreviousHunk, Action::NextHunk, Action::FullDiff]);
+            }
         }
         if self.focus != Focus::Compose {
             actions.extend([Action::Copy, Action::Editor]);
@@ -239,7 +263,14 @@ impl App {
             actions.insert(0, Action::ResultEvidence);
         }
         if self.view == View::Artifacts && self.artifact().is_some() {
-            actions.extend([Action::Versions, Action::Provenance, Action::Compare]);
+            actions.extend([
+                Action::EditArtifact,
+                Action::CommentArtifact,
+                Action::ArtifactComments,
+                Action::Versions,
+                Action::Provenance,
+                Action::Compare,
+            ]);
         }
         if self
             .compose
@@ -251,10 +282,16 @@ impl App {
         }
         if self.session().is_some() {
             actions.extend([
+                Action::CompareBranches,
+                Action::GenerateSummary,
+                Action::LatestSummary,
                 Action::Conversation,
                 Action::AskManager,
                 Action::ManagerReplies,
             ]);
+        }
+        if self.summary_running() {
+            actions.push(Action::CancelSummary);
         }
         actions.push(Action::Sessions);
         if self.session().is_some() {
@@ -539,6 +576,19 @@ impl App {
                 },
                 Action::ReviewEdits,
                 Action::Overview,
+                Action::More,
+            ];
+        }
+        if self.view == View::Edits
+            && self.edits.hunk.is_some()
+            && !self.edits.overview
+            && self.edits.pending.is_none()
+            && self.edits.error.is_none()
+        {
+            return vec![
+                Action::PreviousHunk,
+                Action::NextHunk,
+                Action::FullDiff,
                 Action::More,
             ];
         }
@@ -949,6 +999,18 @@ impl App {
                 self.set_message_mode(compose::Mode::Conversation);
                 self.focus_composer();
             }
+            CancelSummary => self.cancel_manager(),
+            GenerateSummary => {
+                self.start_summary(root)?;
+            }
+            LatestSummary => {
+                let session = self.session().context("Select a session")?;
+                let summary = store.latest_summary(session)?.context(
+                    "No recorded summary on this branch. Use Generate summary to request one.",
+                )?;
+                self.context_detail = Some(summary.display());
+                self.detail_scroll = 0;
+            }
             AskManager => {
                 self.clear_diagnostic();
                 self.set_message_mode(compose::Mode::Manager);
@@ -961,6 +1023,30 @@ impl App {
             WriteGuidance => {
                 self.clear_diagnostic();
                 self.context_detail=Some(format!("Native-write recovery\n\nProject: {}\n\nFrom this project, run:\n  greenlight recover-writes\n\nThis reconciles recorded write intents with current disk contents; it does not overwrite source files. Read the CLI result before resuming. Recovery can refuse drift or an active native-write lock.\n\nOwner recovery (/recover) is a separate operation and never resumes work.",root.display()));
+                self.detail_scroll = 0;
+            }
+            CompareBranches => {
+                let session = self.session().context("Select a session")?;
+                let branches = store.branches(&session.id)?;
+                if branches.len() > store.limits.history_events {
+                    bail!("Branch count exceeds configured history limit");
+                }
+                let mut report=String::from("Compare recorded branches against the selected branch. No files or session state are changed.\n\n");
+                for branch in branches.iter().filter(|b| b.id != session.active_branch) {
+                    report.push_str(&tui_actions::compare_branches(
+                        store,
+                        session,
+                        &session.active_branch,
+                        &branch.id,
+                    )?);
+                    report.push('\n');
+                    crate::resource_limits::Budget::new(store.limits.materialized_bytes)
+                        .charge(report.len())?;
+                }
+                if branches.len() < 2 {
+                    report.push_str("No other branches recorded for this session.");
+                }
+                self.context_detail = Some(report);
                 self.detail_scroll = 0;
             }
             RestartReview => {
@@ -1074,6 +1160,40 @@ impl App {
                 self.switch_view(View::Edits);
                 self.refresh_edits(store);
             }
+            GroupedReview => self.open_grouped_review(store),
+            PreviousGroup | NextGroup => {
+                if let Some(review) = &self.details.groups {
+                    self.details.group_index = move_index(
+                        self.details.group_index,
+                        if action == PreviousGroup { -1 } else { 1 },
+                        review.len(self.details.groups_by_step),
+                    );
+                    self.detail_scroll = 0;
+                    self.refresh_run_details(store);
+                }
+            }
+            GroupSteps | GroupAttempts => {
+                self.details.groups_by_step = action == GroupSteps;
+                self.details.group_index = 0;
+                self.detail_scroll = 0;
+                self.refresh_run_details(store);
+            }
+            PreviousHunk | NextHunk => self.navigate_hunk(action == PreviousHunk),
+            FullDiff => {
+                self.edits.hunk = None;
+                self.detail_scroll = 0;
+                self.rendered_scroll.set(None);
+                self.notice = "Full recorded file diff; no files changed.".into();
+            }
+            ExportVerification => self.export_verification(store),
+            EditArtifact | CommentArtifact => {
+                if let Err(error) = self.prepare_artifact_review(store, action == CommentArtifact) {
+                    self.notice = format!("Artifact review unavailable: {error:#}");
+                }
+            }
+            ArtifactComments => {
+                self.open_artifact_mode(store, crate::artifact_history::Mode::Comments)?;
+            }
             Versions => {
                 self.open_artifact_mode(store, crate::artifact_history::Mode::Content)?;
             }
@@ -1179,6 +1299,7 @@ impl App {
                 self.notice = "Revert cancelled; no files changed.".into();
             }
             OpenEdit => {
+                self.edits.hunk = None;
                 self.edits.overview = false;
                 self.edits.select(0);
                 self.focus = Focus::Detail;
@@ -1197,6 +1318,7 @@ impl App {
                 self.prepare_revert(root, store, true);
             }
             EditAll => {
+                self.edits.hunk = None;
                 self.edits.overview = true;
                 self.focus = Focus::Artifacts;
                 self.detail_scroll = 0;
@@ -1766,7 +1888,7 @@ mod tests {
         key(&mut app, root.path(), &store, KeyCode::Char('h'));
         let text = render(&mut app, 80, 24);
         assert!(text.contains("Approval pending"));
-        for c in ['y', 'a', 'p', 'g', 'n'] {
+        for c in ['y', 'a', 's', 'p', 'g', 'n'] {
             key(&mut app, root.path(), &store, KeyCode::Char(c));
         }
         assert!(received.try_recv().is_err());

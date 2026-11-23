@@ -21,11 +21,14 @@ struct Grants {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Scope {
+    Session,
     Project,
     Global,
 }
 
 pub struct ApprovalStore {
+    session_path: Option<PathBuf>,
+    session: Grants,
     project_path: PathBuf,
     global_path: Option<PathBuf>,
     project: Grants,
@@ -65,11 +68,28 @@ impl ApprovalStore {
             None => Grants::default(),
         };
         Ok(Self {
+            session_path: None,
+            session: Grants::default(),
             project_path,
             global_path,
             project,
             global,
         })
+    }
+
+    /// Bind only an existing host-selected session, never model-supplied paths.
+    pub fn bind_session(&mut self, id: &str) -> Result<()> {
+        let id = uuid::Uuid::parse_str(id).context("invalid session grant identity")?;
+        let path = self
+            .project_path
+            .parent()
+            .context("invalid project grant path")?
+            .join("session-approvals")
+            .join(format!("{id}.yaml"));
+        let grants = Self::read(&path)?;
+        self.session_path = Some(path);
+        self.session = grants;
+        Ok(())
     }
 
     fn read(path: &Path) -> Result<Grants> {
@@ -117,7 +137,9 @@ impl ApprovalStore {
             "write" => grants.write,
             _ => false,
         };
-        if matches(&self.project) {
+        if matches(&self.session) {
+            Some(Scope::Session)
+        } else if matches(&self.project) {
             Some(Scope::Project)
         } else if matches(&self.global) {
             Some(Scope::Global)
@@ -128,6 +150,10 @@ impl ApprovalStore {
 
     pub fn grant(&mut self, scope: Scope, kind: &str, detail: &str) -> Result<()> {
         let path = match scope {
+            Scope::Session => self
+                .session_path
+                .as_ref()
+                .context("no active session for saved permissions")?,
             Scope::Project => &self.project_path,
             Scope::Global => self
                 .global_path
@@ -163,6 +189,7 @@ impl ApprovalStore {
             .target(Path::new(name))?
             .atomic_write(serde_yaml::to_string(&updated)?.as_bytes())?;
         match scope {
+            Scope::Session => self.session = updated,
             Scope::Project => self.project = updated,
             Scope::Global => self.global = updated,
         }
@@ -171,6 +198,14 @@ impl ApprovalStore {
 
     pub fn describe(&self) -> Result<String> {
         let project = serde_yaml::to_string(&self.project)?;
+        let session = match &self.session_path {
+            Some(path) => format!(
+                "Session ({}):\n{}\n",
+                path.display(),
+                serde_yaml::to_string(&self.session)?
+            ),
+            None => "Session: not selected\n".into(),
+        };
         let global = match &self.global_path {
             Some(path) => format!(
                 "Global ({}):\n{}",
@@ -180,7 +215,7 @@ impl ApprovalStore {
             None => "Global: unavailable (set HOME or XDG_CONFIG_HOME)\n".into(),
         };
         Ok(format!(
-            "Project ({}):\n{}\n{}",
+            "{session}Project ({}):\n{}\n{}",
             self.project_path.display(),
             project,
             global
@@ -221,6 +256,37 @@ mod tests {
             .matched_scope("shell", "ls -la; rm important")
             .is_none());
         assert!(again.matched_scope("shell", "ls -l").is_none());
+    }
+
+    #[test]
+    fn session_grants_survive_reopen_without_crossing_session_or_project() {
+        let root = tempfile::tempdir().unwrap();
+        let a = uuid::Uuid::new_v4().to_string();
+        let b = uuid::Uuid::new_v4().to_string();
+        let mut store = ApprovalStore::isolated(root.path()).unwrap();
+        assert!(store.grant(Scope::Session, "shell", "cat notes").is_err());
+        assert!(store.bind_session("../escape").is_err());
+        store.bind_session(&a).unwrap();
+        store.grant(Scope::Session, "shell", "cat notes").unwrap();
+        store.grant(Scope::Session, "write", "").unwrap();
+        let mut reopened = ApprovalStore::isolated(root.path()).unwrap();
+        assert!(reopened.matched_scope("shell", "cat notes").is_none());
+        reopened.bind_session(&a).unwrap();
+        assert!(matches!(
+            reopened.matched_scope("shell", "cat notes"),
+            Some(Scope::Session)
+        ));
+        assert!(reopened.matched_scope("shell", "cat notes | sh").is_none());
+        assert!(reopened.matched_scope("write", "other.txt").is_some());
+        reopened.bind_session(&b).unwrap();
+        assert!(reopened.matched_scope("shell", "cat notes").is_none());
+        assert!(reopened.matched_scope("write", "").is_none());
+        let other = tempfile::tempdir().unwrap();
+        let mut separate = ApprovalStore::isolated(other.path()).unwrap();
+        separate.bind_session(&a).unwrap();
+        assert!(separate.matched_scope("shell", "cat notes").is_none());
+        assert!(!root.path().join("project-grants.yaml").exists());
+        assert!(!root.path().join("global-grants.yaml").exists());
     }
 
     #[test]
@@ -280,6 +346,7 @@ mod tests {
             let local = root.path().join("project/approvals.yaml");
             let global = root.path().join("global/approvals.yaml");
             let path = match scope {
+                Scope::Session => unreachable!(),
                 Scope::Project => &local,
                 Scope::Global => &global,
             };

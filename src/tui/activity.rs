@@ -192,6 +192,8 @@ pub(super) fn conversational_label(kind: &str) -> &str {
         "workspace.restored" => "Restored",
         "permission.decision" => "Approval",
         "artifact.created" => "Artifact",
+        "artifact.user-edit" => "User artifact revision",
+        "artifact.comment" => "User review comment",
         "branch.forked" => "Restart",
         other => other,
     }

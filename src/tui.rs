@@ -19,6 +19,7 @@ use ratatui::{
 mod actions;
 mod activity;
 mod approval;
+mod artifact_review;
 mod attention;
 mod checkpoint;
 mod compose;
@@ -178,6 +179,7 @@ struct App {
     activity_filtering: bool,
     copy_job: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     pending_editor: Option<exports::Snapshot>,
+    pending_artifact_review: Option<artifact_review::Job>,
     manager_job: Option<manager_ui::ManagerJob>,
     manager_enabled: bool,
 }
@@ -277,6 +279,7 @@ impl App {
             activity_filtering: false,
             copy_job: None,
             pending_editor: None,
+            pending_artifact_review: None,
             manager_job: None,
             manager_enabled: false,
         }
@@ -376,6 +379,8 @@ impl App {
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
             let config = crate::config::load_config(root);
             self.details.configured_model = config.as_ref().ok().map(|c| c.provider.model.clone());
+            self.details.budget_config = config.as_ref().ok().map(|c| c.budgets.clone());
+            self.details.model_roles = config.as_ref().ok().map(|c| c.model_roles.clone());
             self.details.provider = config
                 .as_ref()
                 .ok()
@@ -1187,6 +1192,19 @@ pub fn run(root: &Path, initial_session: Option<&str>) -> Result<()> {
             if captured_mouse != app.shell.mouse {
                 shell::set_mouse(app.shell.mouse)?;
                 captured_mouse = app.shell.mouse;
+            }
+            if let Some(job) = app.pending_artifact_review.take() {
+                crossterm::execute!(
+                    io::stdout(),
+                    event::DisableMouseCapture,
+                    event::DisableBracketedPaste
+                )?;
+                let edited = exports::with_terminal_suspended(|| job.edit())?;
+                crossterm::execute!(io::stdout(), event::EnableBracketedPaste)?;
+                shell::set_mouse(app.shell.mouse)?;
+                captured_mouse = app.shell.mouse;
+                terminal.clear()?;
+                app.finish_artifact_review(&store, job, edited);
             }
             if let Some(snapshot) = app.pending_editor.take() {
                 crossterm::execute!(

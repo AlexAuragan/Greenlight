@@ -111,6 +111,7 @@ impl Engine {
     ) -> Result<()> {
         self.store.ensure_no_pending_writes()?;
         let mut s = self.store.session(session_id)?;
+        self.tools.approvals.bind_session(&s.id)?;
         let mut steps = 0usize;
         let mut continuing = self.continuation.borrow().is_some();
         if !continuing {
@@ -129,6 +130,7 @@ impl Engine {
             let override_prompt = extra.unwrap_or("");
             let resolved_model = model_override
                 .or(step.model.as_deref())
+                .or(self.cfg.model_roles.coding.as_deref())
                 .unwrap_or(&self.cfg.provider.model)
                 .to_owned();
             let definition = serde_yaml::to_string(&step)?;
@@ -461,6 +463,15 @@ impl Engine {
         messages: &[serde_json::Value],
         interaction: Option<(&str, &str)>,
     ) -> Result<String> {
+        let model = if matches!(purpose, "verification" | "deviation-detector") {
+            self.cfg
+                .model_roles
+                .verification
+                .as_deref()
+                .unwrap_or(model)
+        } else {
+            model
+        };
         let restored = self.continuation.borrow_mut().take();
         if let Some(cp) = &restored {
             if cp.purpose != purpose || cp.step != step || cp.model != model {
@@ -613,7 +624,7 @@ impl Engine {
         }
         result.context(crate::provider_failure::ModelCallFailed)
     }
-    async fn dispatch_model_call(
+    pub(crate) async fn dispatch_model_call(
         &self,
         s: &Session,
         step: &str,
@@ -669,13 +680,26 @@ impl Engine {
                 call.manager_message_id = Some(message.into());
                 call.manager_snapshot_id = Some(snapshot.into());
             }
-            if let Some(tier) = &self.cfg.provider.service_tier {
+            if let Some(tier) = self.provider.cfg.service_tier.as_ref().or(self
+                .cfg
+                .provider
+                .service_tier
+                .as_ref())
+            {
                 call.counts.notes.push(format!("Requested service_tier: {tier}. Standard-tier catalog pricing is not verified for this request."));
             }
             let registration = (|| -> Result<()> {
                 let tx = rusqlite::Transaction::new_unchecked(
                     &self.store.db,
                     rusqlite::TransactionBehavior::Immediate,
+                )?;
+                self.store.reserve_model_budget(
+                    s,
+                    &self.cfg.budgets,
+                    &mut call,
+                    self.provider.cfg.max_tokens,
+                    self.provider.cfg.service_tier.is_some()
+                        || self.cfg.provider.service_tier.is_some(),
                 )?;
                 self.store.begin_model_call(s, &mut call)?;
                 crate::conversation_dump::record_request(
@@ -695,6 +719,19 @@ impl Engine {
                 Ok(())
             })();
             if let Err(error) = registration {
+                if error
+                    .downcast_ref::<crate::model_budget::Blocked>()
+                    .is_some()
+                {
+                    self.store.event(
+                        s,
+                        Some(step),
+                        "budget.blocked",
+                        &json!({"purpose":purpose,"model":model,"reason":error.to_string()})
+                            .to_string(),
+                    )?;
+                    return Err(error);
+                }
                 call.status = "not-sent".into();
                 call.counts
                     .notes
@@ -728,7 +765,8 @@ impl Engine {
                     call.estimated_cost = None;
                 }
             }
-            if self.cfg.provider.service_tier.is_some() {
+            if self.provider.cfg.service_tier.is_some() || self.cfg.provider.service_tier.is_some()
+            {
                 call.estimated_cost = None;
             }
             self.store
@@ -748,7 +786,7 @@ impl Engine {
             .context("Cannot persist returned conversation; inspect usage before retrying")?;
             if let Some(failure) = failure {
                 self.checkpoint_failure(s, purpose, &failure)?;
-                if purpose != "manager" {
+                if !matches!(purpose, "manager" | "summarizer") {
                     console_eprintln!(self, "[provider] {failure}");
                     if let Some(diagnostic) = &failure.diagnostic {
                         console_eprintln!(self, "[provider diagnostic]\n{}", diagnostic.text());
@@ -756,7 +794,7 @@ impl Engine {
                 }
                 self.store.event(s,Some(step),"provider.failure",&serde_json::to_string(&serde_json::json!({"call_id":call.id,"purpose":purpose,"request_number":attempt,"failure":failure}))?)?;
                 if let Some(delay) = failure.delay(attempt) {
-                    if purpose != "manager" {
+                    if !matches!(purpose, "manager" | "summarizer") {
                         console_eprintln!(
                             self,
                             "[provider retry] request {}/{} in {:.2}s",
@@ -765,14 +803,18 @@ impl Engine {
                             delay.as_secs_f64()
                         );
                     }
-                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; k in TUI stops execution"}}).to_string())?;
+                    self.store.event(s,Some(step),"provider.retry",&serde_json::json!({"call_id":call.id,"purpose":purpose,"next_request":attempt+1,"wait_ms":delay.as_millis(),"message":if purpose=="summarizer" {"Waiting before summary retry; More → Stop summary cancels this background request"} else if purpose=="manager" {"Waiting before manager retry; /cancel-manager cancels future manager requests"} else {"Waiting before provider retry; k in TUI stops execution"}}).to_string())?;
                     if let Err(cancelled) =
                         crate::provider_failure::wait(delay, &self.provider.retry_cancel).await
                     {
                         self.store.event(
                             s,
                             Some(step),
-                            "provider.retry-cancelled",
+                            if purpose == "summarizer" {
+                                "summary.retry-cancelled"
+                            } else {
+                                "provider.retry-cancelled"
+                            },
                             &cancelled.to_string(),
                         )?;
                         return Err(cancelled.into());
@@ -780,7 +822,7 @@ impl Engine {
                     continue;
                 }
                 if failure.retryable {
-                    self.store.event(s,Some(step),"provider.retry-stopped","Automatic retry budget exhausted or Retry-After exceeds the 15-second per-wait limit; resume explicitly later.")?;
+                    self.store.event(s,Some(step),if purpose=="summarizer" {"summary.retry-stopped"} else {"provider.retry-stopped"},"Automatic retry budget exhausted or Retry-After exceeds the 15-second per-wait limit; resume explicitly later.")?;
                     return Err(anyhow::Error::new(failure).context("Automatic retry budget exhausted or requested wait exceeds 15s; resume explicitly later."));
                 }
                 return Err(failure.into());

@@ -8,6 +8,13 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | --- | --- |
 | Install, update, initialize and select a project | [Installation and projects](22-installation-and-projects.md) |
 | Current TUI controls, popups, drafts, artifacts and Edits | [Interactive TUI](11-tui.md) |
+| Once/process/session/project/global permissions | [Saved approvals](08-persistent-approvals.md) |
+| Model role defaults and session dispatch budgets | [Roles and budgets](52-model-roles-and-session-budgets.md) |
+| Optional combined native diffs by step/attempt | [Grouped review](51-grouped-native-edit-review.md) |
+| Diff hunks and verification evidence exports | [Diff review and evidence](50-diff-hunks-and-verification-evidence.md) |
+| Artifact comments and human version editing | [Artifact review](49-artifact-review.md) |
+| Read-only inspection pipelines | [Runtime guide](48-safe-inspection-pipelines.md) · [Design](47-safe-inspection-pipeline-design.md) |
+| Automatic project inspection and exact-command fallback | [Inspection permissions](46-project-inspection-permissions.md) |
 | Project-only file reads, directory listing and path filtering | [Native file discovery](36-native-file-discovery.md) |
 | Explicit user reruns of historical tool calls | [Tool reruns](37-tool-reruns.md) |
 | Saved exact requests across app restarts | [Provider continuations](38-provider-continuations.md) |
@@ -15,6 +22,9 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Full model/tool evidence and local exports | [Conversation dumps](35-conversation-dump.md) |
 | Input/cached-input/output counts and model pricing | [Usage and pricing](18-token-usage-and-pricing.md) |
 | Conversation routing, live guidance and clarification replies | [Manager guidance delivery](42-idle-manager-delivery.md) |
+| File-body retention decision and recovery limits | [Snapshot evaluation](45-file-body-snapshot-evaluation.md) |
+| Historical restart checkpoints and recorded branch comparisons | [Historical restarts](44-historical-restart-and-branches.md) |
+| Optional background summaries and saved evidence | [Optional summaries](43-optional-summaries.md) |
 | Read-only project/pipeline questions | [Manager Q&A](21-manager-qa.md) |
 | Actual application renders | [Ratatui captures](screenshots/README.md) |
 

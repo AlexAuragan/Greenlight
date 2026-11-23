@@ -21,6 +21,9 @@ pub fn tool_help(tools: &[String]) -> String {
     if tools.iter().any(|t| t == "read") {
         text.push_str("\nNative file discovery: read with path: . recursively lists project paths without shell. To find filenames/paths, add input: clock (literal case-sensitive substring). Read a returned file path separately to inspect its contents. Directory listings are bounded and report truncation; narrow path/input when needed.\n");
     }
+    if tools.iter().any(|t| t == "shell") {
+        text.push_str("\nDepending on host policy, simple project inspection commands may run without a prompt against a bounded filtered snapshot: pwd, ls -a, cat FILE, head -n 20 FILE, wc -l FILE, grep -n -F PATTERN FILE, rg PATTERN DIRECTORY. Native read remains useful for project discovery. Supported 2–4-stage read-only pipelines (for example cat FILE | grep PATTERN | head -n 20) may use the same filtered snapshot, with stdin-only filters. Unsupported shell syntax, globs, metadata flags such as ls -l, unsupported options and private/outside paths retain exact-command approval. Do not add wrappers or operators to evade a restriction; snapshot limits require a narrower request or an explicit user rerun.\n");
+    }
     text
 }
 /// Repair failures are bounded independently of productive agent/tool turns.

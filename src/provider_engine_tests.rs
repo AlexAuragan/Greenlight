@@ -651,3 +651,141 @@ async fn priority_requests_keep_tokens_but_do_not_claim_standard_tier_costs() {
         }
     }
 }
+
+#[tokio::test]
+async fn session_budget_stops_retries_and_other_purposes_before_dispatch() {
+    let (_root, mut engine, s) = fixture(vec![rate(0), success()]);
+    engine.cfg.budgets.session.requests = Some(1);
+    let error = engine
+        .model_call(&s, "work", "coding", "fixture", &[])
+        .await
+        .unwrap_err();
+    assert!(error
+        .downcast_ref::<crate::model_budget::Blocked>()
+        .is_some());
+    assert!(crate::provider_failure::is_fatal_model_error(&error));
+    assert_eq!(
+        engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+            .len(),
+        1
+    );
+    assert!(engine
+        .dispatch_model_call(&s, "work", "summarizer", "fixture", &[], None)
+        .await
+        .is_err());
+    assert!(engine
+        .dispatch_model_call(&s, "work", "manager", "fixture", &[], None)
+        .await
+        .is_err());
+    assert_eq!(
+        engine
+            .store
+            .usage_report(&s, Scope::Session)
+            .unwrap()
+            .calls
+            .len(),
+        1
+    );
+    assert!(engine
+        .store
+        .history(&s)
+        .unwrap()
+        .iter()
+        .any(|e| e.2 == "budget.blocked"));
+    engine.cfg.budgets.session.requests = Some(2);
+    assert_eq!(
+        engine
+            .model_call(&s, "work", "coding", "fixture", &[])
+            .await
+            .unwrap(),
+        "done"
+    );
+}
+
+#[tokio::test]
+async fn role_models_are_recorded_for_coding_and_verification_with_explicit_coding_override() {
+    for explicit in [None, Some("explicit-model")] {
+        let (root, mut engine, s) = fixture(vec![
+            Completion::parse(
+                200,
+                r#"{"choices":[{"message":{"content":"action: finish\nsummary: done"}}]}"#,
+            )
+            .unwrap(),
+            Completion::parse(
+                200,
+                r#"{"choices":[{"message":{"content":"passed: true\nreason: fixture"}}]}"#,
+            )
+            .unwrap(),
+        ]);
+        let folder = root.path().join("workflows/demo");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("workflow.yaml"),
+            "id: demo\ntitle: Demo\nstart: work\nsteps: [work]\n",
+        )
+        .unwrap();
+        fs::write(
+            folder.join("work.md"),
+            "---\nid: work\nverification:\n  type: agent\n  prompt: review.md\n---\nWork\n",
+        )
+        .unwrap();
+        fs::write(folder.join("review.md"), "Review").unwrap();
+        engine.cfg.model_roles.coding = Some("coding-role".into());
+        engine.cfg.model_roles.verification = Some("verification-role".into());
+        engine.run(&s.id, None, explicit).await.unwrap();
+        assert_eq!(engine.store.session(&s.id).unwrap().status, "completed");
+        let calls = engine.store.usage_report(&s, Scope::Session).unwrap().calls;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].model, explicit.unwrap_or("coding-role"));
+        assert_eq!(calls[1].model, "verification-role");
+    }
+}
+
+#[tokio::test]
+async fn token_and_unpriced_cost_budgets_refuse_the_first_request_without_a_phantom_dispatch() {
+    for limit in ["input", "output", "cost"] {
+        let (_root, mut engine, s) = fixture(vec![success()]);
+        engine.provider.cfg.max_tokens = 100;
+        engine.cfg.provider.max_tokens = 1; // Reservation must use the actual provider payload cap.
+        match limit {
+            "input" => engine.cfg.budgets.session.input_tokens = Some(0),
+            "output" => engine.cfg.budgets.session.output_tokens = Some(99),
+            _ => engine.cfg.budgets.session.estimated_cost_usd = Some(100.0),
+        }
+        let error = engine
+            .model_call(
+                &s,
+                "work",
+                "coding",
+                "fixture",
+                &[serde_json::json!({"role":"user","content":"hello"})],
+            )
+            .await
+            .unwrap_err();
+        assert!(error
+            .downcast_ref::<crate::model_budget::Blocked>()
+            .is_some());
+        assert!(engine
+            .provider
+            .script
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .requests
+            .is_empty());
+        assert!(engine
+            .store
+            .usage_report(&s, Scope::Session)
+            .unwrap()
+            .calls
+            .is_empty());
+    }
+}

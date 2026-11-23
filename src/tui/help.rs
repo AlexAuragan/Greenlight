@@ -8,6 +8,19 @@ Sessions opens search; arrows select candidates, Enter opens the selected sessio
 Back/Esc cancels browsing; Clear search resets the filter.
 Search letters and paste stay literal. Compose closes without discarding its draft.
 
+Diff review
+Edits: [ and ] open the previous/next recorded hunk; D returns to the full file diff.
+Tab still cycles files. Hunk navigation changes no files or review decisions.
+Edits g opens optional grouped review; [ / ] select groups, t toggles step/attempt.
+Grouped review is a frozen read-only snapshot; reopen it to refresh. C/E exports its full text.
+V exports historical verification evidence (also More / Details). No checks are rerun.
+
+Artifacts
+e edits the selected artifact into a new version; N adds a version-specific comment.
+b reads comments. These actions also appear in More. Stop workers before editing.
+Save and close the external editor to import; unchanged drafts/empty comments save nothing.
+E remains a read-only export; comments do not approve work or message the agent.
+
 Decisions
 Use the displayed decision key or click its row; Enter never decides.
 Human checkpoint: Tab/Shift+Tab cycles documents; Enter/e opens evidence.
@@ -67,6 +80,10 @@ Live output and model claims are not executed/verified evidence.
 Artifact revisions are documents; Edits covers native recorded writes.
 /resume continues ready/blocked work; /recover never resumes it.
 /ask QUESTION asks the read-only manager; routes do not execute.
+More → Generate summary makes an optional background model request.
+Latest summary reopens captured evidence without inference; Stop summary cancels it.
+Restart review lists historical runs; arrows select, Enter previews, y confirms.
+More → Compare branches reads captured file hashes without changing the workspace.
 q quits only when there is no local worker or manager job.
 ";
 
