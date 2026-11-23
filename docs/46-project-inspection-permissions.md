@@ -82,3 +82,5 @@ cargo test --locked sandbox::descriptor_tests::integration_project_inspection_ex
 ```
 
 Safe multi-stage pipelines and any wider option/executable policy remain follow-up work. Every stage and redirection would need validation before any component runs; an approved first command must never authorize a later script.
+
+The [GL-031 pipeline design](47-safe-inspection-pipeline-design.md) is complete; GL-032 tracks runtime implementation. It does not change this version’s exact-approval handling for pipelines.

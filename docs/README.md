@@ -8,6 +8,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | --- | --- |
 | Install, update, initialize and select a project | [Installation and projects](22-installation-and-projects.md) |
 | Current TUI controls, popups, drafts, artifacts and Edits | [Interactive TUI](11-tui.md) |
+| Pipe-only inspection design (not implemented) | [Pipeline design](47-safe-inspection-pipeline-design.md) |
 | Automatic project inspection and exact-command fallback | [Inspection permissions](46-project-inspection-permissions.md) |
 | Project-only file reads, directory listing and path filtering | [Native file discovery](36-native-file-discovery.md) |
 | Explicit user reruns of historical tool calls | [Tool reruns](37-tool-reruns.md) |

@@ -1,12 +1,12 @@
 # Remaining work
 
-Updated 2026-11-22. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
+Updated 2026-11-23. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
 
 P0/P1 feature work, installer, TUI redesign and recovery improvements merged into master on 2026-11-19. This does not mean no defects remain. Implement one feature at a time, preserve audit evidence and distinguish model claims from recorded verification.
 
 ## Supervised workflows and review
 
-- [ ] **GL-031** — Design safe inspection pipelines after the GL-012 simple-command profile: validate every stage and I/O edge before execution, retain exact approval for wrappers/substitutions/unsupported options, and never let a permitted `cat`/`ls` authorize a later script. Metadata-dependent inspection and additional option forms require separate policy review.
+- [ ] **GL-032** — Implement the [GL-031 pipe-only design](docs/47-safe-inspection-pipeline-design.md): 2–4 fully validated read-only stages, explicit stdin filters, one filtered view, isolated processes with bounded pipes, per-stage/failure-aware outcomes and whole-pipeline cancellation. Keep unsupported syntax/operands under exact approval and validate live isolation on a suitable host.
 - [ ] **GL-013** — Add real **session-scoped saved permissions**, separate from one-time/process/project/global grants; no persistence of unanswered approval prompts.
 - [ ] **GL-014** — Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
 - [ ] **GL-015** — Extend diff review with hunk navigation and exportable verification evidence.
@@ -35,7 +35,9 @@ GL-007 defines the coordination contract; GL-028 implements project exclusion an
 
 ## Completed recovery and code improvements
 
-- [x] **GL-012** — First version implemented on `feat/optional-summaries` (pending merge): supported read-only argv forms auto-approve under project inspection policy, using trusted executables and bounded filtered private views inside Bubblewrap. Private/outside paths, symlinks and shell syntax cannot broaden automatic authority. Exact grants, denies, user reruns and opt-out remain intact. Pipelines remain exact-approved; see GL-031 and [project inspection](docs/46-project-inspection-permissions.md). Live namespace validation remains host-blocked as documented.
+- [x] **GL-031** — Design completed on `feat/optional-summaries` (pending merge): narrow pipe-only language, source/filter roles, complete preflight, shared snapshot/budgets, per-stage isolation, failure/SIGPIPE semantics and cancellation/launch-failure acceptance checks. Runtime pipelines remain exact-approved; implementation is GL-032. See [safe pipeline design](docs/47-safe-inspection-pipeline-design.md).
+
+- [x] **GL-012** — First version implemented on `feat/optional-summaries` (pending merge): supported read-only argv forms auto-approve under project inspection policy, using trusted executables and bounded filtered private views inside Bubblewrap. Private/outside paths, symlinks and shell syntax cannot broaden automatic authority. Exact grants, denies, user reruns and opt-out remain intact. Pipelines remain exact-approved; see GL-032 and [project inspection](docs/46-project-inspection-permissions.md). Live namespace validation remains host-blocked as documented.
 
 - [x] **GL-011** — Evaluated on `feat/optional-summaries` (pending merge): confirmed the external-preimage gap, measured the current hash baseline, and defined privacy/size/cache/retention and external-edit protection requirements. Decision: no automatic external-body capture or restore expansion; a future implementation needs explicit opt-in and a concrete recovery case. See [snapshot evaluation](docs/45-file-body-snapshot-evaluation.md).
 
