@@ -1,6 +1,6 @@
 # Safe inspection pipelines — GL-031 design
 
-**Design complete; runtime support is not implemented.** GL-012 still sends every pipeline to existing exact-command approval. GL-032 tracks implementation of this design. This document adds no accepted configuration or permission grant.
+**Implemented by GL-032 on `feat/optional-summaries`, pending merge.** See the [runtime guide](48-safe-inspection-pipelines.md) and [validation record](06-validation.md). Live namespace validation remains blocked on this cloud host.
 
 ## Selected first scope
 
@@ -8,9 +8,9 @@ Support only 2–4 validated read-only stages connected by plain stdout pipes (`
 
 A complete pipeline either qualifies for automatic inspection or follows exact-command approval as one original string. Do not run an approved prefix, ask about the remaining stages, or save grants for fragments. Existing exact grants, explicit shell allow/deny, read policy, user-requested reruns and profile opt-out retain their current precedence.
 
-Examples describe the proposed behavior, not behavior available today:
+Examples describe the implemented classification:
 
-| Input | Proposed handling |
+| Input | Handling |
 | --- | --- |
 | `cat src/main.rs \| grep -n TODO` | Eligible source plus stdin filter |
 | `rg TODO src \| head -n 20` | Eligible source plus bounded reader |
@@ -66,7 +66,7 @@ A single shell tool result retains the original request and reports final stdout
 
 Use a failure-aware aggregate status: the rightmost genuine nonzero stage status wins; otherwise the pipeline succeeds. Preserve each underlying status so ordinary meanings such as grep's no-match or diff's differences are visible rather than converted into permission denials.
 
-Treat upstream SIGPIPE as an expected early close only when a validated downstream `head` completed successfully and there was no cancellation, timeout, output cap or other genuine stage failure. Keep that signal in the stage results with an explanatory label. Do not suppress arbitrary exit code 141, other signals, stderr, or every early consumer exit. Other early-close cases must remain visible and conservative until specifically supported. Output-limit closure is incomplete output, never a successful short read.
+Bubblewrap converts child signals into numeric exit codes, so never infer SIGPIPE from code 141. Retain a read-end guard for each pipe and, only after its consumer exits, drain remaining upstream bytes with bounded buffers. This lets finite producers finish normally after successful `head` without suppressing genuine errors. Record discarded byte counts; an otherwise successful early close outside supported `head` is incomplete output. Cancellation, timeout and output limits remain failures. All actual stage statuses, including 141, retain their meaning.
 
 Each pipeline remains one recorded shell tool request/result, not several user-approved calls. No model inference is needed for parsing/authorization, and no stage output becomes an approval or workflow verification verdict.
 
@@ -88,4 +88,4 @@ Use a **single 120-second deadline** for launch plus execution, not 120 seconds 
 - Existing exact grants, opt-out, deny/read-ask policies, user reruns and native-write permissions retain their behavior.
 - Exercise live Bubblewrap isolation on a suitable Linux host. This cloud host's known read-only UID-map restriction cannot establish that integration result.
 
-No runtime changes or new tests are introduced by this design. The current [simple-command policy](46-project-inspection-permissions.md) remains authoritative until GL-032 is implemented and validated.
+The [runtime guide](48-safe-inspection-pipelines.md) records the implemented boundary. Live Bubblewrap acceptance still requires a suitable host.

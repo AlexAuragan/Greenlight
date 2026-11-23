@@ -1,5 +1,11 @@
 # Validation
 
+## Safe read-only pipelines (GL-032) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 510 Rust tests, with four integration/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. New coverage checks complete-plan classification, stdin-only roles, malformed/unsafe whole-command fallback, stable shared snapshots, per-stage statuses, finite head draining without guessing from exit 141, bounded stdout/combined stderr, cancellation/deadline cleanup, partial launch and early namespace failures. Direct trusted commands are test fixtures only; production always uses Bubblewrap.
+
+The explicitly attempted live pipeline integration fails at `bwrap: setting up uid map: Read-only file system`. This host cannot establish live namespace isolation; no host fallback was added or used. Live acceptance remains required on a suitable Linux host. No paid provider calls were made. See the [runtime guide](48-safe-inspection-pipelines.md).
+
 ## Project inspection permissions (GL-012) — 2026-11-22
 
 Implemented on the existing `feat/optional-summaries` branch, pending merge. The normal suite passes 500 Rust tests, with three integration/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. New checks cover argv/option classification and injection rejection, path/private/symlink scope, filtered snapshot stability and limits, literal coreutils argv semantics, fixed-executable sandbox construction, output bounds, policy opt-out/deny, exact grants, explicit reruns and early cancellation. Test-only direct coreutils execution checks argv semantics; production never has an unsandboxed fallback.

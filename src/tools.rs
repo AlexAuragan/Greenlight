@@ -459,12 +459,20 @@ impl Tools {
         } else {
             crate::sandbox::Sandbox::open(&self.root)?
         };
-        let output = tokio::select! {
-            biased;
-            _ = crate::provider_failure::cancelled(&self.stop) => {
-                bail!("Command stopped by user; partial effects/output may be unknown. No automatic replay.");
-            }
-            result = async {if let Some(plan)=&inspection {sandbox.inspect(plan).await} else {sandbox.run(command).await}} => result?,
+        let (output, pipeline_summary) = if let Some(plan) =
+            inspection.as_ref().filter(|p| p.is_pipeline())
+        {
+            let result = sandbox.inspect_pipeline(plan, &self.stop).await?;
+            (result.output, Some(result.summary))
+        } else {
+            let output = tokio::select! {
+                biased;
+                _ = crate::provider_failure::cancelled(&self.stop) => {
+                    bail!("Command stopped by user; partial effects/output may be unknown. No automatic replay.");
+                }
+                result = async {if let Some(plan)=&inspection {sandbox.inspect(plan).await} else {sandbox.run(command).await}} => result?,
+            };
+            (output, None)
         };
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -483,6 +491,10 @@ impl Tools {
                 .unwrap_or(0);
             result.truncate(cut);
             result.push_str("\n[output truncated by harness]");
+        }
+        if let Some(summary) = pipeline_summary {
+            result.push('\n');
+            result.push_str(&summary);
         }
         if inspection.is_some() {
             result.push_str("\n[Project inspection: filtered private snapshot; sensitive/generated paths and symlinks excluded. Supported argv only; no shell expansion. Files may have changed since capture.]\n");
@@ -1180,6 +1192,8 @@ mod stop_tests {
         std::fs::write(root.path().join("notes"), "fixture data").unwrap();
         for (command, policy, prompts_expected) in [
             ("cat notes", Permissions::default(), false),
+            ("cat notes | grep fixture", Permissions::default(), false),
+            ("ls . | head -n 1", Permissions::default(), false),
             (
                 "cat notes",
                 Permissions {

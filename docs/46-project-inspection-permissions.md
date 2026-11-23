@@ -1,6 +1,6 @@
 # Project inspection permissions (GL-012, first version)
 
-Implemented on `feat/optional-summaries`, pending merge. This implements the agreed simple-command subset. It does not add wildcard/prefix grants or automatically approve pipelines.
+Implemented on `feat/optional-summaries`, pending merge. This implements the agreed simple-command subset. It does not add wildcard/prefix grants. GL-032 extends this profile to [validated read-only pipelines](48-safe-inspection-pipelines.md).
 
 ## Policy and controls
 
@@ -40,7 +40,7 @@ Numeric option values are nonnegative ASCII integers up to 1,000,000. Cut lists 
 
 `--` can terminate option parsing. Ordinary quoted arguments, including filenames with spaces, are supported. Input paths are normalized to project-relative operands; the real project-root prefix and sandbox `/workspace` prefix are accepted. Parent components, private paths and stdin's special `-` operand are excluded from this profile. A literal file named `-` can be addressed as `./-`.
 
-The syntax filter is deliberately conservative, even inside quotes. Globs, substitutions, backticks, tilde expansion, backslashes, control characters, redirects, pipelines, sequences, logical operators and grouping syntax require exact approval. Some otherwise harmless quoted regular expressions therefore still prompt. This is not a general shell parser and never attempts to reconstruct an unsupported shell expression.
+The syntax filter is deliberately conservative, even inside quotes. Globs, substitutions, backticks, tilde expansion, backslashes, control characters, redirects, unsupported pipelines, sequences, logical operators and grouping syntax require exact approval. Some otherwise harmless quoted regular expressions therefore still prompt. This is not a general shell parser and never attempts to reconstruct an unsupported shell expression.
 
 Examples:
 
@@ -55,7 +55,7 @@ sort -o output.txt input.txt      # exact approval
 uniq input.txt output.txt         # exact approval
 ```
 
-`ls -l`, `stat`, `du` and `file` retain approval: a copied view must not pretend its inode/owner/block metadata is original project metadata, and more complex options need separate review. `tr` waits for a future approved-input/pipeline design. `find`, `sed`, `awk`, `xargs`, interpreters, Git, build/package tools and project scripts retain their existing permissions.
+`ls -l`, `stat`, `du` and `file` retain approval: a copied view must not pretend its inode/owner/block metadata is original project metadata, and more complex options need separate review. `tr` is available only as a constrained downstream stdin filter; see the pipeline guide. `find`, `sed`, `awk`, `xargs`, interpreters, Git, build/package tools and project scripts retain their existing permissions.
 
 ## Execution boundary
 
@@ -81,6 +81,4 @@ The normal suite passes 500 tests with three integration/profiling tests ignored
 cargo test --locked sandbox::descriptor_tests::integration_project_inspection_executes_the_private_view -- --ignored
 ```
 
-Safe multi-stage pipelines and any wider option/executable policy remain follow-up work. Every stage and redirection would need validation before any component runs; an approved first command must never authorize a later script.
-
-The [GL-031 pipeline design](47-safe-inspection-pipeline-design.md) is complete; GL-032 tracks runtime implementation. It does not change this version’s exact-approval handling for pipelines.
+Supported pipe-only pipelines now share this boundary; see the [runtime guide](48-safe-inspection-pipelines.md) and [design](47-safe-inspection-pipeline-design.md). Wider syntax and option policies still require separate review.

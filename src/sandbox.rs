@@ -11,6 +11,9 @@ use std::{
 };
 use tokio::process::Command;
 
+#[path = "sandbox_pipeline.rs"]
+mod pipeline;
+
 const BWRAP: &str = "/usr/bin/bwrap";
 const WORKSPACE: &str = "/workspace";
 const CACHE: &str = "/cache";
@@ -220,7 +223,44 @@ impl Sandbox {
         if self.inspection_cache.is_none() {
             bail!("Automatic inspection requires a private filtered view");
         }
+        if plan.is_pipeline() {
+            bail!("A pipeline must use the complete pipeline executor");
+        }
         Self::execute(self.build_program(plan.argv())?, Some(128 * 1024)).await
+    }
+    pub(crate) async fn inspect_pipeline(
+        &self,
+        plan: &crate::project_inspection::Inspection,
+        stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<pipeline::PipelineOutput> {
+        if self.inspection_cache.is_none() || !plan.is_pipeline() {
+            bail!(
+                "Pipeline inspection requires a private filtered view and a complete pipeline plan"
+            );
+        }
+        let stages = plan.stages();
+        let labels = stages
+            .iter()
+            .map(|stage| {
+                Path::new(&stage[0])
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        let commands = stages
+            .iter()
+            .map(|stage| self.build_program(stage))
+            .collect::<Result<Vec<_>>>()?;
+        pipeline::run(
+            commands,
+            labels,
+            plan.head_stages(),
+            stop,
+            Duration::from_secs(120),
+        )
+        .await
     }
     async fn execute(mut process: Command, limit: Option<u64>) -> Result<Output> {
         let running = async {
@@ -512,5 +552,57 @@ mod descriptor_tests {
             .unwrap_err()
             .to_string()
             .contains("private filtered view"));
+    }
+    #[tokio::test]
+    async fn a_pipeline_plan_cannot_execute_only_its_prefix() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("notes"), "data").unwrap();
+        let plan = crate::project_inspection::parse(root.path(), "cat notes | wc -c").unwrap();
+        let view = plan.snapshot(root.path()).unwrap();
+        let sandbox = Sandbox::project_inspection(&view).unwrap();
+        assert!(sandbox
+            .inspect(&plan)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("complete pipeline executor"));
+        let ordinary = Sandbox::open(root.path()).unwrap();
+        assert!(ordinary
+            .inspect_pipeline(
+                &plan,
+                &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false))
+            )
+            .await
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("private filtered view"));
+    }
+    #[tokio::test]
+    #[ignore = "requires installed bubblewrap and enabled Linux user namespaces"]
+    async fn integration_project_pipeline_isolated_data_and_stage_outcomes() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("notes"), "b\na\na\n").unwrap();
+        fs::write(root.path().join(".env"), "SECRET=hidden").unwrap();
+        let plan =
+            crate::project_inspection::parse(root.path(), "cat notes | sort | uniq -c").unwrap();
+        let view = plan.snapshot(root.path()).unwrap();
+        assert!(!view.path().join(".env").exists());
+        let sandbox = Sandbox::project_inspection(&view).unwrap();
+        let output = sandbox
+            .inspect_pipeline(
+                &plan,
+                &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            )
+            .await
+            .unwrap();
+        assert!(output.output.status.success());
+        assert_eq!(output.summary.matches("exit_code: 0").count(), 3);
+        assert_eq!(
+            String::from_utf8_lossy(&output.output.stdout)
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+            ["2", "a", "1", "b"]
+        );
     }
 }

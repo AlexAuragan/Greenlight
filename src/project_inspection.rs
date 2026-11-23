@@ -18,6 +18,18 @@ pub(crate) struct Inspection {
     paths: Vec<PathBuf>,
     names_only: bool,
     recursive: bool,
+    filters: Vec<Filter>,
+}
+#[derive(Debug)]
+struct Filter {
+    argv: Vec<String>,
+    head: bool,
+}
+struct Arguments {
+    name: String,
+    argv: Vec<String>,
+    operands: Vec<String>,
+    recursive: bool,
 }
 
 fn allowed(path: &Path) -> bool {
@@ -53,9 +65,56 @@ fn relative(root: &Path, argument: &str) -> Option<PathBuf> {
     Some(result)
 }
 
-/// Reject expansion/operators even when quoted: false negatives prompt, rather
-/// than guessing shell semantics. shlex only removes ordinary argument quotes.
+/// Parse the complete pipe-only language before exposing any source files.
 pub(crate) fn parse(root: &Path, command: &str) -> Option<Inspection> {
+    if command.len() > 16 * 1024 {
+        return None;
+    }
+    let mut quote = None;
+    let mut start = 0;
+    let mut parts = Vec::new();
+    for (index, c) in command.char_indices() {
+        if matches!(c, '\'' | '"') {
+            if quote == Some(c) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(c);
+            }
+        }
+        if c == '|' {
+            if quote.is_some() {
+                return None;
+            }
+            parts.push(command[start..index].trim());
+            start = index + 1;
+        }
+    }
+    if quote.is_some() {
+        return None;
+    }
+    parts.push(command[start..].trim());
+    if parts.len() > 4 || parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    if parts.len() > 1 && command.contains('#') {
+        return None;
+    }
+    let count = parts.iter().try_fold(parts.len() - 1, |count, p| {
+        Some(count + shlex::split(p)?.len())
+    })?;
+    if count > 128 {
+        return None;
+    }
+    let mut plan = source(root, parts[0])?;
+    for part in &parts[1..] {
+        plan.filters.push(filter(part)?);
+    }
+    Some(plan)
+}
+
+/// Arguments are shared between source and filter roles; shell syntax is never
+/// interpreted. False negatives retain whole-command approval.
+fn arguments(command: &str) -> Option<Arguments> {
     if command.len() > 16 * 1024
         || command
             .chars()
@@ -81,6 +140,7 @@ pub(crate) fn parse(root: &Path, command: &str) -> Option<Inspection> {
         "cut" => "s",
         "diff" => "uqsr",
         "cmp" => "sl",
+        "tr" => "dsc",
         _ => return None,
     };
     let program = format!("/usr/bin/{name}");
@@ -156,6 +216,25 @@ pub(crate) fn parse(root: &Path, command: &str) -> Option<Inspection> {
         argv.push("--no-config".into());
     }
     argv.extend(options);
+    Some(Arguments {
+        name: name.into(),
+        argv,
+        operands,
+        recursive,
+    })
+}
+
+fn source(root: &Path, command: &str) -> Option<Inspection> {
+    let Arguments {
+        name,
+        mut argv,
+        mut operands,
+        mut recursive,
+    } = arguments(command)?;
+    let name = name.as_str();
+    if name == "tr" {
+        return None;
+    }
     let pattern = if matches!(name, "grep" | "rg") {
         if operands.is_empty() {
             return None;
@@ -165,11 +244,12 @@ pub(crate) fn parse(root: &Path, command: &str) -> Option<Inspection> {
         None
     };
     if name == "pwd" {
-        return (words.len() == 1).then_some(Inspection {
+        return (operands.is_empty() && argv.len() == 1).then_some(Inspection {
             argv,
             paths: vec![],
             names_only: true,
             recursive: false,
+            filters: Vec::new(),
         });
     }
     if operands.is_empty() && matches!(name, "ls" | "rg") {
@@ -202,6 +282,56 @@ pub(crate) fn parse(root: &Path, command: &str) -> Option<Inspection> {
         paths,
         names_only: name == "ls",
         recursive,
+        filters: Vec::new(),
+    })
+}
+
+fn filter(command: &str) -> Option<Filter> {
+    let Arguments {
+        name,
+        mut argv,
+        mut operands,
+        recursive,
+    } = arguments(command)?;
+    if !matches!(
+        name.as_str(),
+        "grep" | "rg" | "head" | "tail" | "wc" | "sort" | "uniq" | "cut" | "tr"
+    ) {
+        return None;
+    }
+    if recursive
+        || matches!(name.as_str(), "grep" | "rg")
+            && argv[1..]
+                .iter()
+                .any(|o| o.starts_with('-') && !o.starts_with("--") && o.contains('l'))
+    {
+        return None;
+    }
+    let mut data = Vec::new();
+    if matches!(name.as_str(), "grep" | "rg") {
+        if operands.len() != 1 {
+            return None;
+        }
+        data.push(operands.remove(0));
+        if name == "rg" {
+            data.push("-".into());
+        }
+    } else if name == "tr" {
+        let d = argv[1..].iter().any(|v| v.contains('d'));
+        let squeeze = argv[1..].iter().any(|v| v.contains('s'));
+        let count = if d && squeeze || !d && !squeeze { 2 } else { 1 };
+        if operands.len() != count {
+            return None;
+        }
+        data = operands;
+    } else if !operands.is_empty() {
+        return None;
+    }
+    argv.push("--".into());
+    argv.extend(data);
+    Some(Filter {
+        argv,
+        head: name == "head",
     })
 }
 
@@ -209,6 +339,22 @@ impl Inspection {
     pub(crate) fn argv(&self) -> &[String] {
         &self.argv
     }
+    pub(crate) fn is_pipeline(&self) -> bool {
+        !self.filters.is_empty()
+    }
+    pub(crate) fn stages(&self) -> Vec<&[String]> {
+        std::iter::once(self.argv.as_slice())
+            .chain(self.filters.iter().map(|f| f.argv.as_slice()))
+            .collect()
+    }
+    pub(crate) fn head_stages(&self) -> Vec<usize> {
+        self.filters
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| f.head.then_some(i + 1))
+            .collect()
+    }
+
     /// New private files only. Source reads are pinned, non-following directory
     /// capabilities; the child never receives access to the original project.
     pub fn snapshot(&self, root: &Path) -> Result<tempfile::TempDir> {
@@ -463,5 +609,47 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("entire host filesystem"));
+    }
+    #[test]
+    fn complete_pipelines_have_explicit_stdin_filters_and_one_source_view() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("notes"), "b\na\na\n").unwrap();
+        let plan = parse(root.path(), "cat notes | sort | uniq -c | head -n 2").unwrap();
+        assert_eq!(plan.stages().len(), 4);
+        assert_eq!(plan.head_stages(), vec![3]);
+        let view = plan.snapshot(root.path()).unwrap();
+        assert_eq!(fs::read(view.path().join("notes")).unwrap(), b"b\na\na\n");
+        assert!(
+            parse(root.path(), "ls -a . | head -n 2")
+                .unwrap()
+                .names_only
+        );
+        let plan = parse(root.path(), "cat notes | tr a-z A-Z").unwrap();
+        assert_eq!(plan.stages()[1], ["/usr/bin/tr", "--", "a-z", "A-Z"]);
+        if Path::new("/usr/bin/rg").is_file() {
+            let plan = parse(root.path(), "cat notes | rg a").unwrap();
+            assert_eq!(plan.stages()[1].last().unwrap(), "-");
+        }
+        for command in [
+            "cat notes | ./danger.sh",
+            "cat notes | grep a /etc/passwd",
+            "cat notes | grep a notes",
+            "cat notes | rg -l a",
+            "cat notes | grep -r a",
+            "cat notes | sort -o out",
+            "cat notes | tail -f",
+            "cat notes | uniq out",
+            "cat notes || head",
+            "cat notes |& head",
+            "cat notes | head > out",
+            "cat notes | grep 'a|b'",
+            "cat notes # ignored | head",
+            "| head",
+            "cat notes |",
+            "cat notes | sort | uniq | head | wc",
+            "cat notes | tr -d a b",
+        ] {
+            assert!(parse(root.path(), command).is_none(), "{command}");
+        }
     }
 }
