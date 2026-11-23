@@ -1,5 +1,13 @@
 # Validation
 
+## Sandbox lifecycle foundation (GL-033) — 2026-11-23
+
+Implemented on `docs/sandbox-verification-plan`, pending merge. The full parallel Rust suite passes **553 tests** in 8.70 seconds, with four existing live-integration/profiling tests ignored and no manual helper termination during this final run. Strict all-target Clippy, formatting, offline build and all six installer tests pass. No paid provider requests or host namespace configuration changes were used.
+
+Seven added regressions cover session-escaped pipe holders after startup failure, future-drop cleanup without killing unrelated children, parent-process exit without Rust destructors, bounded cleanup with a paused supervisor, unused-command records, locked/unconfirmed job evidence and project-owner release/recovery quarantine. Existing output-cap, cancellation, partial-launch, per-stage exit and successful-head tests now run through the dedicated supervisor as well.
+
+The production binary's `sandbox-check` on a fresh temporary project fails closed in 0.027 seconds with the actual `bwrap: setting up uid map: Read-only file system` diagnostic. Its job record confirms cleanup completed. This validates the host's startup-denial/cleanup path, **not successful namespace isolation**. Live successful isolation tests remain ignored here and must run on a suitable Linux host. Writable verification workspaces/capability feedback (GL-027) and resource quotas (GL-023) remain open. See [sandbox lifecycle](10-shell-sandbox.md#process-lifecycle-and-cleanup).
+
 ## Reviewed feature stack merged — 2026-11-23
 
 The pending summary/inspection/supervised-review stack and its review fix are merged into `master`. Review covered role/budget dispatch and retry boundaries, session grant scope, immutable artifact publication and provenance, branch-visible journal/evidence readers, restart/restore guards, and structured inspection classification/execution. One edge case was fixed: an artifact version or comment can commit before project-ownership cleanup fails, so the UI now avoids falsely claiming that nothing was saved and retains the recovery draft. A deterministic injected-cleanup regression covers both versions and comments.

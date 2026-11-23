@@ -1346,6 +1346,11 @@ impl Engine {
                                 "tool.error",
                                 &error,
                             )?;
+                            if e.downcast_ref::<crate::sandbox_job::CleanupIncomplete>()
+                                .is_some()
+                            {
+                                return Err(e);
+                            }
                             messages.push(json!({"role":"user","content":format!(
                                 "Tool request failed:\n{error}\n\nThe action format was accepted, but the requested operation failed. Execution may already have started; use the recorded error/output, not invented results. Do not infer that all tools are unavailable. A workflow restriction, a permission denial and an execution/environment failure are different conditions. Do not bypass a permission denial with another tool or script. Use other enabled tools only for operations that remain authorized; if required outputs are ready, finish honestly about unverified results, otherwise report a configured deviation."
                             )}));

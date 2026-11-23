@@ -1,6 +1,6 @@
 # Sandbox reliability and practical verification — research and design
 
-**Draft, 2026-11-23. No runtime implementation or new permission profile is introduced.** This evaluates GL-033, GL-027 and their GL-023/GL-020 dependencies before coding. Proposed controls, statuses and acceptance targets below are recommendations, not supported configuration or tools today.
+**Design accepted, 2026-11-23. GL-033 lifecycle foundation is implemented on the review branch; GL-027 verification profiles remain proposals.** Current supervision, bounds and recovery behavior are documented in [Linux shell sandbox](10-shell-sandbox.md#process-lifecycle-and-cleanup). Proposed verification controls, statuses and acceptance targets below are not yet supported configuration or tools. No broader execution permission is introduced by the lifecycle work.
 
 ## Recommendation
 

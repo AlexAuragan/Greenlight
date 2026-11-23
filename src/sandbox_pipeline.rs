@@ -1,5 +1,6 @@
 //! Structured pipe execution. Only Sandbox builds production commands; tests use
 //! local fixed fixtures to exercise lifecycle behavior without namespace support.
+use crate::sandbox_job::Job as Command;
 use anyhow::{anyhow, Context, Result};
 use std::os::unix::process::ExitStatusExt;
 use std::{
@@ -12,7 +13,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
-    process::{Child, Command},
+    process::Child,
     sync::Notify,
     task::JoinSet,
 };
@@ -59,6 +60,58 @@ async fn capture<R: AsyncRead + Unpin>(
     Ok(bytes)
 }
 
+// An OS-pipe read must stay nonblocking. tokio::fs uses blocking worker reads,
+// which cannot be cancelled when a failed startup helper keeps a writer open.
+struct Pipe(tokio::io::unix::AsyncFd<std::os::fd::OwnedFd>);
+impl Pipe {
+    fn new(fd: std::os::fd::OwnedFd) -> std::io::Result<Self> {
+        use std::os::fd::AsRawFd;
+        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+        if flags < 0
+            || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: we own this nonblocking FD; it is not closed or replaced
+        // before the registration is dropped. The downstream reader has exited.
+        Ok(Self(unsafe { tokio::io::unix::AsyncFd::register(fd) }?))
+    }
+}
+impl AsyncRead for Pipe {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::os::fd::AsRawFd;
+        loop {
+            let mut ready = std::task::ready!(self.0.poll_read_ready(cx))?;
+            match ready.try_io(|fd| {
+                let bytes = buf.initialize_unfilled();
+                let count = unsafe {
+                    libc::read(
+                        fd.get_ref().as_raw_fd(),
+                        bytes.as_mut_ptr().cast(),
+                        bytes.len(),
+                    )
+                };
+                if count < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(count as usize)
+                }
+            }) {
+                Ok(Ok(count)) => {
+                    buf.advance(count);
+                    return std::task::Poll::Ready(Ok(()));
+                }
+                Ok(Err(error)) => return std::task::Poll::Ready(Err(error)),
+                Err(_) => continue,
+            }
+        }
+    }
+}
+
 enum Captured {
     Stdout(Vec<u8>),
     Stderr(usize, Vec<u8>),
@@ -79,14 +132,14 @@ fn retain(
     Ok(())
 }
 
-pub(super) async fn run(
+pub(crate) async fn run(
     commands: Vec<Command>,
     labels: Vec<String>,
     heads: Vec<usize>,
     stop: &Arc<AtomicBool>,
     deadline: Duration,
 ) -> Result<PipelineOutput> {
-    if commands.len() < 2
+    if commands.is_empty()
         || commands.len() > 4
         || commands.len() != labels.len()
         || heads.iter().any(|h| *h >= commands.len())
@@ -95,6 +148,7 @@ pub(super) async fn run(
     }
     let count = commands.len();
     let mut children: Vec<Child> = Vec::new();
+    let mut owners = Vec::new();
     let mut readers: JoinSet<ReaderResult> = JoinSet::new();
     let mut guards = Vec::new();
     let mut discarded = vec![0u64; count - 1];
@@ -111,13 +165,13 @@ pub(super) async fn run(
         for (index, mut command) in commands.into_iter().enumerate() {
             if stop.load(Ordering::SeqCst) {
                 return Err(anyhow!(
-                    "Pipeline stopped by user before all stages started"
+                    "Sandbox execution stopped by user before all stages started"
                 ));
             }
             if started.elapsed() >= deadline {
-                return Err(anyhow!("Pipeline launch/execution deadline reached"));
+                return Err(anyhow!("Sandbox launch/execution deadline reached"));
             }
-            command.kill_on_drop(true).stderr(Stdio::piped());
+            command.stderr(Stdio::piped());
             command.stdin(previous.take().map_or_else(Stdio::null, Stdio::from));
             if index + 1 < count {
                 let (reader, writer) = std::io::pipe()?;
@@ -129,14 +183,14 @@ pub(super) async fn run(
             } else {
                 command.stdout(Stdio::piped());
             }
-            let mut child = command.spawn().with_context(|| {
+            let (mut child, owner) = command.spawn().with_context(|| {
                 format!(
                     "Pipeline stage {} ({}) could not start",
                     index + 1,
                     labels[index]
                 )
             })?;
-            drop(command);
+            owners.push(owner);
             let error = child.stderr.take().context("Missing pipeline stderr")?;
             let budget = stderr_budget.clone();
             let flag = overflow.clone();
@@ -173,8 +227,7 @@ pub(super) async fn run(
                     if status.is_some() && index > 0 {
                         if let Some(guard) = guards[index - 1].take() {
                             let fd: std::os::fd::OwnedFd = guard.into();
-                            let mut input = tokio::fs::File::from_std(std::fs::File::from(fd));
-                            input.set_max_buf_size(8192);
+                            let mut input = Pipe::new(fd)?;
                             readers.spawn(async move {
                                 let bytes =
                                     tokio::io::copy(&mut input, &mut tokio::io::sink()).await?;
@@ -188,7 +241,7 @@ pub(super) async fn run(
                             .trim_start()
                             .starts_with("bwrap:")
                     {
-                        return Err(anyhow!("Pipeline namespace setup failed; stages may have started. No host fallback"));
+                        return Err(anyhow!("Bubblewrap namespace setup failed; stages may have started. No host fallback"));
                     }
                 }
                 if finished {
@@ -208,41 +261,50 @@ pub(super) async fn run(
         };
         tokio::select! {
             biased;
-            _=crate::provider_failure::cancelled(stop)=>Err(anyhow!("Pipeline stopped by user; no automatic replay")),
-            _=tokio::time::sleep_until(started+deadline)=>Err(anyhow!("Pipeline launch/execution deadline reached")),
-            _=wake.notified()=>Err(anyhow!("Pipeline output limit reached; output is incomplete")),
+            _=crate::provider_failure::cancelled(stop)=>Err(anyhow!("Sandbox execution stopped by user; no automatic replay")),
+            _=tokio::time::sleep_until(started+deadline)=>Err(anyhow!("Sandbox launch/execution deadline reached")),
+            _=wake.notified()=>Err(anyhow!("Sandbox output limit reached; output is incomplete")),
             result=complete=>result,
         }
     };
     if overflow.load(Ordering::SeqCst) && outcome.is_ok() {
         outcome = Err(anyhow!(
-            "Pipeline output limit reached; output is incomplete"
+            "Sandbox output limit reached; output is incomplete"
         ));
     }
     if outcome.is_err() {
-        for child in &mut children {
-            let _ = child.start_kill();
+        for owner in &mut owners {
+            owner.cancel();
         }
     }
     let mut statuses: Vec<ExitStatus> = Vec::new();
-    for child in &mut children {
-        match child.wait().await {
-            Ok(status) => statuses.push(status),
-            Err(error) => {
-                if outcome.is_ok() {
-                    outcome = Err(error.into());
-                }
-            }
+    let cleanup = async {
+        for child in &mut children {
+            statuses.push(child.wait().await?);
         }
-    }
-    // TODO(GL-033): a Bubblewrap pre-namespace helper can outlive its failed
-    // leader and retain these pipes. Contain the full tree and bound cleanup;
-    // the execution select's deadline no longer covers this drain.
-    while let Some(result) = readers.join_next().await {
-        if let Err(error) = retain(result, &mut stdout, &mut stderr, &mut discarded) {
-            if outcome.is_ok() {
-                outcome = Err(error);
+        for owner in &owners {
+            owner.confirmed()?;
+        }
+        while let Some(result) = readers.join_next().await {
+            retain(result, &mut stdout, &mut stderr, &mut discarded)?;
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    match tokio::time::timeout(Duration::from_secs(5), cleanup).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            return Err(anyhow::Error::new(crate::sandbox_job::CleanupIncomplete)
+                .context(format!("Sandbox cleanup failed: {error:#}")))
+        }
+        Err(_) => {
+            for owner in &mut owners {
+                owner.cancel();
             }
+            // Dropping nonblocking readers cannot strand a blocking-pool read.
+            // The detached supervisor retains the job lease until it has reaped
+            // every descendant; recovery remains blocked in the meantime.
+            readers.abort_all();
+            return Err(crate::sandbox_job::CleanupIncomplete.into());
         }
     }
     let namespace_failed = statuses.iter().enumerate().any(|(i, status)| {
@@ -253,7 +315,7 @@ pub(super) async fn run(
     });
     if namespace_failed && outcome.is_ok() {
         outcome = Err(anyhow!(
-            "Pipeline namespace setup failed; stages may have started. No host fallback"
+            "Bubblewrap namespace setup failed; stages may have started. No host fallback"
         ));
     }
     let real_failure = statuses.iter().rposition(|s| !s.success());
@@ -268,7 +330,11 @@ pub(super) async fn run(
             "Pipeline input closed early outside a supported head short read; output is incomplete"
         ));
     }
-    let mut summary = String::from("[Validated pipeline stages]\n");
+    let mut summary = String::from(if count == 1 {
+        "[Sandbox command]\n"
+    } else {
+        "[Validated pipeline stages]\n"
+    });
     for (i, status) in statuses.iter().enumerate() {
         summary.push_str(&format!(
             "{} · {} · {}\n",
@@ -296,10 +362,14 @@ pub(super) async fn run(
             }
         ));
     }
-    summary.push_str(&format!(
-        "Started {} of {count} stages; intermediate data stayed in OS pipes.\n",
-        children.len()
-    ));
+    if count == 1 {
+        summary.push_str(&format!("Started {} of 1 command.\n", children.len()));
+    } else {
+        summary.push_str(&format!(
+            "Started {} of {count} stages; intermediate data stayed in OS pipes.\n",
+            children.len()
+        ));
+    }
     let mut errors = Vec::new();
     for (i, bytes) in stderr.iter().enumerate().filter(|(_, v)| !v.is_empty()) {
         errors.extend_from_slice(format!("[Stage {} · {} stderr]\n", i + 1, labels[i]).as_bytes());
@@ -307,8 +377,13 @@ pub(super) async fn run(
         errors.push(b'\n');
     }
     if let Err(error) = outcome {
+        let kind = if count == 1 {
+            "Sandbox command"
+        } else {
+            "Pipeline"
+        };
         let details=format!(
-            "Pipeline did not complete: {error}\n{summary}\nPartial stdout:\n{}\nCaptured stderr:\n{}",
+            "{kind} did not complete: {error}\n{summary}\nPartial stdout:\n{}\nCaptured stderr:\n{}",
             String::from_utf8_lossy(&stdout),
             String::from_utf8_lossy(&errors)
         );
@@ -329,7 +404,7 @@ pub(super) async fn run(
 mod tests {
     use super::*;
     fn command(program: &str, args: &[&str]) -> Command {
-        let mut command = Command::new(program);
+        let mut command = Command::fixture(program);
         command.args(args).env_clear();
         command
     }
@@ -441,10 +516,12 @@ mod tests {
     #[tokio::test]
     async fn partial_launch_failure_kills_and_reaps_started_processes() {
         let error = run(
-            vec![
-                command("/usr/bin/sleep", &["30"]),
-                command("/definitely-missing-greenlight-fixture", &[]),
-            ],
+            vec![command("/usr/bin/sleep", &["30"]), {
+                let mut job = command("/usr/bin/true", &[]);
+                job.command =
+                    tokio::process::Command::new("/definitely-missing-greenlight-fixture");
+                job
+            }],
             labels(&["sleep", "missing"]),
             vec![],
             &Arc::new(AtomicBool::new(false)),
@@ -612,7 +689,7 @@ mod tests {
             .stages()
             .iter()
             .map(|argv| {
-                let mut cmd = Command::new(&argv[0]);
+                let mut cmd = Command::fixture(&argv[0]);
                 cmd.args(&argv[1..]).current_dir(view.path()).env_clear();
                 cmd
             })
@@ -640,7 +717,7 @@ mod tests {
                 .stages()
                 .iter()
                 .map(|argv| {
-                    let mut cmd = Command::new(&argv[0]);
+                    let mut cmd = Command::fixture(&argv[0]);
                     cmd.args(&argv[1..]).current_dir(view.path()).env_clear();
                     cmd
                 })

@@ -37,6 +37,7 @@ mod provider_failure;
 mod resource_limits;
 mod restore;
 mod sandbox;
+mod sandbox_job;
 mod session_execution;
 mod session_picker;
 mod store;

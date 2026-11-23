@@ -1,5 +1,6 @@
 //! Linux shell sandbox: no network or inherited credentials, a read-only
 //! project checkout, and a dedicated writable build cache.
+use crate::sandbox_job::Job as Command;
 use anyhow::{bail, Context, Result};
 #[cfg(test)]
 use std::fs;
@@ -9,16 +10,16 @@ use std::{
     process::Output,
     time::Duration,
 };
-use tokio::process::Command;
 
 #[path = "sandbox_pipeline.rs"]
-mod pipeline;
+pub(crate) mod pipeline;
 
 const BWRAP: &str = "/usr/bin/bwrap";
 const WORKSPACE: &str = "/workspace";
 const CACHE: &str = "/cache";
 
 pub struct Sandbox {
+    jobs: crate::anchored_fs::Dir,
     root_fd: crate::anchored_fs::Dir,
     cache_fd: crate::anchored_fs::Dir,
     inspection_cache: Option<tempfile::TempDir>,
@@ -48,21 +49,26 @@ impl Sandbox {
     pub fn open(root: &Path) -> Result<Self> {
         let root = checked_project_root(root)?;
         let (_, state) = crate::paths::state_directory_handle(&root)?;
+        crate::sandbox_job::ensure_clean(&state)?;
         let cache_fd = state.create_dirs(Path::new("sandbox-cache"))?;
         use std::os::unix::fs::PermissionsExt;
         cache_fd
             .clone_file()?
             .set_permissions(std::fs::Permissions::from_mode(0o700))?;
         Ok(Self {
+            jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
             root_fd: crate::anchored_fs::Dir::open(&root)?,
             cache_fd,
             inspection_cache: None,
         })
     }
 
-    pub(crate) fn project_inspection(view: &tempfile::TempDir) -> Result<Self> {
+    pub(crate) fn project_inspection(view: &tempfile::TempDir, project: &Path) -> Result<Self> {
         let cache = tempfile::tempdir()?;
+        let (_, state) = crate::paths::state_directory_handle(project)?;
+        crate::sandbox_job::ensure_clean(&state)?;
         Ok(Self {
+            jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
             root_fd: crate::anchored_fs::Dir::open(view.path())?,
             cache_fd: crate::anchored_fs::Dir::open(cache.path())?,
             inspection_cache: Some(cache),
@@ -78,8 +84,7 @@ impl Sandbox {
             );
         }
 
-        let mut command = Command::new(BWRAP);
-        command.kill_on_drop(true);
+        let mut command = Command::new(BWRAP, &self.jobs)?;
         command.env_clear();
         command.args([
             "--unshare-user",
@@ -217,16 +222,39 @@ impl Sandbox {
     }
 
     pub async fn run(&self, input: &str) -> Result<Output> {
-        Self::execute(self.build(input)?, None).await
+        self.run_stoppable(
+            input,
+            &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .await
     }
+    pub(crate) async fn run_stoppable(
+        &self,
+        input: &str,
+        stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Output> {
+        Self::execute(self.build(input)?, stop).await
+    }
+    #[cfg(test)]
     pub async fn inspect(&self, plan: &crate::project_inspection::Inspection) -> Result<Output> {
-        if self.inspection_cache.is_none() {
-            bail!("Automatic inspection requires a private filtered view");
-        }
+        self.inspect_stoppable(
+            plan,
+            &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .await
+    }
+    pub(crate) async fn inspect_stoppable(
+        &self,
+        plan: &crate::project_inspection::Inspection,
+        stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Output> {
         if plan.is_pipeline() {
             bail!("A pipeline must use the complete pipeline executor");
         }
-        Self::execute(self.build_program(plan.argv())?, Some(128 * 1024)).await
+        if self.inspection_cache.is_none() {
+            bail!("Single inspection requires a private filtered view and one command");
+        }
+        Self::execute(self.build_program(plan.argv())?, stop).await
     }
     pub(crate) async fn inspect_pipeline(
         &self,
@@ -262,54 +290,19 @@ impl Sandbox {
         )
         .await
     }
-    async fn execute(mut process: Command, limit: Option<u64>) -> Result<Output> {
-        let running = async {
-            if let Some(limit) = limit {
-                use tokio::io::AsyncReadExt;
-                process
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped());
-                let mut child = process.spawn()?;
-                let stdout = child.stdout.take().context("Missing inspection stdout")?;
-                let stderr = child.stderr.take().context("Missing inspection stderr")?;
-                let out = async {
-                    let mut bytes = Vec::new();
-                    stdout.take(limit + 1).read_to_end(&mut bytes).await?;
-                    Ok::<_, std::io::Error>(bytes)
-                };
-                let err = async {
-                    let mut bytes = Vec::new();
-                    stderr.take(limit + 1).read_to_end(&mut bytes).await?;
-                    Ok::<_, std::io::Error>(bytes)
-                };
-                let (status, stdout, mut stderr) = tokio::try_join!(child.wait(), out, err)?;
-                if stdout.len() as u64 > limit || stderr.len() as u64 > limit {
-                    stderr.extend_from_slice(
-                        b"\n[Inspection output limit reached; command output may be incomplete.]\n",
-                    );
-                }
-                Ok::<_, anyhow::Error>(Output {
-                    status,
-                    stdout,
-                    stderr,
-                })
-            } else {
-                Ok(process.output().await?)
-            }
-        };
-        let output = tokio::time::timeout(Duration::from_secs(120), running)
-            .await
-            .context("sandboxed command timed out after 120s")?
-            .context("failed to start bubblewrap sandbox")?;
-
-        // A namespace setup failure is not an ordinary command failure.
-        // Never retry outside the sandbox.
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !output.status.success() && stderr.trim_start().starts_with("bwrap:") {
-            bail!("bubblewrap could not establish isolation (check user namespaces and --bind-fd/--ro-bind-fd support): {stderr}");
-        }
-        Ok(output)
+    async fn execute(
+        process: Command,
+        stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Output> {
+        Ok(pipeline::run(
+            vec![process],
+            vec!["command".into()],
+            vec![],
+            stop,
+            Duration::from_secs(120),
+        )
+        .await?
+        .output)
     }
 }
 
@@ -519,12 +512,15 @@ mod descriptor_tests {
     }
     #[tokio::test]
     async fn inspection_capture_has_a_hard_output_bound() {
-        let mut command = Command::new("/usr/bin/head");
+        let mut command = Command::fixture("/usr/bin/head");
         command.args(["-c", "1000000", "/dev/zero"]);
-        command.kill_on_drop(true);
-        let output = Sandbox::execute(command, Some(1024)).await.unwrap();
-        assert!(output.stdout.len() <= 1025);
-        assert!(String::from_utf8_lossy(&output.stderr).contains("Inspection output limit reached"));
+        let error = Sandbox::execute(
+            command,
+            &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("output limit"));
     }
     #[tokio::test]
     #[ignore = "requires installed bubblewrap and enabled Linux user namespaces"]
@@ -534,7 +530,7 @@ mod descriptor_tests {
         fs::write(root.path().join(".env"), "secret").unwrap();
         let plan = crate::project_inspection::parse(root.path(), "cat notes").unwrap();
         let view = plan.snapshot(root.path()).unwrap();
-        let sandbox = Sandbox::project_inspection(&view).unwrap();
+        let sandbox = Sandbox::project_inspection(&view, root.path()).unwrap();
         assert!(!view.path().join(".greenlight").exists());
         assert!(!view.path().join(".env").exists());
         let output = sandbox.inspect(&plan).await.unwrap();
@@ -559,7 +555,7 @@ mod descriptor_tests {
         fs::write(root.path().join("notes"), "data").unwrap();
         let plan = crate::project_inspection::parse(root.path(), "cat notes | wc -c").unwrap();
         let view = plan.snapshot(root.path()).unwrap();
-        let sandbox = Sandbox::project_inspection(&view).unwrap();
+        let sandbox = Sandbox::project_inspection(&view, root.path()).unwrap();
         assert!(sandbox
             .inspect(&plan)
             .await
@@ -588,7 +584,7 @@ mod descriptor_tests {
             crate::project_inspection::parse(root.path(), "cat notes | sort | uniq -c").unwrap();
         let view = plan.snapshot(root.path()).unwrap();
         assert!(!view.path().join(".env").exists());
-        let sandbox = Sandbox::project_inspection(&view).unwrap();
+        let sandbox = Sandbox::project_inspection(&view, root.path()).unwrap();
         let output = sandbox
             .inspect_pipeline(
                 &plan,

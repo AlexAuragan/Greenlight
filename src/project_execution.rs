@@ -92,7 +92,9 @@ impl Store {
     }
     pub(crate) fn project_lock(&self) -> Result<LockGuard> {
         let _observation = self.project_observation_lock()?;
-        self.try_project_lock()
+        let lock = self.try_project_lock()?;
+        crate::sandbox_job::ensure_clean(&self.directory_fd)?;
+        Ok(lock)
     }
     /// Caller holds the observation guard until its probe or lock acquisition ends.
     fn try_project_lock(&self) -> Result<LockGuard> {
@@ -142,6 +144,7 @@ impl Store {
             }
             Err(error) => return Err(error),
         };
+        crate::sandbox_job::ensure_clean(&self.directory_fd)?;
         let status = if let Some(record) = self.project_record()? {
             Some(self.project_conflict(true, Some(&record))?)
         } else if let Some((session, count)) = self.legacy_project_owner()? {
@@ -198,6 +201,7 @@ impl Store {
         Ok(())
     }
     pub(crate) fn release_project(&self, lease: &ProjectLease) -> Result<()> {
+        crate::sandbox_job::ensure_clean(&self.directory_fd)?;
         if self.db.execute(
             "DELETE FROM project_owner WHERE singleton=1 AND token=?1",
             [&lease.record.token],

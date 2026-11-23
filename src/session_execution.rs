@@ -263,6 +263,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sandbox_quarantine_preserves_owner_until_cleanup_is_confirmed() {
+        use std::os::unix::fs::FileExt;
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let session = store.create("demo", "goal", "step").unwrap();
+        let owner = store.claim_execution(&session.id, None).unwrap();
+        let jobs = store
+            .directory_fd
+            .create_dirs(std::path::Path::new("sandbox-jobs"))
+            .unwrap();
+        let file = jobs
+            .lock_file(std::path::Path::new("unconfirmed.lease"))
+            .unwrap();
+        file.write_all_at(b"pending ", 0).unwrap();
+        assert!(store
+            .finish_execution(&session.id, &owner, None)
+            .unwrap_err()
+            .is::<crate::sandbox_job::CleanupIncomplete>());
+        assert!(store.project_record().unwrap().is_some());
+        drop(owner);
+        assert!(store
+            .recover_session(&session.id)
+            .unwrap_err()
+            .is::<crate::sandbox_job::CleanupIncomplete>());
+        assert!(store.claim_execution(&session.id, None).is_err());
+        file.write_all_at(b"complete", 0).unwrap();
+        drop(file);
+        store.recover_session(&session.id).unwrap();
+        let owner = store.claim_execution(&session.id, None).unwrap();
+        store.finish_execution(&session.id, &owner, None).unwrap();
+    }
+
+    #[test]
     fn live_owner_excludes_competing_execution_and_mutation_but_not_readers() {
         let root = tempfile::tempdir().unwrap();
         let store = Store::open(root.path()).unwrap();

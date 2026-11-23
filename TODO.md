@@ -8,11 +8,9 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 No open items in this section; completed supervised-workflow features are merged into `master`.
 
-## Deferred sandbox follow-up
+## Sandbox verification — next
 
-- [ ] **GL-033** — Contain and clean up Bubblewrap pre-namespace helper descendants on setup failure/cancellation, and bound capture-drain cleanup after leader exit. On this cloud host, UID-map setup failure can leave an orphaned helper retaining stdout/stderr; the project-inspection test then stalls beyond normal execution cleanup. Reproduced during GL-016; killing only that test helper released the capture. Cover startup-failure descendants and cleanup deadlines without a host-execution fallback. Deferred with sandbox work. Research/design before implementation: [sandbox and verification proposal](docs/53-sandbox-and-verification-design.md).
-
-- [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Deferred by the user after the clock-hover test. The [shared research/design](docs/53-sandbox-and-verification-design.md) covers pre-commit, capability feedback and safe verification workspaces; it adds no runtime authority.
+- [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Next phase of the approved [shared design](docs/53-sandbox-and-verification-design.md): capability feedback, pre-commit and an isolated writable verification copy. This profile is not implemented yet and adds no current runtime authority.
 
 ## Later: scale and integrations
 
@@ -31,6 +29,8 @@ No open items in this section; completed supervised-workflow features are merged
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. GL-012/GL-032 already implement bounded read-only inspection and safe pipe-only classification. Broader argument-varying executable grants and verification execution profiles still require scoped design; unsupported commands retain exact approval and the existing sandbox boundary. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-033** — **Implemented on the review branch (2026-11-23), not yet merged**: a dedicated per-invocation supervisor/subreaper owns Bubblewrap startup descendants, including session-escaped helpers. Single commands and pipelines share bounded capture, cancellation and a five-second cleanup wait. Persistent job records quarantine unconfirmed cleanup and block owner release/recovery; no host fallback or new permissions. See [sandbox lifecycle](docs/10-shell-sandbox.md#process-lifecycle-and-cleanup).
 
 - [x] **GL-017** — **Merged into `master` (2026-11-23)**: optional coding/verification/manager/summary role defaults on one provider, atomic session-wide request/input/output/estimated USD reservations across branches and retries, fail-closed unknown cost accounting, budget blockers/status and budget-only saved-request continuation. Estimates are not invoice caps; workers retain startup policy. See [roles and budgets](docs/52-model-roles-and-session-budgets.md).
 

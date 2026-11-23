@@ -460,25 +460,22 @@ impl Tools {
             None
         };
         let sandbox = if let Some(view) = &view {
-            crate::sandbox::Sandbox::project_inspection(view)?
+            crate::sandbox::Sandbox::project_inspection(view, &self.root)?
         } else {
             crate::sandbox::Sandbox::open(&self.root)?
         };
-        let (output, pipeline_summary) = if let Some(plan) =
-            inspection.as_ref().filter(|p| p.is_pipeline())
-        {
-            let result = sandbox.inspect_pipeline(plan, &self.stop).await?;
-            (result.output, Some(result.summary))
-        } else {
-            let output = tokio::select! {
-                biased;
-                _ = crate::provider_failure::cancelled(&self.stop) => {
-                    bail!("Command stopped by user; partial effects/output may be unknown. No automatic replay.");
-                }
-                result = async {if let Some(plan)=&inspection {sandbox.inspect(plan).await} else {sandbox.run(command).await}} => result?,
+        let (output, pipeline_summary) =
+            if let Some(plan) = inspection.as_ref().filter(|p| p.is_pipeline()) {
+                let result = sandbox.inspect_pipeline(plan, &self.stop).await?;
+                (result.output, Some(result.summary))
+            } else {
+                let output = if let Some(plan) = &inspection {
+                    sandbox.inspect_stoppable(plan, &self.stop).await?
+                } else {
+                    sandbox.run_stoppable(command, &self.stop).await?
+                };
+                (output, None)
             };
-            (output, None)
-        };
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         let mut result = format!(
