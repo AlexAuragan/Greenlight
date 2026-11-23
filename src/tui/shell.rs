@@ -94,6 +94,11 @@ impl App {
                 .and(self.details.report.as_ref())
                 .map(|r| r.calls.iter().map(|c| c.id.as_str()).collect::<Vec<_>>())
         ) + &format!(
+            ":groups:{}:{}:{:?}",
+            self.details.group_index,
+            self.details.groups_by_step,
+            self.details.groups.as_ref().and_then(|g| g.cutoff)
+        ) + &format!(
             ":{:?}:{}:{}",
             self.compose.mode, self.checkpoint.reading, self.checkpoint.index
         ) + &format!(
@@ -228,6 +233,7 @@ impl App {
         }
         if self.view == View::Edits && !self.edits.files.is_empty() {
             actions.splice(0..0, [Action::OpenEdit, Action::EditAll, Action::RevertAll]);
+            actions.push(Action::GroupedReview);
             if self.edits.has_hunks() {
                 actions.extend([Action::PreviousHunk, Action::NextHunk, Action::FullDiff]);
             }
@@ -1153,6 +1159,24 @@ impl App {
             ReviewEdits => {
                 self.switch_view(View::Edits);
                 self.refresh_edits(store);
+            }
+            GroupedReview => self.open_grouped_review(store),
+            PreviousGroup | NextGroup => {
+                if let Some(review) = &self.details.groups {
+                    self.details.group_index = move_index(
+                        self.details.group_index,
+                        if action == PreviousGroup { -1 } else { 1 },
+                        review.len(self.details.groups_by_step),
+                    );
+                    self.detail_scroll = 0;
+                    self.refresh_run_details(store);
+                }
+            }
+            GroupSteps | GroupAttempts => {
+                self.details.groups_by_step = action == GroupSteps;
+                self.details.group_index = 0;
+                self.detail_scroll = 0;
+                self.refresh_run_details(store);
             }
             PreviousHunk | NextHunk => self.navigate_hunk(action == PreviousHunk),
             FullDiff => {

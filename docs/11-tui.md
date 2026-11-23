@@ -274,3 +274,7 @@ In Artifacts or Versions, More exposes `[e] Edit artifact (new version)`, `[N] A
 ## Hunk navigation and verification exports
 
 Edits exposes `[` Previous hunk, `]` Next hunk and `D` Full file diff through More and the hunk reader footer. Hunk mode shows one recorded change block; Tab still cycles files. C/E exports that selected block, so return to Full file diff to export the whole file. No hunk approval/staging or partial revert is introduced. More / Details exposes `V` Export verification evidence, which saves a private JSON snapshot of recorded checks and exact references without rerunning them. See [diff hunks and verification evidence](50-diff-hunks-and-verification-evidence.md).
+
+## Optional grouped native edit review
+
+In Edits, `g` or More → Grouped review opens a historical combined diff reader. `[` / `]` select groups; `t` switches attempt/step grouping; C/E exports the selected group in full. Reruns, restores and missing attempt IDs are labelled separately. Discontinuous chains show individual write diffs rather than a misleading combined attribution. This is a frozen read-only snapshot, not staging or group approval; close and reopen to refresh. See [grouped review](51-grouped-native-edit-review.md).

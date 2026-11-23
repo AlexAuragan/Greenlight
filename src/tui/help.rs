@@ -11,6 +11,8 @@ Search letters and paste stay literal. Compose closes without discarding its dra
 Diff review
 Edits: [ and ] open the previous/next recorded hunk; D returns to the full file diff.
 Tab still cycles files. Hunk navigation changes no files or review decisions.
+Edits g opens optional grouped review; [ / ] select groups, t toggles step/attempt.
+Grouped review is a frozen read-only snapshot; reopen it to refresh. C/E exports its full text.
 V exports historical verification evidence (also More / Details). No checks are rerun.
 
 Artifacts

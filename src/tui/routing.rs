@@ -277,6 +277,7 @@ impl App {
             if let Some(action) = shell::Action::for_key(
                 key.code,
                 &[
+                    shell::Action::GroupedReview,
                     shell::Action::PreviousHunk,
                     shell::Action::NextHunk,
                     shell::Action::FullDiff,

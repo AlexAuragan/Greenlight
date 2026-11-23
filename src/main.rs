@@ -14,6 +14,7 @@ mod conversation_dump;
 mod credentials;
 #[cfg(test)]
 mod deviation_tests;
+mod edit_groups;
 mod engine;
 mod file_discovery;
 #[cfg(test)]

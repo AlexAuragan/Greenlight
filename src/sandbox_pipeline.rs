@@ -235,6 +235,9 @@ pub(super) async fn run(
             }
         }
     }
+    // TODO(GL-033): a Bubblewrap pre-namespace helper can outlive its failed
+    // leader and retain these pipes. Contain the full tree and bound cleanup;
+    // the execution select's deadline no longer covers this drain.
     while let Some(result) = readers.join_next().await {
         if let Err(error) = retain(result, &mut stdout, &mut stderr, &mut discarded) {
             if outcome.is_ok() {

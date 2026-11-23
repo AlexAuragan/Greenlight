@@ -42,3 +42,5 @@ cargo test --locked sandbox::descriptor_tests::integration_project_pipeline_isol
 ```
 
 This host cannot establish successful end-to-end namespace isolation. See [validation](06-validation.md).
+
+GL-033 records an observed startup-cleanup limitation: on this host, failing UID-map setup can leave a pre-namespace Bubblewrap helper retaining stdio after the direct stage process exits. Capture draining can then stall beyond the execution deadline. Full descendant containment and bounded cleanup remain deferred sandbox work; the current tests do not establish that guarantee for every real Bubblewrap startup failure.

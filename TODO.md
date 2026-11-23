@@ -6,10 +6,11 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-016** — Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
 - [ ] **GL-017** — Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
 
 ## Deferred sandbox follow-up
+
+- [ ] **GL-033** — Contain and clean up Bubblewrap pre-namespace helper descendants on setup failure/cancellation, and bound capture-drain cleanup after leader exit. On this cloud host, UID-map setup failure can leave an orphaned helper retaining stdout/stderr; the project-inspection test then stalls beyond normal execution cleanup. Reproduced during GL-016; killing only that test helper released the capture. Cover startup-failure descendants and cleanup deadlines without a host-execution fallback. Deferred with sandbox work.
 
 - [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Deferred by the user after the clock-hover test.
 
@@ -30,6 +31,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-016** — Implemented on `feat/optional-summaries` (pending merge): opt-in grouped native journal readers by step/attempt, separate rerun/restore/unattributed groups, combined continuous diffs with per-write fallback on gaps, frozen branch-visible snapshots and full selected-group C/E exports. No staging or group approval/undo. See [grouped review](docs/51-grouped-native-edit-review.md).
 
 - [x] **GL-015** — Implemented on `feat/optional-summaries` (pending merge): native diff hunk readers with Previous/Next/full-file controls, plus TUI/CLI exports of bounded branch-visible verification records and exact referenced artifacts/tool evidence. No new verification, hunk staging or permissions. See [diff hunks and evidence](docs/50-diff-hunks-and-verification-evidence.md).
 

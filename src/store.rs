@@ -171,6 +171,7 @@ impl Store {
            CREATE INDEX IF NOT EXISTS restores_branch ON restore_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS changes_branch ON file_changes(session,branch,event_id);
            CREATE INDEX IF NOT EXISTS event_branch ON events(session,branch,id);
+           CREATE INDEX IF NOT EXISTS attempt_event_scope ON step_attempts(session,branch,step,start_event);
            CREATE INDEX IF NOT EXISTS artifact_branch ON artifacts(session,branch,event_id);
            COMMIT;",
         )?;
