@@ -1,5 +1,11 @@
 # Validation
 
+## Artifact comments and user revisions (GL-014) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. The full suite passes 519 Rust tests (four existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Seven new tests cover original preservation and user/source attribution, version/branch-scoped comments, stale/latest and active-owner rejection, no-op/size bounds, rollback of failed attribution publication, real TUI shortcut/actions with an external-editor fixture, symlink/failed-editor rejection and recoverable conflict drafts. No paid provider calls were used. See [artifact review](49-artifact-review.md).
+
+Initial suite attempts stalled in the existing project-inspection policy test; the isolated test and a subsequent full default-parallel suite passed. No sandbox fallback or production change was made to bypass that test. The previously recorded host restriction on live Bubblewrap integration remains.
+
 ## Session-scoped saved permissions (GL-013) — 2026-11-23
 
 Implemented on `feat/optional-summaries`, pending merge. The full suite passes 512 Rust tests (four existing integration/profiling tests ignored). Strict all-target Clippy, formatting, offline build and six installer tests pass. New and extended checks cover same-session reload, session/project separation, exact shell matching, configured deny precedence, confirmed/cancelled session grants, disconnected confirmation saving nothing, and session rows in 80×24/120×36 permission popups. Session grants reuse anchored reads, scope locks and atomic saves; they do not change sandbox authority. No paid provider calls were used. See [saved approvals](08-persistent-approvals.md).

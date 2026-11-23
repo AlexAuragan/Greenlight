@@ -574,6 +574,16 @@ impl Store {
         bail!("Event is not visible on the selected branch")
     }
     pub fn add_artifact(&self, s: &Session, step: &str, name: &str, content: &str) -> Result<()> {
+        self.publish_artifact(s, step, name, content, None)
+    }
+    pub(crate) fn publish_artifact(
+        &self,
+        s: &Session,
+        step: &str,
+        name: &str,
+        content: &str,
+        review: Option<&crate::artifact_review::Record>,
+    ) -> Result<()> {
         let path = Path::new(name);
         if name.is_empty()
             || path.is_absolute()
@@ -600,6 +610,12 @@ impl Store {
             let ev = tx.last_insert_rowid();
             tx.execute("INSERT INTO artifacts(session,branch,event_id,step,name,blob_path) VALUES (?1,?2,?3,?4,?5,?6)",
                 params![s.id,s.active_branch,ev,step,name,blob])?;
+            if let Some(review) = review {
+                let mut saved = review.clone();
+                saved.version = Some(ev);
+                tx.execute("INSERT INTO events(session,branch,step,kind,data) VALUES (?1,?2,?3,'artifact.user-edit',?4)",
+                    params![s.id,s.active_branch,step,serde_json::to_string(&saved)?])?;
+            }
             tx.commit()?;
             Ok(())
         })();

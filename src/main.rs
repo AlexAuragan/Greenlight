@@ -6,6 +6,7 @@ mod anchored_fs;
 mod anchored_sqlite;
 mod approvals;
 mod artifact_history;
+mod artifact_review;
 mod changes;
 mod config;
 mod continuation;

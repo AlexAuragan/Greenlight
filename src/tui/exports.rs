@@ -217,7 +217,7 @@ fn copy_text(text: &str) -> Result<&'static str> {
     }
     bail!("No usable clipboard utility (wl-copy/xclip/xsel). Check the desktop session or export the selected record with the CLI.\n\n{}",failures.join("\n"))
 }
-fn editor_command(setting: &str, path: &Path) -> Result<Command> {
+pub(super) fn editor_command(setting: &str, path: &Path) -> Result<Command> {
     let words = shlex::split(setting).context("Editor setting has unmatched quotes")?;
     let program = words
         .first()
@@ -314,7 +314,7 @@ impl Drop for TerminalResume {
         }
     }
 }
-pub(super) fn with_terminal_suspended(action: impl FnOnce() -> Result<()>) -> Result<Result<()>> {
+pub(super) fn with_terminal_suspended<T>(action: impl FnOnce() -> Result<T>) -> Result<Result<T>> {
     crossterm::terminal::disable_raw_mode()?;
     let mut resume = TerminalResume { active: true };
     crossterm::execute!(

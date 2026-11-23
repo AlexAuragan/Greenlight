@@ -8,6 +8,12 @@ Sessions opens search; arrows select candidates, Enter opens the selected sessio
 Back/Esc cancels browsing; Clear search resets the filter.
 Search letters and paste stay literal. Compose closes without discarding its draft.
 
+Artifacts
+e edits the selected artifact into a new version; N adds a version-specific comment.
+b reads comments. These actions also appear in More. Stop workers before editing.
+Save and close the external editor to import; unchanged drafts/empty comments save nothing.
+E remains a read-only export; comments do not approve work or message the agent.
+
 Decisions
 Use the displayed decision key or click its row; Enter never decides.
 Human checkpoint: Tab/Shift+Tab cycles documents; Enter/e opens evidence.

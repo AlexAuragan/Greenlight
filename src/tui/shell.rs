@@ -187,6 +187,9 @@ impl App {
 
         if self.artifact_browser.is_some() {
             let mut actions = vec![
+                Action::EditArtifact,
+                Action::CommentArtifact,
+                Action::ArtifactComments,
                 Action::ConversationDump,
                 Action::Versions,
                 Action::Provenance,
@@ -249,7 +252,14 @@ impl App {
             actions.insert(0, Action::ResultEvidence);
         }
         if self.view == View::Artifacts && self.artifact().is_some() {
-            actions.extend([Action::Versions, Action::Provenance, Action::Compare]);
+            actions.extend([
+                Action::EditArtifact,
+                Action::CommentArtifact,
+                Action::ArtifactComments,
+                Action::Versions,
+                Action::Provenance,
+                Action::Compare,
+            ]);
         }
         if self
             .compose
@@ -1125,6 +1135,14 @@ impl App {
             ReviewEdits => {
                 self.switch_view(View::Edits);
                 self.refresh_edits(store);
+            }
+            EditArtifact | CommentArtifact => {
+                if let Err(error) = self.prepare_artifact_review(store, action == CommentArtifact) {
+                    self.notice = format!("Artifact review unavailable: {error:#}");
+                }
+            }
+            ArtifactComments => {
+                self.open_artifact_mode(store, crate::artifact_history::Mode::Comments)?;
             }
             Versions => {
                 self.open_artifact_mode(store, crate::artifact_history::Mode::Content)?;

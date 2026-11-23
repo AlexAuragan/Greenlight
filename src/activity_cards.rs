@@ -516,6 +516,33 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             "Recorded restore · d opens journal diff",
             Tone::Info,
         ),
+        "artifact.user-edit" | "artifact.comment" => {
+            match serde_json::from_str::<crate::artifact_review::Record>(raw) {
+                Ok(review) => card(
+                    if kind == "artifact.user-edit" {
+                        "User artifact revision"
+                    } else {
+                        "User review comment"
+                    },
+                    format!(
+                        "{} · source version #{} · {}",
+                        review.name,
+                        review.source,
+                        if let Some(version) = review.version {
+                            format!("new version #{version}")
+                        } else {
+                            "review note; not an approval".into()
+                        }
+                    ),
+                    Tone::Info,
+                ),
+                Err(_) => card(
+                    "Artifact review record",
+                    "Malformed review metadata; inspect raw evidence",
+                    Tone::Attention,
+                ),
+            }
+        }
         "artifact.created" => card(
             format!("Artifact stored · {}", short(raw)),
             format!("Version #{id} · o opens this exact version"),

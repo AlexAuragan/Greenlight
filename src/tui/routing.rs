@@ -488,6 +488,22 @@ impl App {
             }
             return Ok(false);
         }
+        if (self.view == View::Artifacts || self.artifact_browser.is_some())
+            && !typing
+            && !self.shell.actions_focus
+            && key.kind == KeyEventKind::Press
+        {
+            if let Some(action) = shell::Action::for_key(
+                key.code,
+                &[
+                    shell::Action::EditArtifact,
+                    shell::Action::CommentArtifact,
+                    shell::Action::ArtifactComments,
+                ],
+            ) {
+                return self.activate(action, root, store);
+            }
+        }
         if self.artifact_browser.is_some()
             && key.code == KeyCode::Char('s')
             && self.session().is_some_and(|s| s.status == "completed")

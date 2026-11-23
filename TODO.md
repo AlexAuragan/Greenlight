@@ -6,7 +6,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-014** — Support artifact review comments and safe new-version editing (external editor first, optionally embedded later).
 - [ ] **GL-015** — Extend diff review with hunk navigation and exportable verification evidence.
 - [ ] **GL-016** — Add **opt-in grouped review** of multiple already-journaled native writes (combined diff by step/attempt). Don't build a separate staging engine unless a concrete workflow requires pre-apply group approval.
 - [ ] **GL-017** — Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
@@ -32,6 +31,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-014** — Implemented on `feat/optional-summaries` (pending merge): external-editor human artifact revisions, exact-version branch-visible review comments, user/source provenance, immutable originals, guarded publication and retained conflict drafts. Comments do not approve work or automatically message the agent. See [artifact review](docs/49-artifact-review.md).
 
 - [x] **GL-013** — Implemented on `feat/optional-summaries` (pending merge): confirmed session-only saved exact-shell/native-write grants, retained across restarts and branches, isolated by project/session identity, with CLI inspection and TUI decision rows. Unanswered/dismissed prompts save nothing. See [saved approvals](docs/08-persistent-approvals.md).
 

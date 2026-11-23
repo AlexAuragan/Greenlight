@@ -266,3 +266,7 @@ Select a manager forward in Activity and use **[g] Deliver original** to explici
 ## Project inspection feedback
 
 Supported GL-012 inspection commands and GL-032 read-only pipelines can run without an approval popup when policy permits. Their tool results identify the filtered snapshot scope, and raw permission evidence records automatic classification. Unsupported commands/options/pipelines still show the full exact-command permission popup; no control approves a command prefix. `permissions.project_inspection: false` restores prompt-only shell classification. Existing exact grants, explicit shell allow/deny and user-requested reruns preserve their earlier behavior. See [inspection permissions](46-project-inspection-permissions.md), including the sandbox integration prerequisite.
+
+## Artifact comments and user revisions
+
+In Artifacts or Versions, More exposes `[e] Edit artifact (new version)`, `[N] Add review comment` and `[b] Review comments`. Save and close the external editor to publish; unchanged edits and blank comments save nothing. Originals remain immutable, comments stay on their exact version, and edits record user authorship. Conflicting saves retain a private recovery draft. `[E] Editor` remains a read-only export. These actions neither approve work nor send instructions to the agent. See [artifact review](49-artifact-review.md) for limits, conflicts and workflow-input behavior.
