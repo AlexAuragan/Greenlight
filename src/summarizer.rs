@@ -69,7 +69,13 @@ impl Engine {
         let _lock = crate::locks::LockGuard::acquire(locks.lock_file(std::path::Path::new(&name))?)
             .context("A summary is already being generated for this session")?;
         let mut cfg = self.cfg.clone();
-        cfg.manager.model = cfg.summarizer.as_ref().and_then(|s| s.model.clone());
+        cfg.manager.model = Some(
+            cfg.summarizer
+                .as_ref()
+                .and_then(|s| s.model.clone())
+                .or_else(|| cfg.model_roles.summarizer.clone())
+                .unwrap_or_else(|| cfg.provider.model.clone()),
+        );
         let mut snapshot = crate::manager::capture_with_config(
             &self.root,
             &self.store,
@@ -211,6 +217,20 @@ mod tests {
                 session,
             }
         }
+    }
+    #[tokio::test]
+    async fn summary_role_does_not_inherit_manager_role_and_explicit_model_wins() {
+        let mut f = Fixture::new();
+        f.engine.cfg.model_roles.summarizer = Some("summary-role".into());
+        f.engine.cfg.model_roles.manager = Some("different-manager-role".into());
+        let first = f.engine.summarize(&f.session.id, None).await.unwrap();
+        assert_eq!(first.snapshot.model, "summary-fixture");
+        f.engine.cfg.summarizer.as_mut().unwrap().model = None;
+        let next = f.engine.summarize(&f.session.id, None).await.unwrap();
+        assert_eq!(next.snapshot.model, "summary-role");
+        f.engine.cfg.model_roles.summarizer = None;
+        let fallback = f.engine.summarize(&f.session.id, None).await.unwrap();
+        assert_eq!(fallback.snapshot.model, "coding-fixture");
     }
     #[tokio::test]
     async fn summary_is_accounted_and_does_not_change_a_live_workflow_or_its_continuation() {

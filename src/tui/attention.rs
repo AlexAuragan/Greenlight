@@ -204,6 +204,45 @@ pub(super) fn project(
             return Some(state);
         }
     }
+    if let Some((id, value)) = current
+        .iter()
+        .rev()
+        .filter(|e| e.2 == "budget.blocked")
+        .filter_map(|e| {
+            serde_json::from_str::<serde_json::Value>(&e.3)
+                .ok()
+                .map(|v| (e.0, v))
+        })
+        .find(|(_, v)| {
+            v["purpose"]
+                .as_str()
+                .is_some_and(|p| !matches!(p, "manager" | "summarizer"))
+        })
+    {
+        let superseded = current.iter().any(|e| {
+            e.0 > id
+                && matches!(
+                    e.2.as_str(),
+                    "model.call-started" | "model.output" | "step.completed" | "runner.recovered"
+                )
+        });
+        if !superseded {
+            state.kind = Kind::Blocked;
+            state.title = "Session model budget reached".into();
+            state.evidence = Some(id);
+            state.reason = value["reason"]
+                .as_str()
+                .unwrap_or("Budget accounting unavailable")
+                .into();
+            state.next = if state.saved_request {
+                "Review budgets.session, then t / Retry saved request. New worker settings are reloaded."
+            } else {
+                "Review budgets.session, then resume explicitly. Inspect recorded work first."
+            };
+            state.impact="The blocked dispatch sent no request. Reservations include all branches, retries and side questions. Changing a budget does not grant tool permission.";
+            return Some(state);
+        }
+    }
     if let Some((id, call, failure)) = provider {
         // A later dispatch, successful output or recovery supersedes an earlier failure.
         let superseded = current.iter().any(|e| {
@@ -489,6 +528,35 @@ mod tests {
             .usage_report(session, crate::usage::Scope::Session)
             .unwrap();
         project(session, &workspace, &history, local, &report.calls)
+    }
+    #[test]
+    fn model_budget_blocker_supersedes_an_earlier_provider_retry_and_usage_shows_limits() {
+        let (_root, store, session, mut app) = fixture();
+        let failure =
+            crate::provider_failure::Failure::local(crate::provider_failure::Kind::RateLimit);
+        store
+            .event(
+                &session,
+                Some("investigate"),
+                "provider.failure",
+                &serde_json::json!({"call_id":"fixture","purpose":"coding","failure":failure})
+                    .to_string(),
+            )
+            .unwrap();
+        store.event(&session,Some("investigate"),"budget.blocked",&serde_json::json!({"purpose":"coding","model":"fixture","reason":"request limit reached"}).to_string()).unwrap();
+        app.refresh(&store).unwrap();
+        assert_eq!(
+            app.attention.as_ref().unwrap().title,
+            "Session model budget reached"
+        );
+        app.open_run_details(details::Page::Usage, &store);
+        let mut config = crate::model_budget::Config::default();
+        config.session.requests = Some(0);
+        app.details.budget_config = Some(config);
+        app.refresh_run_details(&store);
+        assert!(app.details.text.contains("Session model budgets"));
+        assert!(app.details.text.contains("all branches/purposes"));
+        assert!(app.details.text.contains("not provider billing guarantees"));
     }
     #[test]
     fn provider_categories_are_typed_and_old_or_manager_failures_do_not_become_current_cause() {

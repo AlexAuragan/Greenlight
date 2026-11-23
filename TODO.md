@@ -6,7 +6,7 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 ## Supervised workflows and review
 
-- [ ] **GL-017** — Introduce model-role configuration and usage/cost budgets without assuming multiple provider accounts.
+No open items in this section; completed work below remains pending merge where noted.
 
 ## Deferred sandbox follow-up
 
@@ -31,6 +31,8 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-017** — Implemented on `feat/optional-summaries` (pending merge): optional coding/verification/manager/summary role defaults on one provider, atomic session-wide request/input/output/estimated USD reservations across branches and retries, fail-closed unknown cost accounting, budget blockers/status and budget-only saved-request continuation. Estimates are not invoice caps; workers retain startup policy. See [roles and budgets](docs/52-model-roles-and-session-budgets.md).
 
 - [x] **GL-016** — Implemented on `feat/optional-summaries` (pending merge): opt-in grouped native journal readers by step/attempt, separate rerun/restore/unattributed groups, combined continuous diffs with per-write fallback on gaps, frozen branch-visible snapshots and full selected-group C/E exports. No staging or group approval/undo. See [grouped review](docs/51-grouped-native-edit-review.md).
 

@@ -24,6 +24,8 @@ pub(super) struct Details {
     pub report: Option<Report>,
     pub selected: Option<String>,
     pub configured_model: Option<String>,
+    pub budget_config: Option<crate::model_budget::Config>,
+    pub model_roles: Option<crate::config::ModelRoles>,
     pub provider: Option<crate::provider::ConnectionInfo>,
     pub text: String,
     pub dump: Option<crate::conversation_dump::Dump>,
@@ -169,6 +171,9 @@ fn request_text(call: &Call) -> String {
         text.push('\n');
     } else {
         text.push_str("Pricing snapshot: Not recorded\n");
+    }
+    if let Some(reservation) = &call.reservation {
+        text.push_str(&format!("\nDispatch reservation (estimates, not additional billed usage):\nInput {} · max output {} · estimated USD {:?}\n",reservation.input_tokens,reservation.output_tokens,reservation.estimated_cost_usd));
     }
     if !call.counts.notes.is_empty() {
         text.push_str(&format!(
@@ -492,6 +497,24 @@ impl App {
                             text.push_str("No original provider response text was recorded; older discarded bodies cannot be backfilled.");
                         }
                     }
+                }
+            }
+        }
+        if matches!(page, Page::Usage | Page::Technical) {
+            if let Some(config) = &self.details.budget_config {
+                text.push_str(&format!(
+                    "\n\n{}\n",
+                    store
+                        .model_budget_status(&session, config)
+                        .unwrap_or_else(|e| format!("Model budgets unavailable: {e:#}"))
+                ));
+            }
+            if page == Page::Technical {
+                if let Some(roles) = &self.details.model_roles {
+                    text.push_str(&format!(
+                        "\nConfigured model role defaults (same provider/account):\n{}",
+                        serde_yaml::to_string(roles).unwrap_or_default()
+                    ));
                 }
             }
         }

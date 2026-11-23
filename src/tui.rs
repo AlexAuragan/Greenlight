@@ -379,6 +379,8 @@ impl App {
         if let Some(root) = store.directory.parent().and_then(Path::parent) {
             let config = crate::config::load_config(root);
             self.details.configured_model = config.as_ref().ok().map(|c| c.provider.model.clone());
+            self.details.budget_config = config.as_ref().ok().map(|c| c.budgets.clone());
+            self.details.model_roles = config.as_ref().ok().map(|c| c.model_roles.clone());
             self.details.provider = config
                 .as_ref()
                 .ok()

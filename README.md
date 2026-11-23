@@ -125,3 +125,5 @@ The `optimize-performance` example loops on `target_not_met` and stops on regres
 See the [documentation index](docs/README.md) for runtime contracts, current controls, verification and unfinished design work. [Actual Ratatui captures](docs/screenshots/README.md) show implementation renders; they supplement the manual smoke tests and do not establish real-terminal or live-model compatibility on their own.
 
 Recorded verification evidence can be exported without rerunning checks: `greenlight verification-evidence SESSION_ID`, or **More → Export verification evidence** in the TUI. See [diff hunks and verification evidence](docs/50-diff-hunks-and-verification-evidence.md).
+
+Optional `model_roles` defaults select coding, verification, manager and summary models on the same provider. `budgets.session` guards new dispatches by request count, token reservations and estimated USD cost; inspect with `greenlight model-budget SESSION_ID`. These estimates are not provider invoice caps. See [model roles and session budgets](docs/52-model-roles-and-session-budgets.md).

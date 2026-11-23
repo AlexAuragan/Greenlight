@@ -25,6 +25,7 @@ mod manager;
 mod manager_delivery;
 mod manager_inbox;
 mod markdown;
+mod model_budget;
 mod paths;
 mod pricing;
 mod project;
@@ -264,6 +265,8 @@ enum Commands {
     },
     /// Save historical verification evidence for the selected session/active branch
     VerificationEvidence { session: String },
+    /// Show configured session model budgets, reservations and model roles
+    ModelBudget { session: String },
     /// List native agent edits on the active branch
     Changes { session: String },
     /// Show a unified diff for one native agent write
@@ -762,6 +765,16 @@ async fn main() -> Result<()> {
                 approvals.bind_session(&selected.id)?;
             }
             print!("{}", approvals.describe()?);
+        }
+        Commands::ModelBudget { session } => {
+            let config = config::load_config(&root)?;
+            let store = store::Store::open(&root)?;
+            let selected = store.session(&session)?;
+            println!(
+                "{}\nModel role defaults:\n{}",
+                store.model_budget_status(&selected, &config.budgets)?,
+                serde_yaml::to_string(&config.model_roles)?
+            );
         }
         Commands::VerificationEvidence { session } => {
             let store = store::Store::open(&root)?;

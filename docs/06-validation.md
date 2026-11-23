@@ -1,5 +1,11 @@
 # Validation
 
+## Model roles and session budgets (GL-017) — 2026-11-23
+
+Implemented on `feat/optional-summaries`, pending merge. A full serial run passes 545 Rust tests in 21.21 seconds (four existing integration/profiling tests ignored), alongside strict all-target Clippy, formatting, offline build and six installer tests. Twelve new tests cover workflow/verification/manager/summary role precedence, first-request token/unpriced-cost denial without phantom dispatches, retry and side-purpose budget sharing, independent-connection reservation contention, cross-branch accounting, cached-input subset semantics, maximum context-rate reservations, unknown/foreign-currency/tier cost handling, old ledger JSON, empty/invalid/default configuration, exact saved-message continuation after budget-only changes and TUI budget blockers/status. Scripted providers make no paid calls. See [model roles and session budgets](52-model-roles-and-session-budgets.md).
+
+The parallel run reached the known GL-033 Bubblewrap helper stall in the unrelated project-inspection test. Terminating only its orphaned test helper allowed all 545 tests to finish in 188.62 seconds; that intervention is not evidence of automatic sandbox cleanup. The subsequent full serial run needed no intervention. GL-033 remains deferred; no sandbox bypass was added.
+
 ## Optional grouped native edit review (GL-016) — 2026-11-23
 
 Implemented on `feat/optional-summaries`, pending merge. The full suite passes 533 Rust tests (four existing integration/profiling tests ignored), strict all-target Clippy, formatting, offline build and six installer tests. Seven new tests cover multi-file attempt/step grouping and retry separation, discontinuous-chain per-write fallback, rerun/restore/unattributed provenance, fork/source-branch and session isolation, frozen read-only snapshots, missing/empty/over-budget evidence, real TUI keys and narrow/normal rendering, full selected-group export, cached idle refresh, explicit reopening, scope-change closure and permission precedence. A lookup index is added on existing attempt columns; no new journal/staging schema or body snapshots are introduced. No paid provider calls were used. See [grouped native edit review](51-grouped-native-edit-review.md).

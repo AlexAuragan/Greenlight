@@ -140,6 +140,9 @@ impl Engine {
         let workflow = crate::config::load_workflow(&self.root, &s.workflow)?;
         let mut definitions: Vec<_> = workflow.steps.values().collect();
         definitions.sort_by(|a, b| a.id.cmp(&b.id));
+        // Budget changes authorize dispatch capacity, not different prepared messages.
+        let mut checkpoint_config = self.cfg.clone();
+        checkpoint_config.budgets = Default::default();
         let bytes = serde_json::to_vec(&(
             s.workflow.as_str(),
             s.current_step.as_str(),
@@ -149,7 +152,7 @@ impl Engine {
             definitions,
             &self.cfg.provider.base_url,
             self.cfg.provider.max_tokens,
-            &self.cfg,
+            &checkpoint_config,
             crate::agent_protocol::SYSTEM,
             crate::manager::system_prompt(),
         ))?;

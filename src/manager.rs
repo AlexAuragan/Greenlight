@@ -254,6 +254,7 @@ pub(crate) fn capture_with_config(
         .manager
         .model
         .as_deref()
+        .or(cfg.model_roles.manager.as_deref())
         .unwrap_or(&cfg.provider.model)
         .to_owned();
     let provider = reqwest::Url::parse(&cfg.provider.base_url)

@@ -9,6 +9,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Install, update, initialize and select a project | [Installation and projects](22-installation-and-projects.md) |
 | Current TUI controls, popups, drafts, artifacts and Edits | [Interactive TUI](11-tui.md) |
 | Once/process/session/project/global permissions | [Saved approvals](08-persistent-approvals.md) |
+| Model role defaults and session dispatch budgets | [Roles and budgets](52-model-roles-and-session-budgets.md) |
 | Optional combined native diffs by step/attempt | [Grouped review](51-grouped-native-edit-review.md) |
 | Diff hunks and verification evidence exports | [Diff review and evidence](50-diff-hunks-and-verification-evidence.md) |
 | Artifact comments and human version editing | [Artifact review](49-artifact-review.md) |

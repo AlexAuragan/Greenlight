@@ -1394,3 +1394,32 @@ async fn real_process_restart_loads_updated_credentials_without_repeating_tools(
         attempt
     );
 }
+
+#[tokio::test]
+async fn budget_pause_can_resume_exact_saved_messages_after_only_the_limit_changes() {
+    let mut h = Harness::new(PAUSE, vec![Ok(FINISH)]);
+    h.engine.cfg.budgets.session.requests = Some(0);
+    h.run().await;
+    let s = h.engine.store.session(&h.session).unwrap();
+    assert_eq!(s.status, "blocked");
+    assert!(h.script.lock().unwrap().requests.is_empty());
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    let attempt = cp.attempt.clone();
+    h.engine.cfg.budgets.session.requests = Some(1);
+    h.engine.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.engine.store.session(&s.id).unwrap().status, "completed");
+    assert_eq!(h.script.lock().unwrap().requests.len(), 1);
+    assert_eq!(h.script.lock().unwrap().requests[0], cp.messages);
+    let calls = h
+        .engine
+        .store
+        .usage_report(&s, crate::usage::Scope::Session)
+        .unwrap()
+        .calls;
+    assert_eq!(calls[0].attempt, attempt);
+}

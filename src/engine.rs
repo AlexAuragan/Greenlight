@@ -130,6 +130,7 @@ impl Engine {
             let override_prompt = extra.unwrap_or("");
             let resolved_model = model_override
                 .or(step.model.as_deref())
+                .or(self.cfg.model_roles.coding.as_deref())
                 .unwrap_or(&self.cfg.provider.model)
                 .to_owned();
             let definition = serde_yaml::to_string(&step)?;
@@ -462,6 +463,15 @@ impl Engine {
         messages: &[serde_json::Value],
         interaction: Option<(&str, &str)>,
     ) -> Result<String> {
+        let model = if matches!(purpose, "verification" | "deviation-detector") {
+            self.cfg
+                .model_roles
+                .verification
+                .as_deref()
+                .unwrap_or(model)
+        } else {
+            model
+        };
         let restored = self.continuation.borrow_mut().take();
         if let Some(cp) = &restored {
             if cp.purpose != purpose || cp.step != step || cp.model != model {
@@ -670,13 +680,26 @@ impl Engine {
                 call.manager_message_id = Some(message.into());
                 call.manager_snapshot_id = Some(snapshot.into());
             }
-            if let Some(tier) = &self.cfg.provider.service_tier {
+            if let Some(tier) = self.provider.cfg.service_tier.as_ref().or(self
+                .cfg
+                .provider
+                .service_tier
+                .as_ref())
+            {
                 call.counts.notes.push(format!("Requested service_tier: {tier}. Standard-tier catalog pricing is not verified for this request."));
             }
             let registration = (|| -> Result<()> {
                 let tx = rusqlite::Transaction::new_unchecked(
                     &self.store.db,
                     rusqlite::TransactionBehavior::Immediate,
+                )?;
+                self.store.reserve_model_budget(
+                    s,
+                    &self.cfg.budgets,
+                    &mut call,
+                    self.provider.cfg.max_tokens,
+                    self.provider.cfg.service_tier.is_some()
+                        || self.cfg.provider.service_tier.is_some(),
                 )?;
                 self.store.begin_model_call(s, &mut call)?;
                 crate::conversation_dump::record_request(
@@ -696,6 +719,19 @@ impl Engine {
                 Ok(())
             })();
             if let Err(error) = registration {
+                if error
+                    .downcast_ref::<crate::model_budget::Blocked>()
+                    .is_some()
+                {
+                    self.store.event(
+                        s,
+                        Some(step),
+                        "budget.blocked",
+                        &json!({"purpose":purpose,"model":model,"reason":error.to_string()})
+                            .to_string(),
+                    )?;
+                    return Err(error);
+                }
                 call.status = "not-sent".into();
                 call.counts
                     .notes
@@ -729,7 +765,8 @@ impl Engine {
                     call.estimated_cost = None;
                 }
             }
-            if self.cfg.provider.service_tier.is_some() {
+            if self.provider.cfg.service_tier.is_some() || self.cfg.provider.service_tier.is_some()
+            {
                 call.estimated_cost = None;
             }
             self.store

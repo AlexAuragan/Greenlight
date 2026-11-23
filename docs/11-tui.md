@@ -278,3 +278,7 @@ Edits exposes `[` Previous hunk, `]` Next hunk and `D` Full file diff through Mo
 ## Optional grouped native edit review
 
 In Edits, `g` or More → Grouped review opens a historical combined diff reader. `[` / `]` select groups; `t` switches attempt/step grouping; C/E exports the selected group in full. Reruns, restores and missing attempt IDs are labelled separately. Discontinuous chains show individual write diffs rather than a misleading combined attribution. This is a frozen read-only snapshot, not staging or group approval; close and reopen to refresh. See [grouped review](51-grouped-native-edit-review.md).
+
+## Model roles and session budgets
+
+Usage and Technical details show configured session model budgets and accounted/reserved usage; request details retain individual dispatch reservations. Budget stops have their own activity/blocker message and supersede an earlier provider error. After changing only budget settings, a saved request can be retried with its exact original messages; other continuation checks still apply. Active workers retain startup policy, so restart them after configuration changes. Model-role defaults and estimate limitations are described in [roles and budgets](52-model-roles-and-session-budgets.md).

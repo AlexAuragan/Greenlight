@@ -106,6 +106,10 @@ pub struct Notifications {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default, skip_serializing_if = "ModelRoles::is_empty")]
+    pub model_roles: ModelRoles,
+    #[serde(default, skip_serializing_if = "crate::model_budget::Config::is_empty")]
+    pub budgets: crate::model_budget::Config,
     #[serde(default)]
     pub limits: crate::resource_limits::Limits,
     pub provider: ProviderConfig,
@@ -119,6 +123,23 @@ pub struct Config {
     pub manager: ManagerConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summarizer: Option<SummarizerConfig>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ModelRoles {
+    pub coding: Option<String>,
+    pub verification: Option<String>,
+    pub manager: Option<String>,
+    pub summarizer: Option<String>,
+}
+impl ModelRoles {
+    pub fn is_empty(&self) -> bool {
+        self.coding.is_none()
+            && self.verification.is_none()
+            && self.manager.is_none()
+            && self.summarizer.is_none()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -258,6 +279,23 @@ pub fn load_config(root: &Path) -> Result<Config> {
         .with_context(|| format!("reading {}", path.display()))?;
     let cfg: Config = serde_yaml::from_str(&text)?;
     cfg.limits.validate()?;
+    cfg.budgets.session.validate()?;
+    if cfg.provider.max_tokens == 0 {
+        bail!("provider.max_tokens must be positive");
+    }
+    for model in [
+        &cfg.model_roles.coding,
+        &cfg.model_roles.verification,
+        &cfg.model_roles.manager,
+        &cfg.model_roles.summarizer,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if model.trim().is_empty() {
+            bail!("model_roles entries must not be empty");
+        }
+    }
     for value in [
         &cfg.permissions.shell,
         &cfg.permissions.write,
@@ -654,5 +692,34 @@ mod resource_tests {
         )
         .unwrap();
         assert!(load_config(root.path()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod model_role_budget_tests {
+    #[test]
+    fn optional_roles_and_budget_limits_validate_without_changing_legacy_defaults() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("greenlight.yaml");
+        std::fs::write(&path, "provider:\n  model: fixture\n").unwrap();
+        let config = super::load_config(root.path()).unwrap();
+        assert!(!config.budgets.session.enabled());
+        assert!(config.model_roles.coding.is_none());
+        let serialized = serde_yaml::to_value(&config).unwrap();
+        assert!(serialized.get("model_roles").is_none());
+        assert!(serialized.get("budgets").is_none());
+        for extra in [
+            "model_roles:\n  coding: ''\n",
+            "model_roles:\n  unsupported: value\n",
+            "budgets:\n  session:\n    requests: -1\n",
+            "budgets:\n  session:\n    estimated_cost_usd: -.inf\n",
+        ] {
+            std::fs::write(&path, format!("provider:\n  model: fixture\n{extra}")).unwrap();
+            assert!(super::load_config(root.path()).is_err());
+        }
+        std::fs::write(&path,"provider:\n  model: fixture\nmodel_roles:\n  coding: coder\n  verification: reviewer\nbudgets:\n  session:\n    requests: 0\n    output_tokens: 100\n    estimated_cost_usd: 0.5\n").unwrap();
+        let config = super::load_config(root.path()).unwrap();
+        assert_eq!(config.model_roles.verification.as_deref(), Some("reviewer"));
+        assert_eq!(config.budgets.session.requests, Some(0));
     }
 }

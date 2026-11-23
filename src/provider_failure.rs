@@ -21,7 +21,11 @@ impl fmt::Display for ModelCallFailed {
 }
 impl std::error::Error for ModelCallFailed {}
 pub fn is_fatal_model_error(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<ModelCallFailed>().is_some() || error.downcast_ref::<Failure>().is_some()
+    error.downcast_ref::<ModelCallFailed>().is_some()
+        || error.downcast_ref::<Failure>().is_some()
+        || error
+            .downcast_ref::<crate::model_budget::Blocked>()
+            .is_some()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

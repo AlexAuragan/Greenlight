@@ -543,6 +543,14 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
                 ),
             }
         }
+        "budget.blocked" => card(
+            "Session model budget reached",
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .and_then(|v| v["reason"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| raw.into()),
+            Tone::Attention,
+        ),
         "artifact.created" => card(
             format!("Artifact stored · {}", short(raw)),
             format!("Version #{id} · o opens this exact version"),

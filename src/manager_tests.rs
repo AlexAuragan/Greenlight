@@ -624,3 +624,26 @@ fn clarification_threads_refuse_a_ninth_turn_without_saving_partial_messages() {
         9
     );
 }
+
+#[tokio::test]
+async fn manager_role_default_and_existing_explicit_override_are_preserved() {
+    let mut f = Fixture::new();
+    f.engine.cfg.model_roles.manager = Some("manager-role".into());
+    f.ask("question current progress").await.unwrap();
+    let calls = f
+        .engine
+        .store
+        .usage_report(&f.s, Scope::Session)
+        .unwrap()
+        .calls;
+    assert_eq!(calls.last().unwrap().model, "manager-fixture");
+    f.engine.cfg.manager.model = None;
+    f.ask("question current progress again").await.unwrap();
+    let calls = f
+        .engine
+        .store
+        .usage_report(&f.s, Scope::Session)
+        .unwrap()
+        .calls;
+    assert_eq!(calls.last().unwrap().model, "manager-role");
+}
