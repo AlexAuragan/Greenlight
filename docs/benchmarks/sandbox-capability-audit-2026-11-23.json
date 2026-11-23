@@ -1,0 +1,48 @@
+{
+  "bubblewrap_version": {
+    "argv": [
+      "/usr/bin/bwrap",
+      "--version"
+    ],
+    "exit_code": 0,
+    "stdout": "bubblewrap 0.12.0",
+    "stderr": "",
+    "elapsed_ms": 2.3
+  },
+  "user_namespace_probe": {
+    "argv": [
+      "timeout",
+      "3s",
+      "unshare",
+      "--user",
+      "--map-root-user",
+      "/usr/bin/true"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "unshare: cannot open /proc/self/uid_map: Read-only file system",
+    "elapsed_ms": 4.65
+  },
+  "hooks_path": {
+    "argv": [
+      "git",
+      "config",
+      "--get",
+      "core.hooksPath"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "",
+    "elapsed_ms": 2.45
+  },
+  "pre_commit_executable_present_on_task_host": false,
+  "project_hook_files": {
+    ".pre-commit-config.yaml": false,
+    ".pre-commit-config.yml": false,
+    ".githooks": false,
+    ".git/hooks/pre-commit": false,
+    ".git/hooks/pre-commit.sample": true
+  },
+  "scope": "Cloud task host only; source capability audit plus bounded user-namespace probe. No repository hook, sandboxed check, dependency install, provider call or filesystem-write benchmark executed.",
+  "repository_commit": "ad721f0c5761d8ec703631a36712fd0dbd5eeaea"
+}

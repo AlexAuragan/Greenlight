@@ -10,9 +10,9 @@ No open items in this section; completed supervised-workflow features are merged
 
 ## Deferred sandbox follow-up
 
-- [ ] **GL-033** — Contain and clean up Bubblewrap pre-namespace helper descendants on setup failure/cancellation, and bound capture-drain cleanup after leader exit. On this cloud host, UID-map setup failure can leave an orphaned helper retaining stdout/stderr; the project-inspection test then stalls beyond normal execution cleanup. Reproduced during GL-016; killing only that test helper released the capture. Cover startup-failure descendants and cleanup deadlines without a host-execution fallback. Deferred with sandbox work.
+- [ ] **GL-033** — Contain and clean up Bubblewrap pre-namespace helper descendants on setup failure/cancellation, and bound capture-drain cleanup after leader exit. On this cloud host, UID-map setup failure can leave an orphaned helper retaining stdout/stderr; the project-inspection test then stalls beyond normal execution cleanup. Reproduced during GL-016; killing only that test helper released the capture. Cover startup-failure descendants and cleanup deadlines without a host-execution fallback. Deferred with sandbox work. Research/design before implementation: [sandbox and verification proposal](docs/53-sandbox-and-verification-design.md).
 
-- [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Deferred by the user after the clock-hover test.
+- [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Deferred by the user after the clock-hover test. The [shared research/design](docs/53-sandbox-and-verification-design.md) covers pre-commit, capability feedback and safe verification workspaces; it adds no runtime authority.
 
 ## Later: scale and integrations
 
@@ -28,7 +28,7 @@ No open items in this section; completed supervised-workflow features are merged
 
 ## Dependencies and design gates
 
-GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. Command-level grants require joint design with the user; retain exact-command grants until then. Keep docs, embedded prompts and the decision log synchronized with implementation.
+GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. GL-012/GL-032 already implement bounded read-only inspection and safe pipe-only classification. Broader argument-varying executable grants and verification execution profiles still require scoped design; unsupported commands retain exact approval and the existing sandbox boundary. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
 
