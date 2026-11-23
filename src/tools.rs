@@ -56,8 +56,8 @@ pub fn parse_action(text: &str) -> Result<AgentAction> {
                         bail!("write requires content (an empty string is allowed)");
                     }
                 }
-                "shell" | "web" => required(action.input.as_deref(), "input")?,
-                _ => bail!("unknown tool; supported tool names are read, write, shell, web"),
+                "shell" | "web" | "check" => required(action.input.as_deref(), "input")?,
+                _ => bail!("unknown tool; supported tool names are read, write, shell, web, check"),
             }
         }
         "artifact" => {
@@ -436,6 +436,103 @@ impl Tools {
         }
         Ok(resolved)
     }
+    fn authorize_check(
+        &mut self,
+        name: &str,
+        recipe: &crate::verification_workspace::Recipe,
+    ) -> Result<()> {
+        if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Check stopped before authorization");
+        }
+        let key = format!("check:{}", recipe.fingerprint());
+        if !self.approved.contains(&key) {
+            // Independent profile approval: ordinary shell/write grants do not
+            // authorize writable-copy execution, including shell=allow.
+            let answer = self.prompt_driver.ask_with_command(
+                &format!("[approval required: verification workspace]\n{}\n[y] once / [a] this recipe for this process / [n] deny", recipe.description(name)),
+                ApprovalMode::Tool, Some(&recipe.command))?;
+            match answer.trim().to_lowercase().as_str() {
+                "y" => {}
+                "a" => {
+                    self.approved.insert(key);
+                }
+                _ => bail!("Verification workspace declined; check not launched"),
+            }
+            self.decisions.push(format!(
+                "check: authorized isolated profile — {name} · {}",
+                recipe.fingerprint()
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) async fn check(
+        &mut self,
+        name: &str,
+        store: &crate::store::Store,
+        session: &crate::store::Session,
+        step: &str,
+        user_requested: bool,
+    ) -> Result<crate::verification_workspace::Receipt> {
+        let (name, expected) = name
+            .split_once('@')
+            .map_or((name, None), |(name, hash)| (name, Some(hash)));
+        let cfg = crate::config::load_config(&self.root)?;
+        let recipe = cfg.checks.get(name).context(
+            "Unknown named check; configure host-owned checks in .greenlight/config.yaml",
+        )?;
+        if expected.is_some_and(|hash| hash != recipe.fingerprint()) {
+            bail!("Named check recipe changed; no execution or authority expansion occurred");
+        }
+        if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Check stopped before authorization");
+        }
+        if self.policies.shell == "deny" {
+            bail!("Check execution denied by shell policy");
+        }
+        let root = self.root.clone();
+        let stop = self.stop.clone();
+        let receipt = crate::verification_workspace::run(
+            crate::verification_workspace::Request {
+                root: &root,
+                store,
+                session,
+                step,
+                name,
+                recipe,
+                stop: &stop,
+            },
+            || {
+                if user_requested {
+                    self.decisions.push(format!(
+                        "check: explicitly requested by user — {name} · {}",
+                        recipe.fingerprint()
+                    ));
+                    Ok(())
+                } else {
+                    self.authorize_check(name, recipe)
+                }
+            },
+        )
+        .await?;
+        store.event(
+            session,
+            Some(step),
+            "verification.diagnostic",
+            &receipt.diagnostic,
+        )?;
+        let report = receipt.report();
+        store.event(session, Some(step), "verification.workspace", &report)?;
+        let diff = receipt.diff();
+        if !receipt.edits.is_empty() && diff.len() <= 100_000 {
+            store.add_artifact(
+                session,
+                step,
+                &format!("verification-{}.patch", receipt.id),
+                &diff,
+            )?;
+        }
+        Ok(receipt)
+    }
     pub async fn shell(&mut self, command: &str) -> Result<String> {
         if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
             bail!("Execution stopped by user before tool authorization/execution");
@@ -536,6 +633,23 @@ impl Tools {
     ) -> Result<String> {
         let tool = action.tool.as_deref().context("missing tool")?;
         match tool {
+            "check" => {
+                let (store, session, step) =
+                    journal.context("Named checks require a journaled workflow/session")?;
+                let receipt = self
+                    .check(
+                        action
+                            .input
+                            .as_deref()
+                            .context("check input requires a recipe name")?,
+                        store,
+                        session,
+                        step,
+                        self.user_requested,
+                    )
+                    .await?;
+                Ok(receipt.report())
+            }
             "shell" => {
                 self.shell(action.input.as_deref().context("shell input is required")?)
                     .await
@@ -1212,6 +1326,46 @@ mod project_read_scope_tests {
 #[cfg(test)]
 mod stop_tests {
     use super::*;
+    #[test]
+    fn check_profile_grants_are_separate_from_shell_and_bound_to_recipe_authority() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tools = Tools::new(
+            root.path().to_path_buf(),
+            Permissions {
+                shell: "allow".into(),
+                ..Permissions::default()
+            },
+        )
+        .unwrap();
+        tools.approved.insert("shell:fixture".into());
+        let (requests, prompts) = std::sync::mpsc::channel();
+        let (answers, responses) = std::sync::mpsc::channel();
+        tools.use_tui(requests, responses);
+        let worker = std::thread::spawn(move || {
+            let mut recipe = crate::verification_workspace::Recipe {
+                command: "fixture".into(),
+                requires: vec![],
+                git: false,
+            };
+            tools.authorize_check("tests", &recipe).unwrap();
+            tools.authorize_check("tests", &recipe).unwrap(); // exact recipe process grant
+            recipe.git = true;
+            assert!(tools.authorize_check("tests", &recipe).is_err());
+        });
+        let prompt = prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(prompt.mode, ApprovalMode::Tool);
+        assert!(prompt.content.contains("disposable writable"));
+        answers.send("a".into()).unwrap();
+        let changed = prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(changed.content.contains("synthetic all-files"));
+        answers.send("n".into()).unwrap();
+        worker.join().unwrap();
+    }
+
     #[test]
     fn stop_interrupts_an_unanswered_prompt_without_denial_or_grant() {
         let root = tempfile::tempdir().unwrap();

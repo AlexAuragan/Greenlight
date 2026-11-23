@@ -1,5 +1,15 @@
 # Validation
 
+## Isolated offline verification (GL-027) — 2026-11-23
+
+Implemented on `docs/sandbox-verification-plan`, pending merge. Full parallel validation passes **568 Rust tests** in 8.22 seconds, with five live-environment/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. No paid provider calls or host namespace configuration changes were used.
+
+Fifteen added passing regressions cover private/generated input filtering, symlink/size/cancellation refusal, executable flags, generated edits versus check status, selected journal imports and repeated selections, full-input/manual drift, branch scope, unsupported binary/deletion/mode changes, edit-retention overflow, copy/cache retention during quarantine, independent recipe-scoped approval, historical fingerprint binding and changed-recipe refusal, CLI failure/no-provider dispatch, cleanup propagation through any-of verification/cache, and host-generated diffs staying out of final-report selection. The added successful synthetic-Git/formatter live integration is ignored on this host.
+
+A production CLI smoke check against a temporary project/seeded session also returned exit 1 for unavailable preflight in 0.054 seconds; `check-show` read its exact evidence, `check-import --yes` refused it, and live source stayed unchanged.
+
+The real profile test on this cloud host reports exact Bubblewrap startup denial before authorization or source capture; it does not run the configured check or modify live source. Successful namespace isolation, synthetic Git/pre-commit/venv execution and cold/warm timing still require a suitable host (GL-035). Separate dependency provisioning is GL-034; CPU/PID/disk quotas remain GL-023. See [runtime behavior and controls](54-isolated-verification.md).
+
 ## Sandbox lifecycle foundation (GL-033) — 2026-11-23
 
 Implemented on `docs/sandbox-verification-plan`, pending merge. The full parallel Rust suite passes **553 tests** in 8.70 seconds, with four existing live-integration/profiling tests ignored and no manual helper termination during this final run. Strict all-target Clippy, formatting, offline build and all six installer tests pass. No paid provider requests or host namespace configuration changes were used.

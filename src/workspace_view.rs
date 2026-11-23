@@ -265,7 +265,8 @@ impl SessionWorkspace {
                                         && e.1 == s.current_step
                                         && matches!(
                                             e.2.as_str(),
-                                            "verification.command"
+                                            "verification.workspace"
+                                                | "verification.command"
                                                 | "verification.agent"
                                                 | "verification.human"
                                         )

@@ -37,7 +37,10 @@ pub(super) fn summary(
         && !history.iter().filter(in_final).any(|e| {
             matches!(
                 e.2.as_str(),
-                "verification.command" | "verification.agent" | "verification.human"
+                "verification.command"
+                    | "verification.agent"
+                    | "verification.human"
+                    | "verification.workspace"
             )
         }) {
         "Verification: no checks required (policy accepted, not measured validation)."
@@ -75,12 +78,11 @@ pub(super) fn summary(
         .and_then(|e| serde_yaml::from_str::<crate::config::Step>(&e.3).ok())
         .map(|step| step.outputs.required)
         .unwrap_or_default();
-    if let Some((id, _, _, name)) = history
-        .iter()
-        .filter(in_final)
-        .rev()
-        .find(|e| e.2 == "artifact.created" && (required.is_empty() || required.contains(&e.3)))
-    {
+    if let Some((id, _, _, name)) = history.iter().filter(in_final).rev().find(|e| {
+        e.2 == "artifact.created"
+            && (required.is_empty() && !crate::verification_workspace::is_generated_diff(&e.3)
+                || required.contains(&e.3))
+    }) {
         match store.artifact_version(session,name,*id) {
             Ok(report)=>{
                 let excerpt=report.content.chars().take(10000).collect::<String>();
@@ -139,7 +141,10 @@ pub(super) fn overview(session: &Session, history: &[(i64, String, String, Strin
         && !final_events.iter().any(|e| {
             matches!(
                 e.2.as_str(),
-                "verification.command" | "verification.agent" | "verification.human"
+                "verification.command"
+                    | "verification.agent"
+                    | "verification.human"
+                    | "verification.workspace"
             )
         });
     let checked = !none && final_events.iter().any(|e| e.2 == "verification.passed");
@@ -177,7 +182,12 @@ pub(super) fn overview(session: &Session, history: &[(i64, String, String, Strin
         report: final_events
             .iter()
             .rev()
-            .find(|e| e.2 == "artifact.created" && (required.is_empty() || required.contains(&e.3)))
+            .find(|e| {
+                e.2 == "artifact.created"
+                    && (required.is_empty()
+                        && !crate::verification_workspace::is_generated_diff(&e.3)
+                        || required.contains(&e.3))
+            })
             .map(|e| (e.3.clone(), e.0)),
     }
 }

@@ -438,6 +438,7 @@ impl App {
             }
             Page::Technical => {
                 let mut text=format!("Technical details · selected session / active branch\n\nSession: {}\nBranch: {}\nState: {}\nStep: {}\nExecution: {ownership}\nState directory: {}\n\nConfigured model (current project configuration): {}\n",session.id,session.active_branch,session.status,session.current_step,store.directory.display(),self.details.configured_model.as_deref().unwrap_or("Unavailable"));
+                text.push_str(&format!("\nSandbox capabilities\n{}\n", crate::verification_workspace::capabilities()));
                 let history = store.history(&session);
                 let call = self.details.report.as_ref().and_then(|r| r.calls.iter().rev().find(|c| c.created_event.is_some_and(|id| history.as_ref().is_ok_and(|h|h.iter().any(|e|e.0==id))) && c.step == session.current_step && c.purpose != "manager" && workspace.is_some_and(|w|w.attempt.as_ref().is_some_and(|a|Some(&a.id)==c.attempt.as_ref()))));
                 if let Some(c) = call { text.push_str(&format!("Latest request in recorded attempt: {}\nRequested model: {}\nReturned model: {}\n",c.id,c.model,c.response_model.as_deref().unwrap_or("Not recorded"))); }

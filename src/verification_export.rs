@@ -84,6 +84,9 @@ impl Store {
                                                 "tool.result"
                                                     | "tool.error"
                                                     | "verification.command"
+                                                    | "verification.workspace"
+                                                    | "verification.diagnostic"
+                                                    | "verification.imported"
                                             )
                                         }) {
                                             included.insert(reference);

@@ -8,9 +8,11 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 
 No open items in this section; completed supervised-workflow features are merged into `master`.
 
-## Sandbox verification — next
+## Sandbox verification follow-up
 
-- [ ] **GL-027** — Make project verification practical inside the sandbox: report masked Git metadata and unavailable host services clearly, support Python runtimes/virtualenvs without exposing host HOME, route Python build/bytecode caches to writable sandbox storage, and distinguish unavailable checks from test failures. Keep the project read-only and network isolation intact. Next phase of the approved [shared design](docs/53-sandbox-and-verification-design.md): capability feedback, pre-commit and an isolated writable verification copy. This profile is not implemented yet and adds no current runtime authority.
+- [ ] **GL-034** — Separately authorized offline dependency/environment preparation for named checks: pinned artifact/hook recipes, provenance and cache lifecycle, Python/Node/pre-commit environment provisioning without host HOME or credentials. Keep arbitrary check execution network-off. Coordinate resource/retention enforcement with GL-023. See the accepted [sandbox design](docs/53-sandbox-and-verification-design.md) and [implemented profile](docs/54-isolated-verification.md).
+
+- [ ] **GL-035** — Run successful live verification/isolation and cold/warm performance validation on a supported Linux host, including synthetic Git/pre-commit, Python job-local virtualenvs, network/secret/IPC sentinels, descendant cancellation and drift/import fixtures. This cloud host validates explicit startup denial, not successful namespace isolation. Use the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix); report failures as well as latency.
 
 ## Later: scale and integrations
 
@@ -29,6 +31,8 @@ No open items in this section; completed supervised-workflow features are merged
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. GL-012/GL-032 already implement bounded read-only inspection and safe pipe-only classification. Broader argument-varying executable grants and verification execution profiles still require scoped design; unsupported commands retain exact approval and the existing sandbox boundary. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-027** — **Implemented on the review branch (2026-11-23), not yet merged**: host/model capability feedback, runtime/namespace preflight before check approval, explicit named offline recipes, writable disposable source copies, optional synthetic all-files Git, job-local Python/pre-commit/cache paths, exact diagnostics and input manifests, separate check/modification outcomes, generated diffs and user-selected guarded native imports. Live source remains read-only to shell; no automatic downloads or host fallback. See [isolated verification](docs/54-isolated-verification.md). Provisioning and supported-host validation remain GL-034/035.
 
 - [x] **GL-033** — **Implemented on the review branch (2026-11-23), not yet merged**: a dedicated per-invocation supervisor/subreaper owns Bubblewrap startup descendants, including session-escaped helpers. Single commands and pipelines share bounded capture, cancellation and a five-second cleanup wait. Persistent job records quarantine unconfirmed cleanup and block owner release/recovery; no host fallback or new permissions. See [sandbox lifecycle](docs/10-shell-sandbox.md#process-lifecycle-and-cleanup).
 

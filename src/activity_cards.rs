@@ -268,7 +268,8 @@ impl Projection {
                         && !scope().any(|e| {
                             matches!(
                                 e.2.as_str(),
-                                "verification.command"
+                                "verification.workspace"
+                                    | "verification.command"
                                     | "verification.agent"
                                     | "verification.human"
                             )
@@ -450,6 +451,15 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             "Recorded aggregate policy verdict",
             Tone::Good,
         ),
+        "verification.preparing" => card("Preparing isolated check", short(raw), Tone::Info),
+        "verification.running" => card("Running isolated check", short(raw), Tone::Info),
+        "verification.workspace" => card("Isolated check result", short(raw), Tone::Attention),
+        "verification.diagnostic" => card(
+            "Check raw diagnostic",
+            "Expand for exact captured output",
+            Tone::Info,
+        ),
+        "verification.imported" => card("Generated edit imported", short(raw), Tone::Attention),
         "verification.failed" => card("Verification check failed", short(raw), Tone::Error),
         "verification.none" => card("Verification policy", "No checks required", Tone::Info),
         "verification.command" => match shell_exit(raw) {

@@ -106,6 +106,8 @@ pub struct Notifications {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub checks: std::collections::BTreeMap<String, crate::verification_workspace::Recipe>,
     #[serde(default, skip_serializing_if = "ModelRoles::is_empty")]
     pub model_roles: ModelRoles,
     #[serde(default, skip_serializing_if = "crate::model_budget::Config::is_empty")]
@@ -209,6 +211,7 @@ pub struct Outputs {
 pub enum Verify {
     None,
     Command { run: String },
+    Workspace { recipe: String },
     Agent { prompt: String },
     Human,
     All { checks: Vec<Verify> },
@@ -278,6 +281,20 @@ pub fn load_config(root: &Path) -> Result<Config> {
         )
         .with_context(|| format!("reading {}", path.display()))?;
     let cfg: Config = serde_yaml::from_str(&text)?;
+    if cfg.checks.len() > 32 {
+        bail!("At most 32 named check recipes are supported");
+    }
+    for (name, recipe) in &cfg.checks {
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+        {
+            bail!("check names must be short ASCII names");
+        }
+        recipe.validate()?;
+    }
     cfg.limits.validate()?;
     cfg.budgets.session.validate()?;
     if cfg.provider.max_tokens == 0 {
@@ -435,7 +452,7 @@ pub fn load_workflow(root: &Path, id: &str) -> Result<LoadedWorkflow> {
         if step.kind == "command" && step.command.is_none() {
             bail!("command step {name} missing command");
         }
-        let allowed = ["shell", "read", "write", "web"];
+        let allowed = ["shell", "read", "write", "web", "check"];
         for tool in step.tools.as_deref().unwrap_or(&[]) {
             if !allowed.contains(&tool.as_str()) {
                 bail!("unknown tool {tool} in {name}");

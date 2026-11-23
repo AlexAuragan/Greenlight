@@ -62,6 +62,64 @@ impl Engine {
             interactive_provider_retry: false,
         })
     }
+    pub async fn run_named_check(&mut self, id: &str, name: &str) -> Result<()> {
+        let session = self.store.session(id)?;
+        let owner = self
+            .store
+            .claim_tool_execution(id, &session.active_branch)?;
+        let result = async {
+            let action = crate::tools::parse_action(&format!(
+                "action: tool\ntool: check\ninput: {}",
+                serde_json::to_string(name)?
+            ))?;
+            self.store.event(
+                &session,
+                Some(&session.current_step),
+                "verification.user-requested",
+                name,
+            )?;
+            let request = self.store.event(
+                &session,
+                Some(&session.current_step),
+                "tool.request",
+                &serde_yaml::to_string(&action)?,
+            )?;
+            let outcome = self.tools
+                .check(name, &self.store, &session, &session.current_step, true)
+                .await;
+            for decision in self.tools.decisions.drain(..) {
+                self.store.event(
+                    &session, Some(&session.current_step), "protocol.approval", &decision,
+                )?;
+            }
+            let (kind, body) = match &outcome {
+                Ok(receipt) => ("tool.result", receipt.report()),
+                Err(error) => ("tool.error", format!("{error:#}")),
+            };
+            self.store.tool_outcome(
+                &session, &session.current_step, request, "check", kind, &body,
+            )?;
+            let receipt = outcome?;
+            println!("{body}");
+            if receipt.outcome != "passed"
+                || receipt.modifications != "none"
+                || !receipt.live_inputs_match
+            {
+                bail!("Check did not establish a passing unchanged live input snapshot ({}; modifications {}). Review run {}.", receipt.outcome, receipt.modifications, receipt.id);
+            }
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        let cleanup = self
+            .store
+            .finish_execution(id, &owner, result.as_ref().err());
+        match (result, cleanup) {
+            (result, Ok(())) => result,
+            (_, Err(error)) => {
+                Err(error.context("Check ownership retained; inspect cleanup before recovery"))
+            }
+        }
+    }
     pub async fn run(
         &mut self,
         session_id: &str,
@@ -1012,7 +1070,9 @@ impl Engine {
                     },
                 };
                 if let Err(e) = self.verify(s, wf, step, model).await {
-                    if crate::provider_failure::is_fatal_model_error(&e) {
+                    if crate::provider_failure::is_fatal_model_error(&e)
+                        || e.is::<crate::sandbox_job::CleanupIncomplete>()
+                    {
                         return Err(e);
                     }
                     return Ok(Outcome::Deviation(
@@ -1079,7 +1139,9 @@ impl Engine {
                     },
                 };
                 if let Err(e) = self.verify(s, wf, step, model).await {
-                    if crate::provider_failure::is_fatal_model_error(&e) {
+                    if crate::provider_failure::is_fatal_model_error(&e)
+                        || e.is::<crate::sandbox_job::CleanupIncomplete>()
+                    {
                         return Err(e);
                     }
                     return Ok(Outcome::Deviation(
@@ -1162,6 +1224,30 @@ impl Engine {
         let tools = step.tools.as_deref().unwrap_or(&default_tools);
         context.push('\n');
         context.push_str(&crate::agent_protocol::tool_help(tools));
+        context.push_str(crate::verification_workspace::capabilities());
+        if tools.iter().any(|tool| tool == "check") {
+            let recipes = self
+                .cfg
+                .checks
+                .iter()
+                .map(|(name, recipe)| {
+                    format!(
+                        "{name}: {} · requires {} · Git {}",
+                        recipe.command.chars().take(256).collect::<String>(),
+                        recipe
+                            .requires
+                            .iter()
+                            .take(4)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        recipe.git
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            context.push_str(&format!("\nConfigured check recipe excerpts: {}. Use tool: check with input: RECIPE_NAME. Check permissions do not permit live source writes.\n", recipes.chars().take(8000).collect::<String>()));
+        }
         if context.len() > self.cfg.session.max_artifact_bytes {
             bail!("assembled step context exceeds byte limit; revise artifact selection");
         }
@@ -1424,7 +1510,9 @@ impl Engine {
                         }
                     }
                     if let Err(e) = self.verify(s, wf, step, model).await {
-                        if crate::provider_failure::is_fatal_model_error(&e) {
+                        if crate::provider_failure::is_fatal_model_error(&e)
+                            || e.is::<crate::sandbox_job::CleanupIncomplete>()
+                        {
                             return Err(e);
                         }
                         return Ok(Outcome::Deviation(
@@ -1474,7 +1562,10 @@ impl Engine {
                                 passed = true;
                                 break;
                             }
-                            Err(error) if crate::provider_failure::is_fatal_model_error(&error) => {
+                            Err(error)
+                                if crate::provider_failure::is_fatal_model_error(&error)
+                                    || error.is::<crate::sandbox_job::CleanupIncomplete>() =>
+                            {
                                 return Err(error)
                             }
                             Err(_) => {} // Ordinary rejected checks retain the configured any-of behavior.
@@ -1512,11 +1603,10 @@ impl Engine {
             return result.map_err(anyhow::Error::msg);
         }
         let result = self.verify_leaf_run(s, wf, step, model, check).await;
-        if !result
-            .as_ref()
-            .err()
-            .is_some_and(crate::provider_failure::is_fatal_model_error)
-        {
+        if !result.as_ref().err().is_some_and(|e| {
+            crate::provider_failure::is_fatal_model_error(e)
+                || e.is::<crate::sandbox_job::CleanupIncomplete>()
+        }) {
             self.checks.borrow_mut().push(
                 result
                     .as_ref()
@@ -1557,6 +1647,25 @@ impl Engine {
                     Ok(())
                 } else {
                     bail!("human verification declined")
+                }
+            }
+            Verify::Workspace { recipe } => {
+                let result = self
+                    .tools
+                    .check(recipe, &self.store, s, &step.id, false)
+                    .await;
+                self.log_permissions(s, step)?;
+                let receipt = result?;
+                if receipt.outcome == "passed"
+                    && receipt.modifications == "none"
+                    && receipt.live_inputs_match
+                {
+                    Ok(())
+                } else {
+                    bail!(
+                        "Workspace verification not accepted for live project: {}",
+                        receipt.report()
+                    );
                 }
             }
             Verify::Command { run } => {
@@ -1602,7 +1711,11 @@ impl Engine {
                             && step_id == &step.id
                             && matches!(
                                 event_type.as_str(),
-                                "tool.result" | "tool.error" | "verification.command"
+                                "tool.result"
+                                    | "tool.error"
+                                    | "verification.command"
+                                    | "verification.workspace"
+                                    | "verification.diagnostic"
                             )
                         {
                             // Preserve failure details beyond the first lines.
@@ -1633,7 +1746,11 @@ impl Engine {
                             && st == &step.id
                             && matches!(
                                 kind.as_str(),
-                                "tool.result" | "tool.error" | "verification.command"
+                                "tool.result"
+                                    | "tool.error"
+                                    | "verification.command"
+                                    | "verification.workspace"
+                                    | "verification.diagnostic"
                             )
                     })
                     .take(10)
@@ -1720,6 +1837,76 @@ fn project_instructions(root: &Path) -> Result<String> {
 #[cfg(test)]
 mod name_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn explicit_named_check_reports_non_success_and_never_dispatches_a_model() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("greenlight.yaml"), "provider:\n  model: unused\n  base_url: http://127.0.0.1:9\nchecks:\n  tests:\n    command: false\n").unwrap();
+        let mut engine = Engine::open(root.path()).unwrap();
+        let session = engine.store.create("demo", "fixture", "verify").unwrap();
+        // Unsupported hosts refuse preflight; supported hosts execute false.
+        // Both must make the CLI fail and preserve a check result, without API use.
+        assert!(engine.run_named_check(&session.id, "tests").await.is_err());
+        let history = engine.store.history(&session).unwrap();
+        assert!(history.iter().any(|e| e.2 == "verification.workspace"));
+        assert!(history.iter().any(|e| e.2 == "verification.diagnostic"));
+        assert!(history.iter().any(|e| e.2 == "verification.user-requested"));
+        assert!(engine.store.project_record().unwrap().is_none());
+        assert_eq!(
+            engine
+                .store
+                .usage_report(&session, crate::usage::Scope::Session)
+                .unwrap()
+                .totals
+                .requests,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_quarantine_cannot_be_hidden_by_any_verification_or_cached_as_an_ordinary_rejection(
+    ) {
+        use std::os::unix::fs::FileExt;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("greenlight.yaml"),
+            "provider:\n  model: fixture\nchecks:\n  tests:\n    command: true\n",
+        )
+        .unwrap();
+        let folder = root.path().join("workflows/demo");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("workflow.yaml"),
+            "id: demo\ntitle: Demo\nstart: verify\nsteps: [verify]\n",
+        )
+        .unwrap();
+        std::fs::write(folder.join("verify.md"), "---\nid: verify\nverification:\n  type: any\n  checks:\n    - type: workspace\n      recipe: tests\n    - type: none\n---\nCheck\n").unwrap();
+        let workflow = config::load_workflow(root.path(), "demo").unwrap();
+        let mut engine = Engine::open(root.path()).unwrap();
+        let session = engine.store.create("demo", "fixture", "verify").unwrap();
+        let owner = engine.store.claim_execution(&session.id, None).unwrap();
+        let jobs = engine
+            .store
+            .directory_fd
+            .create_dirs(Path::new("sandbox-jobs"))
+            .unwrap();
+        let file = jobs.lock_file(Path::new("pending.lease")).unwrap();
+        file.write_all_at(b"pending ", 0).unwrap();
+        let error = engine
+            .verify(&session, &workflow, &workflow.steps["verify"], "fixture")
+            .await
+            .unwrap_err();
+        assert!(
+            error.is::<crate::sandbox_job::CleanupIncomplete>(),
+            "{error:#}"
+        );
+        assert!(engine.checks.borrow().is_empty());
+        file.write_all_at(b"complete", 0).unwrap();
+        engine
+            .store
+            .finish_execution(&session.id, &owner, None)
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn agent_verification_requires_its_prompt_file() {

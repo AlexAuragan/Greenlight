@@ -7,6 +7,7 @@ pub fn tool_example(tool: &str) -> Option<&'static str> {
             "action: tool\ntool: write\npath: path/to/file\ncontent: |\n  Replacement file content",
         ),
         "shell" => Some("action: tool\ntool: shell\ninput: pwd"),
+        "check" => Some("action: tool\ntool: check\ninput: configured-recipe-name"),
         "web" => Some("action: tool\ntool: web\ninput: search terms"),
         _ => None,
     }
@@ -64,7 +65,7 @@ pub fn correction(error: &anyhow::Error, tools: &[String]) -> String {
     if excerpt.len() < detail.len() {
         excerpt.push_str(" [error excerpt; original response remains recorded]");
     }
-    format!("Invalid YAML action (protocol format error): {excerpt}\nThis response was rejected before tool dispatch; no tool was attempted. This is NOT evidence that tools are unavailable. Valid action names: tool, artifact, deviation, finish. Tool names read/write/shell/web must appear under tool:, never action:.\nRe-emit exactly one valid YAML action for your original intended operation, using its original arguments/path/content. Return no commentary or extra action blocks. For values containing colon-space or multiline text, use YAML literal block scalars such as input: | followed by the indented original text. Do not copy example fields blindly or bypass a denial.\n\n{}",tool_help(tools))
+    format!("Invalid YAML action (protocol format error): {excerpt}\nThis response was rejected before tool dispatch; no tool was attempted. This is NOT evidence that tools are unavailable. Valid action names: tool, artifact, deviation, finish. Tool names read/write/shell/web/check must appear under tool:, never action:.\nRe-emit exactly one valid YAML action for your original intended operation, using its original arguments/path/content. Return no commentary or extra action blocks. For values containing colon-space or multiline text, use YAML literal block scalars such as input: | followed by the indented original text. Do not copy example fields blindly or bypass a denial.\n\n{}",tool_help(tools))
 }
 
 #[cfg(test)]

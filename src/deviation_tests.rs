@@ -425,7 +425,7 @@ async fn format_correction_reaches_the_model_and_a_corrected_read_really_execute
                 assert!(messages[0]["content"]
                     .as_str()
                     .unwrap()
-                    .contains("read, write, shell and web are TOOL NAMES"));
+                    .contains("read, write, shell, web and check are TOOL NAMES"));
                 assert!(last.contains("Workflow-enabled tool names: read"));
                 Ok("action: read\npath: notes.md".into())
             }

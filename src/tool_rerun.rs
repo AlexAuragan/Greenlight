@@ -74,13 +74,26 @@ impl Engine {
         let result = async {
             let session = self.store.session(id)?;
             if session.active_branch != branch { bail!("Branch changed; select the tool call again"); }
-            let (step, action) = self.store.rerun_request(&session, request)?;
+            let (step, mut action) = self.store.rerun_request(&session, request)?;
             let workflow = crate::config::load_workflow(&self.root, &session.workflow)?;
             let definition = workflow.steps.get(&step).context("Original workflow step no longer exists")?;
             let defaults = vec!["read".into(), "shell".into(), "write".into()];
             let tool = action.tool.as_deref().context("Missing tool name")?;
             if !definition.tools.as_ref().unwrap_or(&defaults).iter().any(|name| name == tool) {
                 bail!("Tool {tool} is disabled in the current workflow step");
+            }
+            if tool == "check" {
+                let input = action.input.as_deref().context("Missing check recipe")?;
+                let name = input.split_once('@').map_or(input, |(name, _)| name).to_owned();
+                let config = crate::config::load_config(&self.root)?;
+                let recipe = config.checks.get(&name).context("Named check recipe no longer exists")?;
+                let history = self.store.history(&session)?;
+                let projection = crate::activity_cards::Projection::build(&history);
+                let original = projection.tools.values().find(|t| t.metadata.request_event == request).context("Original check has no correlated outcome; explicitly run a new named check")?;
+                let body = history.iter().find(|e| e.0 == original.metadata.outcome_event).context("Missing original check outcome")?;
+                let fingerprint = body.3.lines().find_map(|line| line.strip_prefix("Recipe fingerprint: "));
+                if fingerprint != Some(recipe.fingerprint().as_str()) { bail!("Check recipe changed or original authority is unknown; explicitly run the current named check instead of rerunning old authority"); }
+                action.input = Some(format!("{name}@{}", recipe.fingerprint()));
             }
             // Publish provenance and the fresh request atomically before any side effect.
             let tx = self.store.db.unchecked_transaction()?;
@@ -114,5 +127,97 @@ impl Engine {
                     .context("Rerun ownership cleanup failed; recover session before continuing"))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod check_tests {
+    use super::*;
+    #[tokio::test]
+    async fn historical_checks_bind_authority_and_refuse_changed_recipes_before_execution() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("greenlight.yaml");
+        std::fs::write(
+            &config,
+            "provider:\n  model: unused\nchecks:\n  tests:\n    command: false\n",
+        )
+        .unwrap();
+        let folder = root.path().join("workflows/demo");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("workflow.yaml"),
+            "id: demo\ntitle: Demo\nstart: verify\nsteps: [verify]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("verify.md"),
+            "---\nid: verify\ntools: [check]\nverification:\n  type: none\n---\nCheck\n",
+        )
+        .unwrap();
+        let mut engine = Engine::open(root.path()).unwrap();
+        let session = engine.store.create("demo", "fixture", "verify").unwrap();
+        let action = crate::tools::parse_action("action: tool\ntool: check\ninput: tests").unwrap();
+        let request = engine
+            .store
+            .event(
+                &session,
+                Some("verify"),
+                "tool.request",
+                &serde_yaml::to_string(&action).unwrap(),
+            )
+            .unwrap();
+        let hash = engine.cfg.checks["tests"].fingerprint();
+        engine
+            .store
+            .tool_outcome(
+                &session,
+                "verify",
+                request,
+                "check",
+                "tool.result",
+                &format!("Recipe fingerprint: {hash}\nOriginal fixture outcome; no check executed"),
+            )
+            .unwrap();
+        engine
+            .rerun_tool(&session.id, &session.active_branch, request)
+            .await
+            .unwrap();
+        let history = engine.store.history(&session).unwrap();
+        let new = history
+            .iter()
+            .rev()
+            .find(|e| e.2 == "tool.request")
+            .unwrap();
+        let bound = crate::tools::parse_action(&new.3).unwrap();
+        assert_eq!(bound.input, Some(format!("tests@{hash}")));
+        let before = history.iter().filter(|e| e.2 == "tool.request").count();
+        std::fs::write(
+            config,
+            "provider:\n  model: unused\nchecks:\n  tests:\n    command: true\n",
+        )
+        .unwrap();
+        let error = engine
+            .rerun_tool(&session.id, &session.active_branch, request)
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("recipe changed"));
+        assert_eq!(
+            engine
+                .store
+                .history(&session)
+                .unwrap()
+                .iter()
+                .filter(|e| e.2 == "tool.request")
+                .count(),
+            before
+        );
+        // Also close the config-change window between rerun validation and the
+        // tool's fresh recipe load: the bound request itself rejects expansion.
+        let error = engine
+            .tools
+            .call_user_requested(&bound, &engine.store, &session, "verify")
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("recipe changed"));
     }
 }

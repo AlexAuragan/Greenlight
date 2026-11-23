@@ -108,6 +108,36 @@ fn text(buffer: &Buffer) -> String {
         .join("\n")
 }
 #[test]
+fn generated_check_diff_is_not_promoted_to_the_workflow_final_report() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "fixture", "verify").unwrap();
+    store
+        .event(&session, Some("verify"), "step.started", "")
+        .unwrap();
+    store
+        .add_artifact(&session, "verify", "report.md", "Model conclusion")
+        .unwrap();
+    store
+        .add_artifact(
+            &session,
+            "verify",
+            &format!("verification-{}.patch", uuid::Uuid::new_v4()),
+            "Host-generated diff",
+        )
+        .unwrap();
+    store
+        .event(&session, None, "session.completed", "")
+        .unwrap();
+    let history = store.history(&session).unwrap();
+    let overview = result::overview(&session, &history);
+    assert_eq!(overview.report.unwrap().0, "report.md");
+    let text = result::summary(&store, &session, &history);
+    assert!(text.contains("Final report · report.md"));
+    assert!(!text.contains("Host-generated diff"));
+}
+
+#[test]
 fn result_overview_is_scoped_compact_and_opens_exact_report() {
     let (root, store, session, mut app, report) = fixture();
     store

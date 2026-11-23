@@ -38,6 +38,10 @@ If cleanup is incomplete or unconfirmed, the tool raises a fatal cleanup error; 
 
 This is lifecycle ownership, not a resource quota. Kernel-stuck processes, a compromised supervisor or power loss cannot be guaranteed to terminate on a timer; the application reports uncertainty and blocks further execution rather than declaring cleanup successful.
 
+## Isolated verification profile
+
+Explicit named checks can run in a writable disposable copy, with job-local cache and optional private synthetic Git. This does not make the live project writable or expose its original Git metadata. Preflight, authorization, generated diffs and user-selected native imports are documented in [isolated verification](54-isolated-verification.md). Ordinary shell commands retain the restrictions below.
+
 ## Compatibility and limits
 
 This intentionally breaks shell commands that edit the project, write Git metadata, use arbitrary home files, or access the internet. Use the native `write` tool for edits. Run dependency installation or Git operations manually outside the agent. Tests that write snapshots or generated assets into the source tree must use `/tmp` or `/cache`, or run outside the agent.

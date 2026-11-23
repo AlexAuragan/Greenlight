@@ -48,6 +48,7 @@ mod tui;
 mod tui_actions;
 mod usage;
 mod verification_export;
+mod verification_workspace;
 mod workspace;
 mod workspace_audit;
 mod workspace_view;
@@ -85,6 +86,19 @@ enum Commands {
     Validate { workflow: String },
     /// Verify Linux shell sandbox requirements and isolation
     SandboxCheck,
+    /// Run an explicitly selected named check against a disposable source copy
+    Check { session: String, recipe: String },
+    /// Inspect a branch-visible check's exact input manifest and generated diff
+    CheckShow { session: String, run: String },
+    /// Import reviewed check edits through the native journal (requires --yes)
+    CheckImport {
+        session: String,
+        run: String,
+        #[arg(long, required = true)]
+        file: Vec<String>,
+        #[arg(long)]
+        yes: bool,
+    },
     /// Reconcile interrupted native writes without rewriting source files
     RecoverWrites,
     /// Recover a session whose execution owner died; never resumes work automatically
@@ -469,6 +483,42 @@ async fn main() -> Result<()> {
             config::load_config(&root)?;
             let wf = config::load_workflow(&root, &workflow)?;
             println!("Valid: {} ({} steps)", wf.definition.title, wf.steps.len());
+        }
+        Commands::Check { session, recipe } => {
+            let mut engine = engine::Engine::open(&root)?;
+            engine.run_named_check(&session, &recipe).await?;
+        }
+        Commands::CheckShow { session, run } => {
+            let store = store::Store::open(&root)?;
+            let session = store.session(&session)?;
+            let receipt = verification_workspace::load(&store, &session, &run)?;
+            println!(
+                "{}\nRecorded command:\n{}\nFull raw diagnostic:\n{}\n{}\nManifest:\n{}\nExcluded inputs:\n{}",
+                receipt.report(),
+                receipt.command,
+                receipt.diagnostic,
+                receipt.diff(),
+                serde_json::to_string_pretty(&receipt.inputs)?,
+                serde_json::to_string_pretty(&receipt.excluded)?
+            );
+        }
+        Commands::CheckImport {
+            session,
+            run,
+            file,
+            yes,
+        } => {
+            if !yes {
+                bail!("Review with check-show first; check-import requires --yes and explicit --file selections");
+            }
+            let store = store::Store::open(&root)?;
+            let session = store.session(&session)?;
+            let owner = store.claim_tool_execution(&session.id, &session.active_branch)?;
+            let result = verification_workspace::import(&root, &store, &session, &run, &file);
+            let cleanup = store.finish_execution(&session.id, &owner, result.as_ref().err());
+            cleanup?;
+            let message = result?;
+            println!("{message}");
         }
         Commands::SandboxCheck => {
             let output = sandbox::Sandbox::open(&root)?

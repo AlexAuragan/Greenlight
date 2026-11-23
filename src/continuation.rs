@@ -124,6 +124,9 @@ impl Engine {
                     e.2.as_str(),
                     "verification.human"
                         | "verification.command"
+                        | "verification.workspace"
+                        | "verification.diagnostic"
+                        | "verification.imported"
                         | "artifact.created"
                         | "human.approved"
                         | "human.declined"

@@ -19,6 +19,8 @@ const WORKSPACE: &str = "/workspace";
 const CACHE: &str = "/cache";
 
 pub struct Sandbox {
+    writable_copy: bool,
+    private_git: bool,
     jobs: crate::anchored_fs::Dir,
     root_fd: crate::anchored_fs::Dir,
     cache_fd: crate::anchored_fs::Dir,
@@ -56,6 +58,8 @@ impl Sandbox {
             .clone_file()?
             .set_permissions(std::fs::Permissions::from_mode(0o700))?;
         Ok(Self {
+            writable_copy: false,
+            private_git: false,
             jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
             root_fd: crate::anchored_fs::Dir::open(&root)?,
             cache_fd,
@@ -68,10 +72,29 @@ impl Sandbox {
         let (_, state) = crate::paths::state_directory_handle(project)?;
         crate::sandbox_job::ensure_clean(&state)?;
         Ok(Self {
+            writable_copy: false,
+            private_git: false,
             jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
             root_fd: crate::anchored_fs::Dir::open(view.path())?,
             cache_fd: crate::anchored_fs::Dir::open(cache.path())?,
             inspection_cache: Some(cache),
+        })
+    }
+    pub(crate) fn verification(
+        view: &crate::anchored_fs::Dir,
+        cache: &crate::anchored_fs::Dir,
+        project: &Path,
+        git: bool,
+    ) -> Result<Self> {
+        let (_, state) = crate::paths::state_directory_handle(project)?;
+        crate::sandbox_job::ensure_clean(&state)?;
+        Ok(Self {
+            writable_copy: true,
+            private_git: git,
+            jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
+            root_fd: view.open_dir(Path::new(""))?,
+            cache_fd: cache.open_dir(Path::new(""))?,
+            inspection_cache: None,
         })
     }
     fn build(&self, input: &str) -> Result<Command> {
@@ -141,7 +164,15 @@ impl Sandbox {
         let cache = self.cache_fd.clone_file()?;
         let root_fd = root.as_raw_fd();
         let cache_fd = cache.as_raw_fd();
-        command.args(["--ro-bind-fd", &root_fd.to_string(), WORKSPACE]);
+        command.args([
+            if self.writable_copy {
+                "--bind-fd"
+            } else {
+                "--ro-bind-fd"
+            },
+            &root_fd.to_string(),
+            WORKSPACE,
+        ]);
         command.args(["--bind-fd", &cache_fd.to_string(), CACHE]);
         // SAFETY: only async-signal-safe fcntl calls run in the child. Owned
         // clones keep these exact directories alive until command execution.
@@ -161,6 +192,9 @@ impl Sandbox {
         // through the read-only project bind mount. Source code itself remains
         // readable; the mask is not a general secrets scanner.
         for (relative, is_dir) in masked_directories(&self.root_fd)? {
+            if self.private_git && relative == Path::new(".git") {
+                continue;
+            }
             let dest = Path::new(WORKSPACE).join(relative);
             if is_dir {
                 command.arg("--tmpfs").arg(dest);
@@ -211,6 +245,9 @@ impl Sandbox {
             ("CARGO_TARGET_DIR", "/cache/cargo-target"),
             ("CARGO_NET_OFFLINE", "true"),
             ("GIT_CONFIG_NOSYSTEM", "1"),
+            ("GIT_CONFIG_GLOBAL", "/dev/null"),
+            ("PYTHONPYCACHEPREFIX", "/cache/python-pycache"),
+            ("PRE_COMMIT_HOME", "/cache/pre-commit"),
         ] {
             command.args(["--setenv", name, value]);
         }
@@ -460,6 +497,43 @@ mod tests {
 mod descriptor_tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;
+    #[test]
+    fn verification_binds_only_private_copy_writable_and_keeps_job_cache_separate() {
+        let root = tempfile::tempdir().unwrap();
+        let copy = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        fs::create_dir(copy.path().join(".git")).unwrap();
+        let copy_fd = crate::anchored_fs::Dir::open(copy.path()).unwrap();
+        let cache_fd = crate::anchored_fs::Dir::open(cache.path()).unwrap();
+        let sandbox = Sandbox::verification(&copy_fd, &cache_fd, root.path(), true).unwrap();
+        let cmd = sandbox.build("fixture").unwrap();
+        let args = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let mount = args
+            .windows(3)
+            .find(|w| w[0] == "--bind-fd" && w[2] == WORKSPACE)
+            .unwrap();
+        assert_eq!(
+            std::fs::read_link(format!("/proc/self/fd/{}", mount[1])).unwrap(),
+            copy.path()
+        );
+        assert!(!args.iter().any(|a| a == "/workspace/.git"));
+        assert!(args.iter().any(|a| a == "GIT_CONFIG_GLOBAL"));
+        assert!(args.iter().any(|a| a == "PRE_COMMIT_HOME"));
+        drop(cmd);
+        let without_git = Sandbox::verification(&copy_fd, &cache_fd, root.path(), false)
+            .unwrap()
+            .build("fixture")
+            .unwrap();
+        assert!(without_git
+            .as_std()
+            .get_args()
+            .any(|a| a == "/workspace/.git"));
+    }
+
     #[test]
     fn bind_sources_remain_pinned_when_project_path_is_replaced() {
         if !Path::new(BWRAP).is_file() {
