@@ -17,7 +17,7 @@ The editor comes from `VISUAL`, then `EDITOR`, then `vi`. Settings are parsed in
 
 Save and close the editor with a successful exit to publish. No separate approval is needed for these explicitly requested human edits. Closing without changing the original, or leaving a comment blank, saves nothing. An intentionally empty replacement artifact is allowed. Edits are limited to 1 MiB (or the smaller configured blob limit); comments to 64 KiB. Non-UTF-8, oversized, missing or symlink-replaced drafts are rejected.
 
-On editor failure, save conflict or publication failure, nothing is imported. The diagnostic gives the path to the retained private draft; recover its contents manually, then remove the private directory when finished. Successful/unchanged drafts are deleted automatically. Greenlight does not hold an execution lease while a person uses the editor.
+On editor failure, save conflict or publication failure, nothing is imported. An ownership-cleanup failure can occur after a version or comment was saved; the diagnostic directs you to inspect history and recover ownership before retrying, rather than claiming that nothing was saved. The diagnostic gives the path to the retained private draft; recover its contents manually, then remove the private directory when finished. Successful/unchanged drafts are deleted automatically. Greenlight does not hold an execution lease while a person uses the editor.
 
 ## History and authority
 

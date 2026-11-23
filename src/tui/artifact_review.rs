@@ -158,7 +158,7 @@ impl App {
             Err(error) => {
                 let path = job.directory.keep().join("draft.md");
                 self.raise_diagnostic(format!(
-                    "Artifact review not saved: {error:#}\nPrivate draft retained for recovery: {}",
+                    "Artifact review did not finish cleanly: {error:#}\nInspect artifact/comment history before retrying: a save may precede an ownership-cleanup failure.\nPrivate draft retained for recovery: {}",
                     path.display()
                 ));
             }
@@ -275,6 +275,35 @@ mod tests {
             "original"
         );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn saved_review_is_not_reported_as_absent_when_owner_cleanup_fails() {
+        for comment in [false, true] {
+            let (_root, store, mut app, base) = setup();
+            app.prepare_artifact_review(&store, comment).unwrap();
+            let job = app.pending_artifact_review.take().unwrap();
+            let path = job.directory.path().join("draft.md");
+            std::fs::write(&path, "saved user draft").unwrap();
+            store.db.execute_batch("CREATE TRIGGER fail_review_cleanup BEFORE DELETE ON project_owner BEGIN SELECT RAISE(ABORT, 'fixture cleanup failure'); END;").unwrap();
+            app.finish_artifact_review(&store, job, Ok("saved user draft".into()));
+            let diagnostic = app.diagnostic.as_ref().unwrap();
+            assert!(diagnostic.contains("ownership-cleanup failure"));
+            assert!(!diagnostic.contains("Artifact review not saved"));
+            let session = app.session().unwrap();
+            if comment {
+                assert!(store
+                    .artifact_comments(session, "plan.md", base)
+                    .unwrap()
+                    .contains("saved user draft"));
+            } else {
+                assert_eq!(
+                    store.artifact_versions(session, "plan.md").unwrap().len(),
+                    2
+                );
+            }
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "saved user draft");
+            std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
     }
     #[test]
     fn replaced_editor_file_cannot_follow_symlinks_and_failed_editor_cannot_import() {
