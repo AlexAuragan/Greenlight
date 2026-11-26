@@ -10,7 +10,9 @@ No open items in this section; completed supervised-workflow features are merged
 
 ## Sandbox verification follow-up
 
-- [ ] **GL-035** — Run successful live verification/isolation and cold/warm performance validation on a supported Linux host, including synthetic Git/pre-commit, Python job-local virtualenvs, network/secret/IPC sentinels, descendant cancellation and drift/import fixtures. This cloud host validates explicit startup denial, not successful namespace isolation. Use the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix); report failures as well as latency.
+- [ ] **GL-035** — **In progress on the review branch (2026-11-26)**: provider-free `sandbox-benchmark` now exercises 14 synthetic cases. The 30-warm/5-cold cloud run outside the tool filesystem wrapper passed 11 cases with confirmed cleanup; Rust failed on an inaccessible `cc` linker, Node/pre-commit were unavailable. The outer wrapper still denies UID-map setup. Finish runtime coverage, real public pinned downloads, representative dependency recipes and missing performance/resource measurements before closing. See [runner and recorded results](docs/56-sandbox-validation.md) and the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix).
+
+- [ ] **GL-036** — Resolve sandbox runtime discovery and dependency diagnostics without exposing host configuration or broadening PATH blindly. Live GL-035 found `/usr/bin/cc` resolves through hidden `/etc/alternatives`, and host Node under `/opt/codex/...` is outside selected mounts/PATH; pre-commit is absent. Detect toolchain dependencies before running checks, report exact unsupported paths, and design narrow trusted runtime support. Do not mount all `/etc`, `/opt`, HOME or host PATH to make checks pass.
 
 ## Later: scale and integrations
 

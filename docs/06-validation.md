@@ -1,5 +1,9 @@
 # Validation
 
+## Synthetic sandbox validation (GL-035) — 2026-11-26
+
+Implemented on the review branch, pending merge. The full suite passes **583 tests**, with seven live/profiling tests ignored; strict all-target Clippy passes. The new runner also completed a real 504-sample synthetic matrix outside the tool filesystem wrapper: 11 of 14 cases passed, Rust failed on the hidden `cc` target, and Node/pre-commit were unavailable. All sample cleanup was confirmed. The wrapped probe still correctly reports UID-map denial. No provider calls, public downloads or host settings changes were used. See [commands, complete reports, timings and limits](56-sandbox-validation.md). GL-035 remains open; runtime discovery/diagnostics are tracked as GL-036.
+
 ## Pinned dependency preparation (GL-034) — 2026-11-26
 
 Implemented on `docs/sandbox-verification-plan`, pending merge. The full parallel suite passes **578 Rust tests** in 8.91 seconds, with six live-environment/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. No public artifact downloads, paid provider calls or host namespace changes were used.

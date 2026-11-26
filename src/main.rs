@@ -39,6 +39,7 @@ mod resource_limits;
 mod restore;
 mod sandbox;
 mod sandbox_job;
+mod sandbox_validation;
 mod session_execution;
 mod session_picker;
 mod store;
@@ -87,6 +88,15 @@ enum Commands {
     Validate { workflow: String },
     /// Verify Linux shell sandbox requirements and isolation
     SandboxCheck,
+    /// Validate real isolation with synthetic projects and emit a JSON benchmark report
+    SandboxBenchmark {
+        #[arg(long, default_value_t=30, value_parser=clap::value_parser!(u8).range(1..=100))]
+        warm: u8,
+        #[arg(long, default_value_t=5, value_parser=clap::value_parser!(u8).range(1..=20))]
+        cold: u8,
+        #[arg(long)]
+        keep_failures: bool,
+    },
     /// Run an explicitly selected named check against a disposable source copy
     Check { session: String, recipe: String },
     /// Fetch only the exact pinned public artifacts configured for a recipe
@@ -312,7 +322,9 @@ async fn main() -> Result<()> {
     let cwd = std::env::current_dir()?;
     let command = cli.command.unwrap_or(Commands::Tui { session: None });
     let root = project::resolve_root(cli.root.as_deref(), &cwd, matches!(command, Commands::Init))?;
-    project::load_environment(&root)?;
+    if !matches!(command, Commands::SandboxBenchmark { .. }) {
+        project::load_environment(&root)?;
+    }
     match command {
         Commands::Init => {
             println!("{}", project::init(&root)?);
@@ -546,6 +558,17 @@ async fn main() -> Result<()> {
             cleanup?;
             let message = result?;
             println!("{message}");
+        }
+        Commands::SandboxBenchmark {
+            warm,
+            cold,
+            keep_failures,
+        } => {
+            let report = sandbox_validation::run(warm, cold, keep_failures).await?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if report.gate_status != "passed" {
+                bail!("Sandbox validation {}. Report written to stdout; no host fallback. GL-035 remains open.",report.gate_status);
+            }
         }
         Commands::SandboxCheck => {
             let output = sandbox::Sandbox::open(&root)?

@@ -150,6 +150,9 @@ impl Sandbox {
             CACHE,
         ]);
 
+        // TODO(GL-036): diagnose transitive runtime dependencies (e.g. cc via
+        // hidden /etc/alternatives) and tools outside these mounts; do not
+        // broaden host configuration/PATH exposure as a compatibility fallback.
         // Only explicitly selected host system locations are visible. The
         // project is read-only: all code changes go through native writes.
         for path in ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/usr/local"] {
