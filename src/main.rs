@@ -96,6 +96,12 @@ enum Commands {
         cold: u8,
         #[arg(long)]
         keep_failures: bool,
+        /// Explicitly fetch reviewed public pins and provision Node/pre-commit offline
+        #[arg(long)]
+        public_dependencies: bool,
+        /// Seed fixture caches from externally obtained pinned files; not a broker download
+        #[arg(long, requires = "public_dependencies")]
+        artifact_directory: Option<PathBuf>,
     },
     /// Run an explicitly selected named check against a disposable source copy
     Check { session: String, recipe: String },
@@ -563,8 +569,17 @@ async fn main() -> Result<()> {
             warm,
             cold,
             keep_failures,
+            public_dependencies,
+            artifact_directory,
         } => {
-            let report = sandbox_validation::run(warm, cold, keep_failures).await?;
+            let report = sandbox_validation::run(
+                warm,
+                cold,
+                keep_failures,
+                public_dependencies,
+                artifact_directory.as_deref(),
+            )
+            .await?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             if report.gate_status != "passed" {
                 bail!("Sandbox validation {}. Report written to stdout; no host fallback. GL-035 remains open.",report.gate_status);

@@ -19,7 +19,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const REVISION: &str = "sandbox-fixtures-v1";
+const REVISION: &str = "sandbox-fixtures-v2";
+const PUBLIC_PINS: &str = include_str!("sandbox_validation_dependencies.json");
 const PREFIX: &str = "greenlight-validation-";
 const PINNED: &[u8] = b"trusted local dependency fixture\n";
 #[derive(Clone, Copy)]
@@ -32,6 +33,8 @@ enum Scenario {
     Python,
     Node,
     Hook,
+    PreparedNode,
+    PreparedHook,
     Venv,
     Formatter,
     Drift,
@@ -69,6 +72,9 @@ pub struct Report {
     kernel: Option<String>,
     bubblewrap_version: String,
     pub gate_status: String,
+    public_dependencies: bool,
+    public_pins: serde_json::Value,
+    artifact_origin: &'static str,
     warm_samples: u8,
     cold_samples: u8,
     requested_counts_meet_recommendation: bool,
@@ -151,6 +157,7 @@ fn expectation(scenario: Scenario) -> &'static str {
         Scenario::NetworkIpc => {
             "Host TCP/Unix positive controls work; sandbox cannot reach either sentinel"
         }
+        Scenario::PreparedNode | Scenario::PreparedHook => "Pinned artifact preparation verifies; fresh offline provisioned runtime check passes without live edits (artifact_origin distinguishes download from external supply)",
         Scenario::Rust | Scenario::Python | Scenario::Node | Scenario::Hook => {
             "Fixed offline check passes without changing live source"
         }
@@ -191,9 +198,10 @@ struct Fixture {
     root: Option<tempfile::TempDir>,
     outside: Option<tempfile::TempDir>,
     keep: bool,
+    artifact_directory: Option<crate::anchored_fs::Dir>,
 }
 impl Fixture {
-    fn new() -> Result<Self> {
+    fn new(artifact_directory: Option<&Path>) -> Result<Self> {
         let root = tempfile::Builder::new().prefix(PREFIX).tempdir_in("/tmp")?;
         let outside = tempfile::Builder::new()
             .prefix("greenlight-sentinel-")
@@ -211,6 +219,9 @@ impl Fixture {
             root: Some(root),
             outside: Some(outside),
             keep: false,
+            artifact_directory: artifact_directory
+                .map(crate::anchored_fs::Dir::open)
+                .transpose()?,
         };
         fixture.reset()?;
         Ok(fixture)
@@ -297,6 +308,37 @@ fn recipe(command: impl Into<String>, requires: &[&str], git: bool) -> Recipe {
         preparation: None,
     }
 }
+fn public_recipe(scenario: Scenario) -> Result<Recipe> {
+    let pins: BTreeMap<String, Vec<crate::check_dependencies::Artifact>> =
+        serde_json::from_str(PUBLIC_PINS)?;
+    let (mut recipe, key, setup) = if matches!(scenario, Scenario::PreparedNode) {
+        (recipe("/cache/node/bin/node --version && /cache/node/bin/node --check app.js && /cache/node/bin/node app.js", &["tar", "xz"], false), "node", "mkdir /cache/node && tar -xJf /deps/node-v22.15.0-linux-x64.tar.xz --strip-components=1 -C /cache/node".to_string())
+    } else {
+        let artifacts = &pins["precommit"];
+        let lock = artifacts
+            .iter()
+            .map(|a| {
+                let mut parts = a.name.split('-');
+                format!(
+                    "{}=={} --hash=sha256:{}",
+                    parts.next().unwrap(),
+                    parts.next().unwrap(),
+                    a.sha256
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let setup = format!("python3 -m venv --without-pip /cache/venv && printf '%s\\n' {} > /cache/requirements.lock && PYTHONPATH=/deps/pip-25.1.1-py3-none-any.whl /cache/venv/bin/python -m pip --isolated install --no-index --no-deps --require-hashes --find-links=/deps -r /cache/requirements.lock", quote(&lock));
+        (recipe("/cache/venv/bin/pre-commit --version && test ! -e .git/original && test -z \"$(git remote)\" && /cache/venv/bin/pre-commit run --all-files", &["python3", "git"], true), "precommit", setup)
+    };
+    recipe.preparation = Some(crate::check_dependencies::Preparation {
+        artifacts: pins[key].clone(),
+        run: Some(setup),
+    });
+    recipe.validate()?;
+    Ok(recipe)
+}
+
 async fn check(fixture: &Fixture, recipe: &Recipe, stop: &Arc<AtomicBool>) -> Result<Receipt> {
     let receipt =
         crate::verification_workspace::run(fixture.request(recipe, stop), || Ok(())).await?;
@@ -396,6 +438,30 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
             };
             let receipt = check(fixture,&recipe,&stop).await?;
             Ok(from_receipt(&receipt,clean_pass(&receipt)))
+        }
+        Scenario::PreparedNode | Scenario::PreparedHook => {
+            let recipe = public_recipe(scenario)?;
+            if let Some(directory) = &fixture.artifact_directory {
+                let objects = fixture.store.directory_fd.create_dirs(Path::new("check-dependencies/objects"))?;
+                for artifact in &recipe.preparation.as_ref().unwrap().artifacts {
+                    let mut bytes = Vec::new();
+                    directory.open_file(Path::new(&artifact.name))?.take(32 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+                    if bytes.len() > 32 * 1024 * 1024 || digest(&bytes) != artifact.sha256 {
+                        bail!("Externally supplied artifact {} failed size/SHA-256 validation; no broker fallback", artifact.name);
+                    }
+                    objects.target(Path::new(&format!("{}.bin",artifact.sha256)))?.atomic_write(&bytes)?;
+                }
+            }
+            let prepared = crate::check_dependencies::prepare(fixture.request(&recipe, &stop), || Ok(())).await;
+            let preparation = match prepared {
+                Ok(text) => text,
+                Err(error) if error.is::<crate::sandbox_job::CleanupIncomplete>() => return Err(error),
+                Err(error) => return Ok(Observation::new("blocked", "Public artifact preparation unavailable; offline check not started", format!("{error:#}"))),
+            };
+            let receipt = check(fixture, &recipe, &stop).await?;
+            let mut observation = from_receipt(&receipt, clean_pass(&receipt));
+            observation.diagnostic = format!("{preparation}\n{}", observation.diagnostic);
+            Ok(observation)
         }
         Scenario::Venv => {
             // White-box fixture seeding, NOT a network fetch or a claim about
@@ -592,10 +658,30 @@ fn summary(samples: &[Sample], mode: &str) -> Summary {
         met_expectations_p95_ms: percentile(&passed, 0.95),
     }
 }
-pub async fn run(warm: u8, cold: u8, keep_failures: bool) -> Result<Report> {
+pub async fn run(
+    warm: u8,
+    cold: u8,
+    keep_failures: bool,
+    public_dependencies: bool,
+    artifact_directory: Option<&Path>,
+) -> Result<Report> {
     if !(1..=100).contains(&warm) || !(1..=20).contains(&cold) {
         bail!("Warm samples must be 1..100 and cold samples 1..20");
     }
+    if public_dependencies && std::env::consts::ARCH != "x86_64" {
+        bail!("Public runtime fixtures are pinned for Linux x86_64; no alternative artifact is selected automatically");
+    }
+    if artifact_directory.is_some() && !public_dependencies {
+        bail!("External artifact directories require explicit public-dependencies mode");
+    }
+    let scenarios: Vec<_> = SCENARIOS
+        .iter()
+        .map(|&(scenario, name)| match (public_dependencies, scenario) {
+            (true, Scenario::Node) => (Scenario::PreparedNode, "public_node_offline"),
+            (true, Scenario::Hook) => (Scenario::PreparedHook, "public_precommit_offline"),
+            _ => (scenario, name),
+        })
+        .collect();
     let public = files();
     let mut report = Report {
         schema: "greenlight.sandbox-validation.v1",
@@ -610,6 +696,9 @@ pub async fn run(warm: u8, cold: u8, keep_failures: bool) -> Result<Report> {
         kernel: fs::read_to_string("/proc/sys/kernel/osrelease").ok().map(|s|s.trim().to_owned()),
         bubblewrap_version: "unavailable".into(),
         gate_status: "passed".into(),
+        public_dependencies,
+        artifact_origin: if artifact_directory.is_some() { "Externally supplied files, size/SHA-256 verified and seeded into disposable fixture caches. Broker cache reuse only; not a broker DNS/TLS/download success." } else if public_dependencies { "Production broker direct public HTTPS preparation; failures remain failures." } else { "Synthetic local fixture only; no public artifacts." },
+        public_pins: if public_dependencies { serde_json::from_str(PUBLIC_PINS)? } else { serde_json::Value::Null },
         warm_samples: warm,
         cold_samples: cold,
         requested_counts_meet_recommendation: warm>=30 && cold>=5,
@@ -624,6 +713,18 @@ pub async fn run(warm: u8, cold: u8, keep_failures: bool) -> Result<Report> {
         cases: Vec::new(),
 
     };
+    if public_dependencies {
+        report.cache_definitions.insert("warm", "Same synthetic project/state; verified public artifact objects reused. Installation, disposable check workspace/cache/venv recreated for every sample. Fetch verification and offline setup included in elapsed time.");
+        report.cache_definitions.insert("cold", "Fresh project/state and artifact cache; actual public downloads, hash verification and offline setup included. OS/page/network caches not flushed; fixture creation excluded.");
+        report.remaining_validation = vec!["Review public-runtime results before GL-035 closes", "Representative remote pre-commit environments remain untested (local/system hook only)", "Original Git staged/history/worktree semantics remain unsupported, not tested as equivalent"];
+    }
+    if artifact_directory.is_some() {
+        report.cache_definitions.insert("cold", "Fresh project/state, externally supplied pinned artifacts copied/verified into cache during each sample. No broker download measured; OS/page caches not flushed.");
+        report.cache_definitions.insert("warm", "Same project/state; external artifact bytes reverified/copied each sample, broker cache reuse, fresh offline installation/cache/venv each invocation. No broker download measured.");
+        report.remaining_validation.push(
+            "Real broker public HTTPS/TLS/DNS fetch remains unvalidated in external-artifact mode",
+        );
+    }
     if let Ok(mut file) = fs::File::open("/proc/self/exe") {
         let mut digest = Sha256::new();
         let mut buffer = [0; 64 * 1024];
@@ -636,7 +737,7 @@ pub async fn run(warm: u8, cold: u8, keep_failures: bool) -> Result<Report> {
         }
         report.binary_sha256 = Some(format!("{:x}", digest.finalize()));
     }
-    let version_fixture = Fixture::new()?;
+    let version_fixture = Fixture::new(artifact_directory)?;
     let jobs = version_fixture
         .store
         .directory_fd
@@ -668,13 +769,13 @@ pub async fn run(warm: u8, cold: u8, keep_failures: bool) -> Result<Report> {
     if crate::sandbox_job::ensure_clean(&version_fixture.store.directory_fd).is_err() {
         report.gate_status = "failed".into();
         report.retained_paths = version_fixture.owned_paths();
-        report.cases = SCENARIOS.iter().map(|(scenario,name)|Case { name:(*name).into(),expectation:expectation(*scenario),status:"not_run".into(),reason:Some("Version probe cleanup unconfirmed; retained fixture on stderr; no replacement execution".into()),samples:Vec::new(),summaries:BTreeMap::new() }).collect();
+        report.cases = scenarios.iter().map(|(scenario,name)|Case { name:(*name).into(),expectation:expectation(*scenario),status:"not_run".into(),reason:Some("Version probe cleanup unconfirmed; retained fixture on stderr; no replacement execution".into()),samples:Vec::new(),summaries:BTreeMap::new() }).collect();
         return Ok(report);
     }
     drop(version_fixture);
     let mut isolation_ready = false;
     let mut cleanup_failed = false;
-    for &(scenario, name) in SCENARIOS {
+    for &(scenario, name) in &scenarios {
         eprintln!("Validation case: {name}");
         if (!isolation_ready && !matches!(scenario, Scenario::Isolation)) || cleanup_failed {
             report.cases.push(Case {
@@ -696,7 +797,7 @@ pub async fn run(warm: u8, cold: u8, keep_failures: bool) -> Result<Report> {
         }
         let mut samples = Vec::new();
         for index in 1..=cold {
-            let mut fixture = Fixture::new()?;
+            let mut fixture = Fixture::new(artifact_directory)?;
             let row = sample(&mut fixture, scenario, "cold", index, keep_failures).await?;
             cleanup_failed |= !row.cleanup_confirmed;
             samples.push(row);
@@ -705,7 +806,7 @@ pub async fn run(warm: u8, cold: u8, keep_failures: bool) -> Result<Report> {
             }
         }
         if !cleanup_failed {
-            let mut fixture = Fixture::new()?;
+            let mut fixture = Fixture::new(artifact_directory)?;
             let warmup = sample(&mut fixture, scenario, "warmup", 0, keep_failures).await?;
             cleanup_failed |= !warmup.cleanup_confirmed;
             samples.push(warmup);
@@ -793,9 +894,53 @@ mod tests {
         }
     }
     #[test]
+    fn public_recipes_use_pinned_artifacts_and_only_bootstrap_requirements() {
+        for scenario in [Scenario::PreparedNode, Scenario::PreparedHook] {
+            let recipe = public_recipe(scenario).unwrap();
+            recipe.validate().unwrap();
+            assert!(!recipe
+                .requires
+                .iter()
+                .any(|name| name == "node" || name == "pre-commit"));
+            let prep = recipe.preparation.unwrap();
+            assert!(!prep.artifacts.is_empty());
+            assert!(prep.run.unwrap().contains("/cache/"));
+        }
+    }
+
+    #[tokio::test]
+    async fn supplied_artifacts_fail_closed_before_any_fetch_or_check() {
+        use std::os::unix::fs::symlink;
+        for linked in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let recipe = public_recipe(Scenario::PreparedNode).unwrap();
+            let name = &recipe.preparation.as_ref().unwrap().artifacts[0].name;
+            let path = directory.path().join(name);
+            if linked {
+                symlink("/etc/passwd", &path).unwrap();
+            } else {
+                fs::write(&path, "wrong bytes").unwrap();
+            }
+            let mut fixture = Fixture::new(Some(directory.path())).unwrap();
+            let result = sample(&mut fixture, Scenario::PreparedNode, "cold", 1, false)
+                .await
+                .unwrap();
+            assert_eq!(result.gate, "failed");
+            assert!(result.cleanup_confirmed);
+            assert!(!fixture
+                .store
+                .history(&fixture.session)
+                .unwrap()
+                .iter()
+                .any(|event| event.2.starts_with("dependency.")
+                    || event.2.starts_with("verification.")));
+        }
+    }
+
+    #[test]
     fn unconfirmed_jobs_retain_both_source_and_external_sentinels() {
         use std::os::unix::fs::FileExt;
-        let fixture = Fixture::new().unwrap();
+        let fixture = Fixture::new(None).unwrap();
         let paths = fixture.owned_paths();
         let jobs = fixture
             .store
@@ -837,7 +982,7 @@ mod tests {
     }
     #[test]
     fn fixtures_have_no_real_keys_and_reset_only_owned_source() {
-        let fixture = Fixture::new().unwrap();
+        let fixture = Fixture::new(None).unwrap();
         assert!(fixture.path().starts_with("/tmp"));
         assert!(fixture.source_matches(&[]).unwrap());
         fs::write(fixture.path().join("data.txt"), "formatted\n").unwrap();
@@ -862,7 +1007,7 @@ mod tests {
     }
     #[tokio::test]
     async fn report_preserves_blocked_setup_and_never_calls_it_a_success() {
-        let mut fixture = Fixture::new().unwrap();
+        let mut fixture = Fixture::new(None).unwrap();
         let row = sample(&mut fixture, Scenario::Isolation, "cold", 1, false)
             .await
             .unwrap();
@@ -889,7 +1034,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires working Linux user namespaces, all declared runtimes and Python venv"]
     async fn integration_all_synthetic_validation_gates() {
-        let report = run(1, 1, false).await.unwrap();
+        let report = run(1, 1, false, false, None).await.unwrap();
         assert_eq!(
             report.gate_status,
             "passed",

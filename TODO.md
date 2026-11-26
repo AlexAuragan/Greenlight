@@ -10,7 +10,7 @@ No open items in this section; completed supervised-workflow features are merged
 
 ## Sandbox verification follow-up
 
-- [ ] **GL-035** — **In progress on the review branch (2026-11-26)**: provider-free `sandbox-benchmark` exercises 14 synthetic cases. After GL-036, the 30-warm/5-cold cloud run outside the tool filesystem wrapper passed 12 cases (including Rust) with confirmed cleanup; Node/pre-commit remain unavailable. The outer wrapper still denies UID-map setup. Finish runtime provisioning/coverage, real public pinned downloads, representative dependency recipes and missing performance/resource measurements before closing. See [runner and recorded results](docs/56-sandbox-validation.md) and the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix).
+- [ ] **GL-035** — **In progress on the review branch (2026-11-26)**: `sandbox-benchmark` covers 14 cases, with opt-in pinned Node/pre-commit provisioning and explicit external-artifact provenance. **14/14 cases pass the 504-sample externally provisioned run**, all cleanup confirmed, without host installation; full cold/warm evidence is recorded in the [validation guide](docs/56-sandbox-validation.md). Direct broker public fetching is still blocked by this cloud's DNS/proxy-only path; external downloads are not counted as broker success. Finish a successful direct public fetch, representative remote-hook/npm dependency coverage, missing first-output/per-phase/resource measurements and evidence review before closing. See the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix).
 
 ## Later: scale and integrations
 

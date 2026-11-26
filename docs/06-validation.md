@@ -1,5 +1,9 @@
 # Validation
 
+## Provisioned Node/pre-commit fixtures (GL-035) — 2026-11-26
+
+Implemented on the existing review branch, pending merge. Opt-in fixed public pins and explicitly supplied external artifacts exercise real verification staging and fresh offline Node/pre-commit setup without host installation. The full provisioned matrix passes **14/14 cases, 504 samples**, with all cleanup confirmed. Direct broker fetching remains separately **incomplete**: this cloud network's supervised DNS resolver fails for the public endpoints; proxy-based task downloads are not counted as broker success. The suite passes **587 tests**, with eight live/profiling tests ignored; strict all-target Clippy, formatting and offline build pass. GL-035 remains open for direct public fetching, broader dependency coverage and missing measurements. See [complete reports, pins and scope](56-sandbox-validation.md#recorded-provisioned-runtime-results--2026-11-26).
+
 ## Runtime aliases and preflight diagnostics (GL-036) — 2026-11-26
 
 Implemented on the existing review branch, pending merge. The suite passes **585 tests**, with eight live/profiling tests ignored. Strict all-target Clippy and formatting pass. An explicitly run live preflight test confirms both missing requirements are reported before approval or check execution. The post-fix full 504-sample matrix passes 12/14 cases, including Rust linking, with all cleanup confirmed; Node/pre-commit remain blocked and GL-035 stays open. Fixed compiler aliases preserve GCC layout and add no new host runtime/configuration exposure. See [complete results and scope](56-sandbox-validation.md#gl-036-follow-up--2026-11-26).

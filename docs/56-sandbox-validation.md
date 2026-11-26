@@ -1,6 +1,6 @@
 # Synthetic sandbox validation (GL-035)
 
-Implemented on `docs/sandbox-verification-plan`, pending merge. This runner tests production sandbox/verification/import paths against disposable trusted fixtures. It does not use an LLM or an API key, load project `.env`, edit the current project, download dependencies or execute fixture programs on the host as a fallback.
+Implemented on `docs/sandbox-verification-plan`, pending merge. This runner tests production sandbox/verification/import paths against disposable trusted fixtures. It does not use an LLM or an API key, load project `.env`, edit the current project or execute fixture programs on the host as a fallback. The default mode does not download dependencies; optional public provisioning is described below.
 
 ## Run
 
@@ -89,3 +89,45 @@ The [post-fix full report](benchmarks/sandbox-validation-runtime-fix-2026-11-26.
 | setsid_stop_cleanup | passed | 61.7 / 69.6 |
 
 The ordinary suite passes 585 tests with eight live/profiling tests ignored. The new missing-runtime preflight integration was also run explicitly with namespaces enabled and passed: both names were reported, the check stayed not-started, and no approval was requested. Strict all-target Clippy and formatting pass. No provider calls, public downloads, runtime installations or host configuration changes were used.
+
+## Opt-in provisioned runtime fixtures
+
+The default benchmark still performs no public downloads. To test the artifact broker and fresh offline runtime setup explicitly:
+
+```sh
+greenlight sandbox-benchmark --public-dependencies --warm 1 --cold 1 > public-smoke.json
+```
+
+This replaces the installed-Node and installed-pre-commit cases with pinned provisioning cases. It uses the production broker to fetch the [compiled fixture pins](../src/sandbox_validation_dependencies.json), then extracts Node or installs pre-commit and its complete pinned wheel set **inside** each fresh network-isolated check. It never installs host packages or imports arbitrary host runtimes. `requires` lists bootstrap tools, not tools that setup has yet to install. Pin selection is fixed, not registry discovery during a benchmark.
+
+The fixtures target Linux x86_64, Node 22.15.0 and CPython 3.13 (the PyYAML wheel is ABI-specific), with pre-commit 4.2.0. These are reproducible test versions, not application deployment recommendations. Node needs `tar`/`xz`; pre-commit needs Python's `venv` and system Git. The pre-commit hook is local with `language: system`; remote hook provisioning is not covered. Node tests syntax/execution of a zero-dependency fixture, not an npm package graph. The full pin metadata includes URLs and SHA-256; wheel digests came from the corresponding PyPI version JSON, and Node's digest from `https://nodejs.org/dist/v22.15.0/SHASUMS256.txt`.
+
+In this cloud environment the direct broker attempt fails: its supervised DNS resolver returns exit 2 for the public endpoints. The configured cloud proxy can download them using ordinary HTTPS clients, but the broker's direct destination validation cannot succeed through that route. Proxy-only networks remain unsupported; the benchmark does not weaken address pinning, TLS checks or redirect rules to make a test pass.
+
+For a separate offline provisioning test, obtain the exact manifest files externally and verify their sizes/digests, then explicitly supply that directory:
+
+```sh
+greenlight sandbox-benchmark --public-dependencies \
+  --artifact-directory /absolute/path/to/reviewed-artifacts \
+  --warm 30 --cold 5 > provisioned-report.json
+```
+
+Each file must have the exact declared basename. The runner rejects symlinks, oversized files and digest mismatches before fetching or running setup. It copies verified bytes into private fixture caches; the real broker then verifies cache reuse and the check stages private read-only `/deps`. Missing or invalid supplied files do not fall back to fetching. Artifacts are never extracted or executed on the host. `--artifact-directory` requires `--public-dependencies`.
+
+Reports include the pin manifest, explicit `artifact_origin`, and mode-specific cache definitions. External-artifact mode measures copying/hash verification, broker cache verification, fresh offline setup/check/cleanup. It does **not** measure or establish a successful broker DNS/TLS/public download. Warm samples currently reverify and copy supplied files too; their cost is included. Direct-fetch cold projects have empty artifact caches, while direct-fetch warm samples reuse verified objects and still reinstall each runtime afresh.
+
+### Recorded provisioned-runtime results — 2026-11-26
+
+- [Full externally provisioned run](benchmarks/sandbox-validation-provisioned-public-2026-11-26.json.gz): **14/14 cases passed**, 504 samples (5 cold, 1 warmup, 30 warm per case). All cleanup confirmed; no job fixtures retained. External artifact source files remain caller-owned and are not deleted.
+- [Direct broker smoke run](benchmarks/sandbox-validation-direct-public-2026-11-26.json.gz): 12/14 cases passed; both public provisioning cases blocked at the supervised DNS resolver, overall **incomplete**. This remains evidence of failed direct fetching, not an artifact integrity or offline-runtime failure.
+
+Both ran outside the outer tool filesystem wrapper so production Bubblewrap could create namespaces. Public files were obtained by task tooling through the configured cloud HTTPS proxy, bounded and checked against the committed manifest, then supplied explicitly. No downloaded package code ran on the host and no system runtime was installed. Reports retain the executable SHA, pins, artifact origin, exact failures and all-attempt distributions. The public-case preparation expectation includes the broker's cache-verification path; `artifact_origin` identifies whether downloading was actually exercised.
+
+| Provisioned case | Cold p50 / p95, ms | Warm p50 / p95, ms |
+| --- | --- | --- |
+| public_node_offline | 4329.8 / 4714.9 | 4095.3 / 4329.5 |
+| public_precommit_offline | 4314.0 / 4441.6 | 4133.4 / 4662.2 |
+
+These are debug/shared-host measurements, including copying/hashing and fresh installation. Builds/tests ran during part of collection; use them as functional/setup-cost evidence, not a controlled release performance comparison. First-output/per-phase timings, peak resource accounting, representative remote-hook/npm dependency graphs, and a successful direct broker public fetch still remain GL-035. Resource enforcement remains GL-023.
+
+Validation passes 587 ordinary tests (eight live/profiling tests ignored), strict all-target Clippy, formatting and an offline build. Added regressions validate the fixed artifact manifests and reject corrupt/symlink-supplied artifacts before any preparation/check event; CLI parsing refuses an artifact directory without explicit public-dependency mode. No paid provider calls were used.
