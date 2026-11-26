@@ -99,3 +99,21 @@ System Python and job-local virtualenvs can use `/cache`; host virtualenvs with 
 Copies/cache live under private `.greenlight/state/verification-runs/workspace-RUN_ID-*`; successful completed workspaces are removed. Receipts and generated edit bodies remain private state. If cleanup is unconfirmed—or an execution future is dropped while its invocation remains active—the workspace and cache are retained together. GL-033 quarantines further execution/recovery until cleanup is confirmed. Retained abandoned workspace directories need manual cleanup after safe recovery; there is no blind background garbage collection of potentially active jobs.
 
 Separately approved dependency provisioning, downloaded artifact provenance, CPU/PID/disk quotas, original Git integration, and successful live-isolation/performance measurements on a supported host remain follow-up work. This cloud environment rejects UID-map setup, so it validates explicit unavailability/cleanup and trusted snapshot/import fixtures; successful isolation tests remain ignored here.
+
+## Phase timing evidence
+
+New receipts carry `phase_ms`, a map of monotonic elapsed milliseconds. `check-show` prints it separately from raw diagnostics. Old receipts decode to an empty map: absent timings mean unmeasured/not reached, never zero or backfilled estimates. Timing does not change outcome, cleanup, approval, import or policy acceptance.
+
+| Phase | Scope |
+| --- | --- |
+| `workspace_setup` | Private run directories, source/state handles, initial preparation event and sandbox profile construction |
+| `preflight` | Runtime/namespace probe, including launch, capture and owned process cleanup |
+| `dependency_staging` | Verify prepared artifacts and copy them into private read-only dependency staging |
+| `approval_wait` | The authorization callback, recorded separately from execution work |
+| `source_capture_and_recheck` | Copy permitted inputs and rehash live inputs to detect capture-time drift |
+| `synthetic_git` | Optional fresh Git initialization/index, including process lifecycle |
+| `offline_setup` | Optional configured offline installation, including process lifecycle |
+| `check_execution` | Configured command, including namespace launch, bounded capture and process cleanup |
+| `change_inspection` | Inspect copy/live input state and assemble proposed edits/diffs |
+
+These are coarse wall-clock phases, not CPU time, pure command runtime, first-output latency or a complete decomposition of the whole operation. Inter-phase event publication, receipt persistence, final temporary-copy removal and caller ownership release are outside these spans. Required-runtime preflight failure has no check-execution span; failed bootstrap retains its setup and change-inspection spans without inventing a check span. Fatal errors before a receipt can return, including unconfirmed cleanup, still propagate normally and do not fabricate timing evidence.

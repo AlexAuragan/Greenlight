@@ -110,6 +110,7 @@ struct Sample {
     source_files: Option<usize>,
     source_bytes: Option<usize>,
     stop_to_cleanup_ms: Option<f64>,
+    phase_ms: BTreeMap<String, f64>,
     retained_paths: Vec<String>,
 }
 #[derive(Serialize)]
@@ -122,6 +123,13 @@ struct Summary {
     all_p95_ms: Option<f64>,
     met_expectations_p50_ms: Option<f64>,
     met_expectations_p95_ms: Option<f64>,
+    phase_ms: BTreeMap<String, PhaseSummary>,
+}
+#[derive(Serialize)]
+struct PhaseSummary {
+    measured_samples: usize,
+    p50_ms: f64,
+    p95_ms: f64,
 }
 struct Observation {
     gate: &'static str,
@@ -130,6 +138,7 @@ struct Observation {
     files: Option<usize>,
     bytes: Option<usize>,
     stop_ms: Option<f64>,
+    phase_ms: BTreeMap<String, f64>,
 }
 impl Observation {
     fn new(gate: &'static str, observed: impl Into<String>, diagnostic: impl Into<String>) -> Self {
@@ -140,6 +149,7 @@ impl Observation {
             files: None,
             bytes: None,
             stop_ms: None,
+            phase_ms: BTreeMap::new(),
         }
     }
 }
@@ -368,6 +378,7 @@ fn from_receipt(receipt: &Receipt, met: bool) -> Observation {
             receipt.diagnostic, receipt.preparation_diagnostic
         ),
     );
+    observation.phase_ms = receipt.phase_ms.clone();
     observation.files = Some(receipt.inputs.len());
     let known = files();
     observation.bytes = receipt
@@ -441,6 +452,7 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
         }
         Scenario::PreparedNode | Scenario::PreparedHook => {
             let recipe = public_recipe(scenario)?;
+            let supplied_started = Instant::now();
             if let Some(directory) = &fixture.artifact_directory {
                 let objects = fixture.store.directory_fd.create_dirs(Path::new("check-dependencies/objects"))?;
                 for artifact in &recipe.preparation.as_ref().unwrap().artifacts {
@@ -452,14 +464,28 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
                     objects.target(Path::new(&format!("{}.bin",artifact.sha256)))?.atomic_write(&bytes)?;
                 }
             }
+            let supplied_ms = supplied_started.elapsed().as_secs_f64() * 1000.0;
+            let preparation_started = Instant::now();
             let prepared = crate::check_dependencies::prepare(fixture.request(&recipe, &stop), || Ok(())).await;
+            let preparation_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
             let preparation = match prepared {
                 Ok(text) => text,
                 Err(error) if error.is::<crate::sandbox_job::CleanupIncomplete>() => return Err(error),
-                Err(error) => return Ok(Observation::new("blocked", "Public artifact preparation unavailable; offline check not started", format!("{error:#}"))),
+                Err(error) => {
+                    let mut observation = Observation::new("blocked", "Public artifact preparation unavailable; offline check not started", format!("{error:#}"));
+                    observation.phase_ms.insert("artifact_preparation".into(), preparation_ms);
+                    if fixture.artifact_directory.is_some() {
+                        observation.phase_ms.insert("external_artifact_verification_and_copy".into(), supplied_ms);
+                    }
+                    return Ok(observation);
+                }
             };
             let receipt = check(fixture, &recipe, &stop).await?;
             let mut observation = from_receipt(&receipt, clean_pass(&receipt));
+            observation.phase_ms.insert("artifact_preparation".into(), preparation_ms);
+            if fixture.artifact_directory.is_some() {
+                observation.phase_ms.insert("external_artifact_verification_and_copy".into(), supplied_ms);
+            }
             observation.diagnostic = format!("{preparation}\n{}", observation.diagnostic);
             Ok(observation)
         }
@@ -617,6 +643,7 @@ async fn sample(
         source_files: observation.files,
         source_bytes: observation.bytes,
         stop_to_cleanup_ms: observation.stop_ms,
+        phase_ms: observation.phase_ms,
         retained_paths: if fixture.keep {
             fixture.owned_paths()
         } else {
@@ -647,6 +674,15 @@ fn summary(samples: &[Sample], mode: &str) -> Summary {
         .filter(|s| s.gate == "passed")
         .map(|s| s.elapsed_ms)
         .collect::<Vec<_>>();
+    let mut phase_values: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    for sample in &samples {
+        for (phase, elapsed) in &sample.phase_ms {
+            phase_values
+                .entry(phase.clone())
+                .or_default()
+                .push(*elapsed);
+        }
+    }
     Summary {
         samples: samples.len(),
         met_expectations: passed.len(),
@@ -656,6 +692,19 @@ fn summary(samples: &[Sample], mode: &str) -> Summary {
         all_p95_ms: percentile(&all, 0.95),
         met_expectations_p50_ms: percentile(&passed, 0.5),
         met_expectations_p95_ms: percentile(&passed, 0.95),
+        phase_ms: phase_values
+            .into_iter()
+            .map(|(phase, values)| {
+                (
+                    phase,
+                    PhaseSummary {
+                        measured_samples: values.len(),
+                        p50_ms: percentile(&values, 0.5).unwrap(),
+                        p95_ms: percentile(&values, 0.95).unwrap(),
+                    },
+                )
+            })
+            .collect(),
     }
 }
 pub async fn run(
@@ -707,7 +756,7 @@ pub async fn run(
         fixture_public_files: public.len(),
         fixture_public_bytes: public.values().map(String::len).sum(),
         cache_definitions: BTreeMap::from([("cold","Fresh Greenlight project/state; fixture creation excluded from elapsed time. OS/page/toolchain/registry caches are not flushed."),("warm","Same synthetic project/state; check cache/venv remains fresh per invocation. Local pinned fixture objects only; no public downloads.")]),
-        unmeasured: vec!["first-output latency","per-phase elapsed time","peak RSS/CPU/disk quotas","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
+        unmeasured: vec!["first-output latency","per-phase elapsed time for non-verification shell/inspection operations","peak RSS/CPU/disk quotas","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
         remaining_validation: vec!["Supported-host successful results must be reviewed before GL-035 closes","Real public HTTPS/TLS/DNS pinned artifact preparation","Representative remote pre-commit/Node dependency bundles","Original Git staged/history/worktree semantics remain unsupported, not tested as equivalent"],
         retained_paths: Vec::new(),
         cases: Vec::new(),
@@ -890,6 +939,7 @@ mod tests {
             source_files: None,
             source_bytes: None,
             stop_to_cleanup_ms: None,
+            phase_ms: BTreeMap::new(),
             retained_paths: Vec::new(),
         }
     }
@@ -961,14 +1011,19 @@ mod tests {
     }
     #[test]
     fn percentiles_keep_blocked_failed_and_warmup_results_separate() {
-        let samples = vec![
+        let mut samples = vec![
             row("warm", "passed", 1.0),
             row("warm", "blocked", 5.0),
             row("warm", "failed", 100.0),
             row("warmup", "passed", 500.0),
             row("cold", "passed", 700.0),
         ];
+        samples[0].phase_ms.insert("preflight".into(), 1.0);
+        samples[1].phase_ms.insert("preflight".into(), 5.0);
         let report = summary(&samples, "warm");
+        assert_eq!(report.phase_ms["preflight"].measured_samples, 2);
+        assert_eq!(report.phase_ms["preflight"].p95_ms, 5.0);
+        assert!(!report.phase_ms.contains_key("check_execution"));
         assert_eq!(report.samples, 3);
         assert_eq!(report.met_expectations, 1);
         assert_eq!(report.blocked, 1);

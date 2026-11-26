@@ -131,3 +131,30 @@ Both ran outside the outer tool filesystem wrapper so production Bubblewrap coul
 These are debug/shared-host measurements, including copying/hashing and fresh installation. Builds/tests ran during part of collection; use them as functional/setup-cost evidence, not a controlled release performance comparison. First-output/per-phase timings, peak resource accounting, representative remote-hook/npm dependency graphs, and a successful direct broker public fetch still remain GL-035. Resource enforcement remains GL-023.
 
 Validation passes 587 ordinary tests (eight live/profiling tests ignored), strict all-target Clippy, formatting and an offline build. Added regressions validate the fixed artifact manifests and reject corrupt/symlink-supplied artifacts before any preparation/check event; CLI parsing refuses an artifact directory without explicit public-dependency mode. No paid provider calls were used.
+
+## Verification phase measurements
+
+Benchmark verification samples now copy the primary receipt's [`phase_ms`](54-isolated-verification.md#phase-timing-evidence), keeping absent phases absent. Each cold/warm/warmup summary reports `measured_samples`, p50 and p95 per phase across **all measured attempts**, including failed/blocked attempts. A phase that only some attempts reached has a smaller count, rather than zero-filled observations. These distributions do not filter to passing checks.
+
+Public provisioning cases additionally measure `artifact_preparation` (the broker call, including verified cache reuse or an actual attempted download) and, when explicitly supplied, `external_artifact_verification_and_copy`. Their origin remains labelled; measuring a DNS failure does not establish download success. Hard external-input validation errors may return before a phase observation is available.
+
+Sample phase maps are partial evidence, not a sum guaranteed to equal sample elapsed time. In multi-operation cases such as formatter/import/recheck, the primary check's receipt supplies the sample map; subsequent checks have their own recorded receipts. Non-verification shell/inspection phases, first output, peak resources and UI stop acknowledgement remain unmeasured. Historical compressed reports retain their original fields and are not backfilled.
+
+### Phase measurement results — 2026-11-26
+
+The [full provisioned phase report](benchmarks/sandbox-phase-provisioned-2026-11-26.json.gz) passes **14/14 cases, 504 samples**, with all cleanup confirmed and no retained job fixtures. It uses the same externally supplied pinned files and namespace-capable execution context as the preceding run. It is not evidence of successful direct fetching. Each provisioning phase below has 30 measured warm samples; timings include process launch/capture/cleanup where applicable.
+
+| Provisioned case | Phase | Warm p50 / p95, ms |
+| --- | --- | --- |
+| public_node_offline | artifact_preparation | 511.2 / 640.1 |
+| public_node_offline | dependency_staging | 500.9 / 685.2 |
+| public_node_offline | offline_setup | 2179.0 / 2414.1 |
+| public_node_offline | check_execution | 54.9 / 74.6 |
+| public_precommit_offline | artifact_preparation | 132.5 / 171.9 |
+| public_precommit_offline | dependency_staging | 128.6 / 165.6 |
+| public_precommit_offline | offline_setup | 2568.1 / 2779.2 |
+| public_precommit_offline | check_execution | 880.0 / 962.1 |
+
+The [direct broker failure probe](benchmarks/sandbox-phase-direct-failure-2026-11-26.json.gz) remains incomplete: both public cases record `artifact_preparation` duration and omit `check_execution`, because DNS failed before checks began. No zero-filled or invented command timings are supplied.
+
+Validation: 587 ordinary tests pass (nine live/profiling tests ignored), strict all-target Clippy, formatting and offline build pass. The new live setup/check failure regression was run explicitly and passed, including persisted receipt phase keys. Existing regressions now verify legacy timing absence, numeric round-trip, reached/absent phase boundaries, and summary coverage without zero-filling. These remain debug/shared-host functional measurements; compilation/tests overlapped part of collection. First-output latency, non-verification phases, peak resource accounting and UI acknowledgement are still unmeasured.

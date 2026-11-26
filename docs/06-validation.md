@@ -1,5 +1,9 @@
 # Validation
 
+## Verification phase timings (GL-035) — 2026-11-26
+
+Implemented on the existing review branch, pending merge. Receipts and `check-show` retain reached monotonic phase durations; benchmark samples/summaries include per-phase coverage and p50/p95. Legacy receipts remain unmeasured. The full provisioned matrix passes **14/14 cases, 504 samples**, all cleanup confirmed. Direct DNS-failure probes record attempted preparation without inventing check execution. The suite passes **587 tests** (nine live/profiling tests ignored); the new live failed-setup/failed-check persistence regression also passes explicitly. Strict all-target Clippy, formatting and offline build pass. See [reports and timing scope](56-sandbox-validation.md#phase-measurement-results--2026-11-26). Remaining GL-035 gaps stay open.
+
 ## Provisioned Node/pre-commit fixtures (GL-035) — 2026-11-26
 
 Implemented on the existing review branch, pending merge. Opt-in fixed public pins and explicitly supplied external artifacts exercise real verification staging and fresh offline Node/pre-commit setup without host installation. The full provisioned matrix passes **14/14 cases, 504 samples**, with all cleanup confirmed. Direct broker fetching remains separately **incomplete**: this cloud network's supervised DNS resolver fails for the public endpoints; proxy-based task downloads are not counted as broker success. The suite passes **587 tests**, with eight live/profiling tests ignored; strict all-target Clippy, formatting and offline build pass. GL-035 remains open for direct public fetching, broader dependency coverage and missing measurements. See [complete reports, pins and scope](56-sandbox-validation.md#recorded-provisioned-runtime-results--2026-11-26).
