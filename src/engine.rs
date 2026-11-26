@@ -62,14 +62,15 @@ impl Engine {
             interactive_provider_retry: false,
         })
     }
-    pub async fn run_named_check(&mut self, id: &str, name: &str) -> Result<()> {
+    pub async fn run_named_check(&mut self, id: &str, name: &str, prepare: bool) -> Result<()> {
         let session = self.store.session(id)?;
         let owner = self
             .store
             .claim_tool_execution(id, &session.active_branch)?;
         let result = async {
+            let tool = if prepare {"prepare_check"} else {"check"};
             let action = crate::tools::parse_action(&format!(
-                "action: tool\ntool: check\ninput: {}",
+                "action: tool\ntool: {tool}\ninput: {}",
                 serde_json::to_string(name)?
             ))?;
             self.store.event(
@@ -84,29 +85,29 @@ impl Engine {
                 "tool.request",
                 &serde_yaml::to_string(&action)?,
             )?;
-            let outcome = self.tools
-                .check(name, &self.store, &session, &session.current_step, true)
-                .await;
+            let outcome = if prepare {
+                self.tools.prepare_check(name, &self.store, &session, &session.current_step, true).await.map(|body|(body,true))
+            } else {
+                self.tools.check(name, &self.store, &session, &session.current_step, true).await.map(|receipt| {
+                    let accepted = receipt.outcome == "passed" && receipt.modifications == "none" && receipt.live_inputs_match;
+                    (receipt.report(), accepted)
+                })
+            };
             for decision in self.tools.decisions.drain(..) {
                 self.store.event(
                     &session, Some(&session.current_step), "protocol.approval", &decision,
                 )?;
             }
             let (kind, body) = match &outcome {
-                Ok(receipt) => ("tool.result", receipt.report()),
+                Ok((body,_)) => ("tool.result", body.clone()),
                 Err(error) => ("tool.error", format!("{error:#}")),
             };
             self.store.tool_outcome(
-                &session, &session.current_step, request, "check", kind, &body,
+                &session, &session.current_step, request, tool, kind, &body,
             )?;
-            let receipt = outcome?;
+            let (_,accepted) = outcome?;
             println!("{body}");
-            if receipt.outcome != "passed"
-                || receipt.modifications != "none"
-                || !receipt.live_inputs_match
-            {
-                bail!("Check did not establish a passing unchanged live input snapshot ({}; modifications {}). Review run {}.", receipt.outcome, receipt.modifications, receipt.id);
-            }
+            if !accepted { bail!("Check did not establish a passing unchanged live input snapshot; inspect the recorded run."); }
             Ok::<_, anyhow::Error>(())
         }
         .await;
@@ -1225,7 +1226,10 @@ impl Engine {
         context.push('\n');
         context.push_str(&crate::agent_protocol::tool_help(tools));
         context.push_str(crate::verification_workspace::capabilities());
-        if tools.iter().any(|tool| tool == "check") {
+        if tools
+            .iter()
+            .any(|tool| matches!(tool.as_str(), "check" | "prepare_check"))
+        {
             let recipes = self
                 .cfg
                 .checks
@@ -1246,7 +1250,7 @@ impl Engine {
                 })
                 .collect::<Vec<_>>()
                 .join("; ");
-            context.push_str(&format!("\nConfigured check recipe excerpts: {}. Use tool: check with input: RECIPE_NAME. Check permissions do not permit live source writes.\n", recipes.chars().take(8000).collect::<String>()));
+            context.push_str(&format!("\nConfigured check recipe excerpts: {}. Use tool: check to run or tool: prepare_check to fetch pinned artifacts, only when that tool is workflow-enabled; input: RECIPE_NAME. No arbitrary URLs. Check permissions do not permit live source writes.\n", recipes.chars().take(8000).collect::<String>()));
         }
         if context.len() > self.cfg.session.max_artifact_bytes {
             bail!("assembled step context exceeds byte limit; revise artifact selection");
@@ -1846,7 +1850,10 @@ mod name_tests {
         let session = engine.store.create("demo", "fixture", "verify").unwrap();
         // Unsupported hosts refuse preflight; supported hosts execute false.
         // Both must make the CLI fail and preserve a check result, without API use.
-        assert!(engine.run_named_check(&session.id, "tests").await.is_err());
+        assert!(engine
+            .run_named_check(&session.id, "tests", false)
+            .await
+            .is_err());
         let history = engine.store.history(&session).unwrap();
         assert!(history.iter().any(|e| e.2 == "verification.workspace"));
         assert!(history.iter().any(|e| e.2 == "verification.diagnostic"));

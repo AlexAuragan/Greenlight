@@ -385,12 +385,28 @@ mod tests {
             crate::tui_actions::resume(root.path().into(), session.id.clone(), String::new());
         let prompt = fresh.prompts.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(prompt.content.contains("EDITED_PLAN"));
+        fresh.answers.send("y".into()).unwrap();
+        // Stop only after the approval has been consumed and implementation
+        // context is recorded. Setting stop before sending the answer races the
+        // prompt driver, which correctly may stop without approving anything.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !store
+            .history(&session)
+            .unwrap()
+            .iter()
+            .any(|(_, step, kind, _)| step == "implement" && kind == "context.assembled")
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "implementation context was not assembled"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
         fresh
             .cancel_retry
             .as_ref()
             .unwrap()
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        fresh.answers.send("y".into()).unwrap();
         fresh
             .finished
             .recv_timeout(Duration::from_secs(5))

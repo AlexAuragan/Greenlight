@@ -56,8 +56,8 @@ pub fn parse_action(text: &str) -> Result<AgentAction> {
                         bail!("write requires content (an empty string is allowed)");
                     }
                 }
-                "shell" | "web" | "check" => required(action.input.as_deref(), "input")?,
-                _ => bail!("unknown tool; supported tool names are read, write, shell, web, check"),
+                "shell" | "web" | "check" | "prepare_check" => required(action.input.as_deref(), "input")?,
+                _ => bail!("unknown tool; supported tool names are read, write, shell, web, check, prepare_check"),
             }
         }
         "artifact" => {
@@ -436,6 +436,58 @@ impl Tools {
         }
         Ok(resolved)
     }
+    fn check_recipe(&self, input: &str) -> Result<(String, crate::verification_workspace::Recipe)> {
+        let (name, expected) = input
+            .split_once('@')
+            .map_or((input, None), |(name, hash)| (name, Some(hash)));
+        let config = crate::config::load_config(&self.root)?;
+        let recipe = config.checks.get(name).context(
+            "Unknown named check; configure host-owned checks in .greenlight/config.yaml",
+        )?;
+        if expected.is_some_and(|hash| hash != recipe.fingerprint()) {
+            bail!("Named check recipe changed; no authority expansion occurred");
+        }
+        Ok((name.into(), recipe.clone()))
+    }
+    pub(crate) async fn prepare_check(
+        &mut self,
+        input: &str,
+        store: &crate::store::Store,
+        session: &crate::store::Session,
+        step: &str,
+        user_requested: bool,
+    ) -> Result<String> {
+        let (name, recipe) = self.check_recipe(input)?;
+        if self.policies.web == "deny" {
+            bail!("Dependency downloads forbidden by web policy");
+        }
+        let root = self.root.clone();
+        let stop = self.stop.clone();
+        let result = crate::check_dependencies::prepare(crate::verification_workspace::Request { root:&root, store, session, step, name:&name, recipe:&recipe, stop:&stop }, || {
+            let preparation = recipe.preparation.as_ref().context("No dependency preparation configured")?;
+            let key = format!("dependencies:{}",recipe.fingerprint());
+            if !user_requested && !self.approved.contains(&key) {
+                let answer = self.prompt_driver.ask_with_command(&format!("[approval required: pinned dependency fetch]\nRecipe: {name}\n{}\nRecipe fingerprint: {}\n[y] once / [a] this exact manifest for this process / [n] deny",preparation.description(),recipe.fingerprint()), ApprovalMode::Tool, None)?;
+                match answer.trim().to_lowercase().as_str() { "y"=>{}, "a"=>{ self.approved.insert(key); }, _=>bail!("Dependency fetch declined; no request sent") }
+            }
+            self.decisions.push(format!("dependencies: {} — {name} · {}",if user_requested {"explicit user request"} else {"approved pinned fetch"},recipe.fingerprint()));
+            Ok(())
+        }).await;
+        if let Err(error) = &result {
+            store.event(
+                session,
+                Some(step),
+                "dependency.failed",
+                &format!("Recipe fingerprint: {}\n{error:#}", recipe.fingerprint()),
+            )?;
+        }
+        result.with_context(|| {
+            format!(
+                "Dependency preparation failed.\nRecipe fingerprint: {}\n",
+                recipe.fingerprint()
+            )
+        })
+    }
     fn authorize_check(
         &mut self,
         name: &str,
@@ -443,6 +495,23 @@ impl Tools {
     ) -> Result<()> {
         if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
             bail!("Check stopped before authorization");
+        }
+        if let Some(command) = recipe.preparation.as_ref().and_then(|p| p.run.as_deref()) {
+            let key = format!("bootstrap:{}", recipe.fingerprint());
+            if !self.approved.contains(&key) {
+                let answer = self.prompt_driver.ask_with_command(&format!("[approval required: offline dependency installation]\nRecipe: {name}\n{command}\nOnly disposable source/cache writes; /deps read-only; no network, host HOME or host execution.\nRecipe fingerprint: {}\n[y] once / [a] this exact bootstrap for this process / [n] deny",recipe.fingerprint()),ApprovalMode::Tool,Some(command))?;
+                match answer.trim().to_lowercase().as_str() {
+                    "y" => {}
+                    "a" => {
+                        self.approved.insert(key);
+                    }
+                    _ => bail!("Offline dependency installation declined; check not started"),
+                }
+                self.decisions.push(format!(
+                    "bootstrap: approved isolated offline installation — {}",
+                    recipe.fingerprint()
+                ));
+            }
         }
         let key = format!("check:{}", recipe.fingerprint());
         if !self.approved.contains(&key) {
@@ -473,16 +542,7 @@ impl Tools {
         step: &str,
         user_requested: bool,
     ) -> Result<crate::verification_workspace::Receipt> {
-        let (name, expected) = name
-            .split_once('@')
-            .map_or((name, None), |(name, hash)| (name, Some(hash)));
-        let cfg = crate::config::load_config(&self.root)?;
-        let recipe = cfg.checks.get(name).context(
-            "Unknown named check; configure host-owned checks in .greenlight/config.yaml",
-        )?;
-        if expected.is_some_and(|hash| hash != recipe.fingerprint()) {
-            bail!("Named check recipe changed; no execution or authority expansion occurred");
-        }
+        let (name, recipe) = self.check_recipe(name)?;
         if self.stop.load(std::sync::atomic::Ordering::SeqCst) {
             bail!("Check stopped before authorization");
         }
@@ -497,8 +557,8 @@ impl Tools {
                 store,
                 session,
                 step,
-                name,
-                recipe,
+                name: &name,
+                recipe: &recipe,
                 stop: &stop,
             },
             || {
@@ -509,7 +569,7 @@ impl Tools {
                     ));
                     Ok(())
                 } else {
-                    self.authorize_check(name, recipe)
+                    self.authorize_check(&name, &recipe)
                 }
             },
         )
@@ -633,6 +693,21 @@ impl Tools {
     ) -> Result<String> {
         let tool = action.tool.as_deref().context("missing tool")?;
         match tool {
+            "prepare_check" => {
+                let (store, session, step) = journal
+                    .context("Dependency preparation requires journaled session ownership")?;
+                self.prepare_check(
+                    action
+                        .input
+                        .as_deref()
+                        .context("prepare_check input requires recipe name")?,
+                    store,
+                    session,
+                    step,
+                    self.user_requested,
+                )
+                .await
+            }
             "check" => {
                 let (store, session, step) =
                     journal.context("Named checks require a journaled workflow/session")?;
@@ -1327,6 +1402,126 @@ mod project_read_scope_tests {
 mod stop_tests {
     use super::*;
     #[test]
+    fn dependency_fetch_install_and_check_grants_are_independent() {
+        let root = tempfile::tempdir().unwrap();
+        let mut tools = Tools::new(
+            root.path().to_path_buf(),
+            Permissions {
+                shell: "allow".into(),
+                web: "allow".into(),
+                ..Permissions::default()
+            },
+        )
+        .unwrap();
+        let recipe = crate::verification_workspace::Recipe {
+            command: "check".into(),
+            requires: vec![],
+            git: false,
+            preparation: Some(crate::check_dependencies::Preparation {
+                artifacts: vec![],
+                run: Some("offline setup".into()),
+            }),
+        };
+        tools
+            .approved
+            .insert(format!("dependencies:{}", recipe.fingerprint()));
+        tools.approved.insert("web".into());
+        let (requests, prompts) = std::sync::mpsc::channel();
+        let (answers, responses) = std::sync::mpsc::channel();
+        tools.use_tui(requests, responses);
+        let worker = std::thread::spawn(move || {
+            assert!(tools.authorize_check("tests", &recipe).is_err());
+            // The installation process grant survived, but did not authorize
+            // the separately declined check. Only check approval is asked now.
+            tools.authorize_check("tests", &recipe).unwrap();
+            let mut changed = recipe;
+            changed.preparation.as_mut().unwrap().run = Some("changed setup".into());
+            assert!(tools.authorize_check("tests", &changed).is_err());
+        });
+        let install = prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(install.content.contains("offline dependency installation"));
+        answers.send("a".into()).unwrap();
+        let check = prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(check.content.contains("verification workspace"));
+        answers.send("n".into()).unwrap();
+        let check = prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(check.content.contains("verification workspace"));
+        answers.send("y".into()).unwrap();
+        let changed = prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(changed.content.contains("changed setup"));
+        answers.send("n".into()).unwrap();
+        worker.join().unwrap();
+    }
+    #[test]
+    fn dependency_fetch_does_not_inherit_web_allow_and_denial_keeps_replay_fingerprint() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().to_path_buf();
+        std::fs::write(path.join("greenlight.yaml"),format!("provider:\n  model: unused\nchecks:\n  tests:\n    command: true\n    preparation:\n      artifacts:\n        - name: pinned.bin\n          url: https://artifacts.example.com/pinned.bin\n          sha256: '{}'\n", "0".repeat(64))).unwrap();
+        let (requests, prompts) = std::sync::mpsc::channel();
+        let (answers, responses) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let store = crate::store::Store::open(&path).unwrap();
+                let session = store.create("demo", "deps", "verify").unwrap();
+                let owner = store
+                    .claim_tool_execution(&session.id, &session.active_branch)
+                    .unwrap();
+                let mut tools = Tools::new(
+                    path.clone(),
+                    Permissions {
+                        web: "allow".into(),
+                        ..Permissions::default()
+                    },
+                )
+                .unwrap();
+                tools.approved.insert("web".into());
+                tools.use_tui(requests, responses);
+                let fingerprint =
+                    crate::config::load_config(&path).unwrap().checks["tests"].fingerprint();
+                let error = tools
+                    .prepare_check("tests", &store, &session, "verify", false)
+                    .await
+                    .unwrap_err();
+                let body = format!("{error:#}");
+                assert_eq!(
+                    body.lines()
+                        .find_map(|line| line.strip_prefix("Recipe fingerprint: ")),
+                    Some(fingerprint.as_str())
+                );
+                assert!(!store
+                    .history(&session)
+                    .unwrap()
+                    .iter()
+                    .any(|e| e.2 == "dependency.download"));
+                store
+                    .finish_execution(&session.id, &owner, Some(&error))
+                    .unwrap();
+            });
+        });
+        let prompt = prompts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(prompt.content.contains("pinned dependency fetch"));
+        assert!(prompt
+            .content
+            .contains("https://artifacts.example.com/pinned.bin"));
+        answers.send("n".into()).unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
     fn check_profile_grants_are_separate_from_shell_and_bound_to_recipe_authority() {
         let root = tempfile::tempdir().unwrap();
         let mut tools = Tools::new(
@@ -1346,6 +1541,7 @@ mod stop_tests {
                 command: "fixture".into(),
                 requires: vec![],
                 git: false,
+                preparation: None,
             };
             tools.authorize_check("tests", &recipe).unwrap();
             tools.authorize_check("tests", &recipe).unwrap(); // exact recipe process grant

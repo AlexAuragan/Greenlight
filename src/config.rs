@@ -452,7 +452,7 @@ pub fn load_workflow(root: &Path, id: &str) -> Result<LoadedWorkflow> {
         if step.kind == "command" && step.command.is_none() {
             bail!("command step {name} missing command");
         }
-        let allowed = ["shell", "read", "write", "web", "check"];
+        let allowed = ["shell", "read", "write", "web", "check", "prepare_check"];
         for tool in step.tools.as_deref().unwrap_or(&[]) {
             if !allowed.contains(&tool.as_str()) {
                 bail!("unknown tool {tool} in {name}");

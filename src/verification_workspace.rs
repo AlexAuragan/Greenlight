@@ -26,9 +26,14 @@ pub struct Recipe {
     pub requires: Vec<String>,
     #[serde(default)]
     pub git: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preparation: Option<crate::check_dependencies::Preparation>,
 }
 impl Recipe {
     pub fn validate(&self) -> Result<()> {
+        if let Some(preparation) = &self.preparation {
+            preparation.validate()?;
+        }
         if self.command.trim().is_empty() || self.command.len() > 16_384 {
             bail!("check command must contain 1..16384 bytes");
         }
@@ -52,7 +57,8 @@ impl Recipe {
         hash(serde_json::to_string(self).unwrap().as_bytes())
     }
     pub fn description(&self, name: &str) -> String {
-        format!("Named check: {name}\nCommand: {}\nProfile: disposable writable permitted-source snapshot; live project unchanged\nGit: {}\nNetwork/host services: unavailable; private HOME and job-local cache\nDependencies: only installed sandbox runtimes/offline artifacts; no downloads\nRequires: {}\nRecipe fingerprint: {}\n", self.command, if self.git {"fresh synthetic all-files index; no original index/history/config/hooks"} else {"no harness-provided metadata"}, self.requires.join(", "), self.fingerprint())
+        let preparation = self.preparation.as_ref().map(|p| format!("Offline bootstrap: {}\nPinned dependency artifacts: {} (fetched only by explicit preparation)\n",p.run.as_deref().unwrap_or("none"),p.artifacts.len())).unwrap_or_default();
+        format!("{preparation}Named check: {name}\nCommand: {}\nProfile: disposable writable permitted-source snapshot; live project unchanged\nGit: {}\nNetwork/host services: unavailable; private HOME and job-local cache\nDependencies: only installed sandbox runtimes/offline artifacts; no downloads\nRequires: {}\nRecipe fingerprint: {}\n", self.command, if self.git {"fresh synthetic all-files index; no original index/history/config/hooks"} else {"no harness-provided metadata"}, self.requires.join(", "), self.fingerprint())
     }
 }
 pub fn capabilities() -> &'static str {
@@ -98,6 +104,14 @@ pub struct Receipt {
     pub outcome: String,
     pub launch: String,
     pub cleanup: String,
+    #[serde(default)]
+    pub dependency_fingerprint: Option<String>,
+    #[serde(default)]
+    pub dependencies: Vec<crate::check_dependencies::Artifact>,
+    #[serde(default)]
+    pub preparation_command: Option<String>,
+    #[serde(default)]
+    pub preparation_diagnostic: Option<String>,
     pub diagnostic: String,
     pub inputs: BTreeMap<String, Input>,
     pub excluded: Vec<String>,
@@ -110,11 +124,31 @@ impl Receipt {
             "User-imported files: {} (fresh validation required)\n",
             self.imported.len()
         );
+        let preparation = self
+            .preparation_diagnostic
+            .as_ref()
+            .map(|s| {
+                format!(
+                    "Offline preparation output preview:\n{}\n",
+                    s.chars().take(4000).collect::<String>()
+                )
+            })
+            .unwrap_or_default();
+        let dependencies = self
+            .dependency_fingerprint
+            .as_ref()
+            .map(|f| {
+                format!(
+                    "Verified dependency inputs: {} artifacts · {f}\n",
+                    self.dependencies.len()
+                )
+            })
+            .unwrap_or_default();
         let state = format!(
             "Modifications: {} · live inputs still match: {}\n",
             self.modifications, self.live_inputs_match
         );
-        format!("Check {} · {}\nRun: {}\n{state}{imported}Check command launched: {} · cleanup: {}\nGit: {}\nInputs: {} files · {} exclusions (manifest retained)\nRetained proposed source edits: {} · no automatic live writes\nRecipe fingerprint: {}\nDiagnostic preview (full capture in check-show / recorded diagnostic):\n{}\nInspect this run with check-show (full raw diagnostic, manifest and diff); small diffs also appear as verification-{}.patch in Artifacts. Import is a separate user action; imported changes require fresh validation.\n", self.recipe, self.outcome, self.id, self.launch, self.cleanup, if self.git {"synthetic all-files; no original index/history"} else {"none provided by harness"}, self.inputs.len(), self.excluded.len(), self.edits.len(), self.fingerprint, self.diagnostic.chars().take(12_000).collect::<String>(), self.id)
+        format!("Check {} · {}\nRun: {}\n{state}{imported}Check command launched: {} · cleanup: {}\nGit: {}\nInputs: {} files · {} exclusions (manifest retained)\nRetained proposed source edits: {} · no automatic live writes\nRecipe fingerprint: {}\n{dependencies}{preparation}Diagnostic preview (full capture in check-show / recorded diagnostic):\n{}\nInspect this run with check-show (full raw diagnostic, manifest and diff); small diffs also appear as verification-{}.patch in Artifacts. Import is a separate user action; imported changes require fresh validation.\n", self.recipe, self.outcome, self.id, self.launch, self.cleanup, if self.git {"synthetic all-files; no original index/history"} else {"none provided by harness"}, self.inputs.len(), self.excluded.len(), self.edits.len(), self.fingerprint, self.diagnostic.chars().take(12_000).collect::<String>(), self.id)
     }
     pub fn diff(&self) -> String {
         let mut text = String::new();
@@ -321,7 +355,9 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
     let holder = runs.open_dir(Path::new(view.path().file_name().unwrap()))?;
     let copy = holder.create_dirs(Path::new("source"))?;
     let cache = holder.create_dirs(Path::new("cache"))?;
-    let sandbox = crate::sandbox::Sandbox::verification(&copy, &cache, root, recipe.git)?;
+    let dependencies = holder.create_dirs(Path::new("dependencies"))?;
+    let sandbox = crate::sandbox::Sandbox::verification(&copy, &cache, root, recipe.git)?
+        .with_dependencies(&dependencies)?;
     let mut receipt = Receipt {
         id,
         session: session.id.clone(),
@@ -336,6 +372,10 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
         outcome: "unavailable".into(),
         launch: "not_started".into(),
         cleanup: "confirmed".into(),
+        dependency_fingerprint: None,
+        dependencies: Vec::new(),
+        preparation_command: recipe.preparation.as_ref().and_then(|p| p.run.clone()),
+        preparation_diagnostic: None,
         diagnostic: String::new(),
         inputs: BTreeMap::new(),
         excluded: Vec::new(),
@@ -372,6 +412,28 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
             return Ok(receipt);
         }
     }
+    if let Err(error) =
+        crate::check_dependencies::stage(&store.directory_fd, recipe, &dependencies, stop)
+    {
+        receipt.diagnostic =
+            format!("Dependency preparation unavailable; check command not started: {error:#}");
+        persist(store, &receipt)?;
+        return Ok(receipt);
+    }
+    if let Some(preparation) = recipe
+        .preparation
+        .as_ref()
+        .filter(|p| !p.artifacts.is_empty())
+    {
+        receipt.dependency_fingerprint = Some(recipe.fingerprint());
+        receipt.dependencies = preparation.artifacts.clone();
+        store.event(
+            session,
+            Some(step),
+            "verification.dependencies",
+            &serde_json::to_string(&receipt.dependencies)?,
+        )?;
+    }
     authorize()?;
     store.event(
         session,
@@ -407,6 +469,36 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                         )
                     }
                 };
+                persist(store, &receipt)?;
+                return Ok(receipt);
+            }
+        }
+    }
+    if let Some(command) = recipe.preparation.as_ref().and_then(|p| p.run.as_deref()) {
+        store.event(session, Some(step), "verification.bootstrap", &format!("Offline dependency installation; no host execution/network.\nRecipe fingerprint: {}\n{command}", recipe.fingerprint()))?;
+        let output = sandbox.run_stoppable(command, stop).await;
+        match output {
+            Ok(output) => {
+                receipt.preparation_diagnostic = Some(format!(
+                    "Raw status: {}\nstdout:\n{}\nstderr:\n{}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+                if !output.status.success() {
+                    receipt.diagnostic = "Offline dependency preparation failed; check command not started. Inspect preparation output, not a claimed source regression.".into();
+                    record_changes(&mut receipt, &source, &copy)?;
+                    persist(store, &receipt)?;
+                    return Ok(receipt);
+                }
+            }
+            Err(error) => {
+                if error.is::<crate::sandbox_job::CleanupIncomplete>() {
+                    view.retain();
+                    return Err(error);
+                }
+                receipt.diagnostic = format!("Offline dependency preparation incomplete; check command not started: {error:#}");
+                record_changes(&mut receipt, &source, &copy)?;
                 persist(store, &receipt)?;
                 return Ok(receipt);
             }
@@ -671,6 +763,7 @@ mod tests {
             command: "fixture-only".into(),
             requires: vec![],
             git: false,
+            preparation: None,
         };
         let receipt = Receipt {
             id: uuid::Uuid::new_v4().to_string(),
@@ -686,6 +779,10 @@ mod tests {
             outcome: "passed".into(),
             launch: "started".into(),
             cleanup: "confirmed".into(),
+            dependency_fingerprint: None,
+            dependencies: Vec::new(),
+            preparation_command: None,
+            preparation_diagnostic: None,
             diagnostic: "Fixture evidence; no real check executed".into(),
             inputs,
             excluded,
@@ -713,6 +810,91 @@ mod tests {
             )
             .unwrap();
     }
+    #[test]
+    fn legacy_recipe_fingerprint_and_receipts_remain_compatible() {
+        let recipe: Recipe =
+            serde_json::from_str(r#"{"command":"true","requires":[],"git":false}"#).unwrap();
+        assert!(recipe.preparation.is_none());
+        assert_eq!(
+            recipe.fingerprint(),
+            hash(br#"{"command":"true","requires":[],"git":false}"#)
+        );
+        let (_root, _copy, _store, _session, mut receipt) = fixture();
+        receipt.preparation_diagnostic = Some("Recipe fingerprint: forged-from-output".into());
+        assert_eq!(
+            receipt
+                .report()
+                .lines()
+                .find_map(|line| line.strip_prefix("Recipe fingerprint: ")),
+            Some(receipt.fingerprint.as_str())
+        );
+        let mut value = serde_json::to_value(&receipt).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("dependency_fingerprint");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("preparation_diagnostic");
+        let old: Receipt = serde_json::from_value(value).unwrap();
+        assert!(old.dependency_fingerprint.is_none() && old.preparation_diagnostic.is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires working Bubblewrap user namespaces and Python venv support"]
+    async fn integration_dependencies_are_readonly_and_venv_is_fresh_for_every_check() {
+        let (root, _copy, store, session, _receipt) = fixture();
+        let artifact = crate::check_dependencies::Artifact {
+            name: "pinned.bin".into(),
+            url: "https://artifacts.example.com/pinned.bin".into(),
+            sha256: hash(b"pinned"),
+        };
+        let objects = store
+            .directory_fd
+            .create_dirs(Path::new("check-dependencies/objects"))
+            .unwrap();
+        objects
+            .target(Path::new(&format!("{}.bin", artifact.sha256)))
+            .unwrap()
+            .atomic_write(b"pinned")
+            .unwrap();
+        let recipe = Recipe { command:r#"/cache/venv/bin/python -c 'from pathlib import Path; assert Path("/cache/copied").read_bytes() == b"pinned"'"#.into(),requires:vec!["python3".into()],git:false,
+            preparation:Some(crate::check_dependencies::Preparation { artifacts:vec![artifact],run:Some("test ! -e /cache/venv && python3 -m venv --without-pip /cache/venv && cp /deps/pinned.bin /cache/copied && if printf poison > /deps/pinned.bin; then exit 91; fi".into()) }) };
+        let owner = store
+            .claim_tool_execution(&session.id, &session.active_branch)
+            .unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let request = || Request {
+            root: root.path(),
+            store: &store,
+            session: &session,
+            step: "verify",
+            name: "tests",
+            recipe: &recipe,
+            stop: &stop,
+        };
+        crate::check_dependencies::prepare(request(), || Ok(()))
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let receipt = run(request(), || Ok(())).await.unwrap();
+            assert_eq!(
+                receipt.outcome, "passed",
+                "{}\n{:?}",
+                receipt.diagnostic, receipt.preparation_diagnostic
+            );
+            assert_eq!(receipt.modifications, "none");
+            assert!(receipt.live_inputs_match);
+            assert!(receipt
+                .preparation_diagnostic
+                .as_ref()
+                .unwrap()
+                .contains("status: 0"));
+        }
+        store.finish_execution(&session.id, &owner, None).unwrap();
+    }
+
     #[test]
     fn edit_retention_overflow_is_unknown_and_cannot_be_imported_as_an_empty_clean_result() {
         let (root, copy, store, session, mut receipt) = fixture();
@@ -780,7 +962,7 @@ mod tests {
         let owner = store
             .claim_tool_execution(&session.id, &session.active_branch)
             .unwrap();
-        let recipe = Recipe { command:"test -z \"$(git config --get remote.origin.url)\" && git ls-files --error-unmatch a.txt && printf formatted > a.txt".into(), requires:vec!["git".into()], git:true };
+        let recipe = Recipe { command:"test -z \"$(git config --get remote.origin.url)\" && git ls-files --error-unmatch a.txt && printf formatted > a.txt".into(), requires:vec!["git".into()], git:true, preparation:None };
         let stop = Arc::new(AtomicBool::new(false));
         let receipt = run(
             Request {
@@ -982,6 +1164,7 @@ mod tests {
             command: "python3 -m unittest".into(),
             requires: vec!["python3".into()],
             git: false,
+            preparation: None,
         };
         recipe.validate().unwrap();
         let original = recipe.fingerprint();
@@ -1004,6 +1187,7 @@ mod tests {
             command: "printf 'formatted\\n' > a.txt".into(),
             requires: vec![],
             git: false,
+            preparation: None,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let mut authorized = false;

@@ -8,6 +8,7 @@ mod approvals;
 mod artifact_history;
 mod artifact_review;
 mod changes;
+mod check_dependencies;
 mod config;
 mod continuation;
 mod conversation_dump;
@@ -88,6 +89,14 @@ enum Commands {
     SandboxCheck,
     /// Run an explicitly selected named check against a disposable source copy
     Check { session: String, recipe: String },
+    /// Fetch only the exact pinned public artifacts configured for a recipe
+    CheckPrepare { session: String, recipe: String },
+    /// Clear this project's prepared dependency objects/manifests, never source
+    CheckDependenciesClear {
+        session: String,
+        #[arg(long)]
+        yes: bool,
+    },
     /// Inspect a branch-visible check's exact input manifest and generated diff
     CheckShow { session: String, run: String },
     /// Import reviewed check edits through the native journal (requires --yes)
@@ -486,17 +495,35 @@ async fn main() -> Result<()> {
         }
         Commands::Check { session, recipe } => {
             let mut engine = engine::Engine::open(&root)?;
-            engine.run_named_check(&session, &recipe).await?;
+            engine.run_named_check(&session, &recipe, false).await?;
+        }
+        Commands::CheckPrepare { session, recipe } => {
+            let mut engine = engine::Engine::open(&root)?;
+            engine.run_named_check(&session, &recipe, true).await?;
+        }
+        Commands::CheckDependenciesClear { session, yes } => {
+            if !yes {
+                bail!("This clears all prepared dependency caches for this project; pass --yes to confirm. Source is unchanged.");
+            }
+            let store = store::Store::open(&root)?;
+            let session = store.session(&session)?;
+            let owner = store.claim_tool_execution(&session.id, &session.active_branch)?;
+            let result = check_dependencies::clear(&store, &session);
+            store.finish_execution(&session.id, &owner, result.as_ref().err())?;
+            println!("{}", result?);
         }
         Commands::CheckShow { session, run } => {
             let store = store::Store::open(&root)?;
             let session = store.session(&session)?;
             let receipt = verification_workspace::load(&store, &session, &run)?;
             println!(
-                "{}\nRecorded command:\n{}\nFull raw diagnostic:\n{}\n{}\nManifest:\n{}\nExcluded inputs:\n{}",
+                "{}\nRecorded command:\n{}\nFull raw diagnostic:\n{}\nConfigured offline preparation:\n{}\nVerified dependency inputs:\n{}\nOffline preparation output:\n{}\n{}\nManifest:\n{}\nExcluded inputs:\n{}",
                 receipt.report(),
                 receipt.command,
                 receipt.diagnostic,
+                receipt.preparation_command.as_deref().unwrap_or("Not configured"),
+                serde_json::to_string_pretty(&receipt.dependencies)?,
+                receipt.preparation_diagnostic.as_deref().unwrap_or("Not configured/not run"),
                 receipt.diff(),
                 serde_json::to_string_pretty(&receipt.inputs)?,
                 serde_json::to_string_pretty(&receipt.excluded)?

@@ -45,6 +45,7 @@ impl Store {
         let mut reference_count = 0usize;
         for (id, _, kind, raw) in &history {
             if kind.starts_with("verification.")
+                || kind.starts_with("dependency.")
                 || matches!(
                     kind.as_str(),
                     "step.definition"

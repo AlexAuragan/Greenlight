@@ -1,6 +1,6 @@
 # Sandbox reliability and practical verification — research and design
 
-**Design accepted, 2026-11-23. GL-033 lifecycle and GL-027 offline verification profiles are implemented on the review branch.** Current supervision, bounds and recovery behavior are documented in [Linux shell sandbox](10-shell-sandbox.md#process-lifecycle-and-cleanup). Current named-check configuration, source-copy/import controls and remaining limits are documented in [isolated verification](54-isolated-verification.md). Dependency provisioning and broader integration proposals below remain future work; proposed benchmark targets are not measured guarantees. No broader execution permission is introduced by the lifecycle work.
+**Design accepted, 2026-11-23. GL-033 lifecycle and GL-027 offline verification profiles are implemented on the review branch.** Current supervision, bounds and recovery behavior are documented in [Linux shell sandbox](10-shell-sandbox.md#process-lifecycle-and-cleanup). Current named-check configuration, source-copy/import controls and remaining limits are documented in [isolated verification](54-isolated-verification.md). GL-034 now implements [pinned artifact fetching and offline preparation](55-pinned-check-dependencies.md). Automatic registry/package-graph provisioning and broader integrations below remain future work; proposed benchmark targets are not measured guarantees. No broader execution permission is introduced by the lifecycle work.
 
 ## Recommendation
 

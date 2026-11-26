@@ -451,6 +451,38 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             "Recorded aggregate policy verdict",
             Tone::Good,
         ),
+        "dependency.started" => card(
+            "Preparing pinned artifacts",
+            "Network fetch only; no installation on host",
+            Tone::Info,
+        ),
+        "dependency.download" => card("Fetching dependency artifact", short(raw), Tone::Info),
+        "dependency.artifact" => card("Dependency integrity verified", short(raw), Tone::Info),
+        "dependency.prepared" => card(
+            "Pinned artifacts ready",
+            "Offline installation runs inside each check",
+            Tone::Good,
+        ),
+        "dependency.failed" => card(
+            "Dependency preparation failed",
+            "Expand for fetch/provenance diagnostic",
+            Tone::Error,
+        ),
+        "dependency.cleared" => card(
+            "Dependency cache cleared",
+            "Explicit preparation required before next check",
+            Tone::Attention,
+        ),
+        "verification.dependencies" => card(
+            "Dependency provenance",
+            "Expand for verified artifact URLs and SHA-256 pins",
+            Tone::Info,
+        ),
+        "verification.bootstrap" => card(
+            "Installing dependencies offline",
+            "Disposable environment; source/cache only, no network",
+            Tone::Info,
+        ),
         "verification.preparing" => card("Preparing isolated check", short(raw), Tone::Info),
         "verification.running" => card("Running isolated check", short(raw), Tone::Info),
         "verification.workspace" => card("Isolated check result", short(raw), Tone::Attention),

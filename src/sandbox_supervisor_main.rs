@@ -22,8 +22,23 @@ fn run() -> io::Result<ExitStatus> {
     let control: i32 = args.next().unwrap().to_str().unwrap().parse().unwrap();
     let lease: i32 = args.next().unwrap().to_str().unwrap().parse().unwrap();
     let program = args.next().unwrap();
-    if !cfg!(supervisor_fixture) && program != "/usr/bin/bwrap" {
-        return Err(io::Error::other("only Bubblewrap is supported"));
+    let args = args.collect::<Vec<_>>();
+    let resolver = program == "/usr/bin/getent"
+        && args.len() == 3
+        && args[0] == "ahosts"
+        && args[1] == "--"
+        && args[2].to_str().is_some_and(|host| {
+            host.len() <= 253
+                && host.contains('.')
+                && !host.starts_with('-')
+                && host
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
+        });
+    if !cfg!(supervisor_fixture) && program != "/usr/bin/bwrap" && !resolver {
+        return Err(io::Error::other(
+            "only Bubblewrap or the fixed dependency hostname resolver is supported",
+        ));
     }
     let mut control = unsafe { File::from_raw_fd(control) };
     let lease = unsafe { File::from_raw_fd(lease) };

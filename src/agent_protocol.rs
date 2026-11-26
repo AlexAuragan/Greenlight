@@ -7,6 +7,7 @@ pub fn tool_example(tool: &str) -> Option<&'static str> {
             "action: tool\ntool: write\npath: path/to/file\ncontent: |\n  Replacement file content",
         ),
         "shell" => Some("action: tool\ntool: shell\ninput: pwd"),
+        "prepare_check" => Some("action: tool\ntool: prepare_check\ninput: configured-recipe-name"),
         "check" => Some("action: tool\ntool: check\ninput: configured-recipe-name"),
         "web" => Some("action: tool\ntool: web\ninput: search terms"),
         _ => None,

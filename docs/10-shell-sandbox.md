@@ -22,7 +22,7 @@ Run `cargo run -- sandbox-check`, or `greenlight --root PROJECT sandbox-check` w
 
 Each invocation runs under a small dedicated supervisor, established **before** Bubblewrap starts. It is a Linux child subreaper: orphaned descendants belong to this invocation even if namespace setup fails or they call `setsid`. It kills and reaps only its own children, repeating as deeper descendants are adopted. It never makes the main application a subreaper or uses global process-name killing.
 
-The supervisor is compiled at build time and embedded in Greenlight. At runtime it executes from a sealed anonymous `memfd`; there is no second executable to install, temporary helper directory to retain, or host-command fallback. Linux must permit executable memfds and provide readable `/proc` process records. The production helper accepts only `/usr/bin/bwrap`; only test binaries embed the unrestricted fixture helper.
+The supervisor is compiled at build time and embedded in Greenlight. At runtime it executes from a sealed anonymous `memfd`; there is no second executable to install, temporary helper directory to retain, or host-command fallback. Linux must permit executable memfds and provide readable `/proc` process records. The production helper accepts `/usr/bin/bwrap` and the fixed dependency DNS resolver `/usr/bin/getent ahosts -- HOST`; arbitrary host programs/databases are rejected. The resolver is trusted host infrastructure, not project/package execution. Only test binaries embed the unrestricted fixture helper.
 
 Single commands and structured pipelines use the same runner:
 
@@ -40,7 +40,7 @@ This is lifecycle ownership, not a resource quota. Kernel-stuck processes, a com
 
 ## Isolated verification profile
 
-Explicit named checks can run in a writable disposable copy, with job-local cache and optional private synthetic Git. This does not make the live project writable or expose its original Git metadata. Preflight, authorization, generated diffs and user-selected native imports are documented in [isolated verification](54-isolated-verification.md). Ordinary shell commands retain the restrictions below.
+Explicit named checks can run in a writable disposable copy, with job-local cache and optional private synthetic Git. This does not make the live project writable or expose its original Git metadata. Preflight, authorization, generated diffs and user-selected native imports are documented in [isolated verification](54-isolated-verification.md). Explicit [pinned dependency preparation](55-pinned-check-dependencies.md) fetches bytes with its own approval; offline installation and checks retain network isolation. Ordinary shell commands retain the restrictions below.
 
 ## Compatibility and limits
 

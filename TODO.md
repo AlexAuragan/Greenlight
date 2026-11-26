@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 2026-11-23. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
+Updated 2026-11-26. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
 
 P0/P1 feature work, installer, TUI redesign and recovery improvements merged into master on 2026-11-19. This does not mean no defects remain. Implement one feature at a time, preserve audit evidence and distinguish model claims from recorded verification.
 
@@ -9,8 +9,6 @@ P0/P1 feature work, installer, TUI redesign and recovery improvements merged int
 No open items in this section; completed supervised-workflow features are merged into `master`.
 
 ## Sandbox verification follow-up
-
-- [ ] **GL-034** — Separately authorized offline dependency/environment preparation for named checks: pinned artifact/hook recipes, provenance and cache lifecycle, Python/Node/pre-commit environment provisioning without host HOME or credentials. Keep arbitrary check execution network-off. Coordinate resource/retention enforcement with GL-023. See the accepted [sandbox design](docs/53-sandbox-and-verification-design.md) and [implemented profile](docs/54-isolated-verification.md).
 
 - [ ] **GL-035** — Run successful live verification/isolation and cold/warm performance validation on a supported Linux host, including synthetic Git/pre-commit, Python job-local virtualenvs, network/secret/IPC sentinels, descendant cancellation and drift/import fixtures. This cloud host validates explicit startup denial, not successful namespace isolation. Use the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix); report failures as well as latency.
 
@@ -31,6 +29,8 @@ No open items in this section; completed supervised-workflow features are merged
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. GL-012/GL-032 already implement bounded read-only inspection and safe pipe-only classification. Broader argument-varying executable grants and verification execution profiles still require scoped design; unsupported commands retain exact approval and the existing sandbox boundary. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-034** — **Implemented on the review branch (2026-11-26), not yet merged**: separately approved HTTPS/SHA-256-pinned artifact fetches, supervised cancellable DNS, verified private `/deps` staging, fresh offline bootstrap/venv/cache per check, independent recipe-bound grants, provenance/error records and explicit owned cache clearing. No host package execution, registry discovery, credentials/proxy/redirect support or check network access. See [dependency preparation](docs/55-pinned-check-dependencies.md). Successful-host execution and representative recipes remain GL-035; resource quotas remain GL-023.
 
 - [x] **GL-027** — **Implemented on the review branch (2026-11-23), not yet merged**: host/model capability feedback, runtime/namespace preflight before check approval, explicit named offline recipes, writable disposable source copies, optional synthetic all-files Git, job-local Python/pre-commit/cache paths, exact diagnostics and input manifests, separate check/modification outcomes, generated diffs and user-selected guarded native imports. Live source remains read-only to shell; no automatic downloads or host fallback. See [isolated verification](docs/54-isolated-verification.md). Provisioning and supported-host validation remain GL-034/035.
 

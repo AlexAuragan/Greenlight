@@ -1,5 +1,15 @@
 # Validation
 
+## Pinned dependency preparation (GL-034) — 2026-11-26
+
+Implemented on `docs/sandbox-verification-plan`, pending merge. The full parallel suite passes **578 Rust tests** in 8.91 seconds, with six live-environment/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. No public artifact downloads, paid provider calls or host namespace changes were used.
+
+Ten added passing regressions cover closed URL/manifest rules, private/reserved/transition IP rejection, shared HTTP transport redirect refusal, streamed/advertised size caps, digest failure, exact bounded HTTP error bodies, cancelled preparation, explicit authorization, pinned cache reuse/provenance, corruption and recipe drift, private staging after cache mutation, owned/prevalidated cache clearing, independent fetch/install/check process grants, replay fingerprint preservation, unchanged legacy recipe hashes/receipts and production supervisor rejection of arbitrary host programs/resolver databases. The added live readonly-dependency/fresh-Python-venv test is ignored on this host and remains part of GL-035.
+
+A production CLI smoke check with explicitly seeded fixture bytes completed `check-prepare` through verified cache reuse in 0.015 seconds, published its exact manifest, returned unavailable for `check` on this UID-map-blocked host, refused cache clearing without `--yes`, and cleared the cache with confirmation. Source stayed unchanged and no dependency download attempts were recorded. This is not a real public TLS/DNS fetch or successful live sandbox-installation benchmark.
+
+A full run exposed an older approval test race: it set the shared stop flag before the approval answer, so the prompt driver could correctly stop without approving. The test now waits for recorded implementation context before cancelling. Product stop/approval behavior was not relaxed. See [runtime boundary and operator guide](55-pinned-check-dependencies.md).
+
 ## Isolated offline verification (GL-027) — 2026-11-23
 
 Implemented on `docs/sandbox-verification-plan`, pending merge. Full parallel validation passes **568 Rust tests** in 8.22 seconds, with five live-environment/profiling tests ignored. Strict all-target Clippy, formatting, offline build and six installer tests pass. No paid provider calls or host namespace configuration changes were used.

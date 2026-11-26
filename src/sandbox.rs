@@ -19,6 +19,7 @@ const WORKSPACE: &str = "/workspace";
 const CACHE: &str = "/cache";
 
 pub struct Sandbox {
+    dependencies: Option<crate::anchored_fs::Dir>,
     writable_copy: bool,
     private_git: bool,
     jobs: crate::anchored_fs::Dir,
@@ -58,6 +59,7 @@ impl Sandbox {
             .clone_file()?
             .set_permissions(std::fs::Permissions::from_mode(0o700))?;
         Ok(Self {
+            dependencies: None,
             writable_copy: false,
             private_git: false,
             jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
@@ -72,6 +74,7 @@ impl Sandbox {
         let (_, state) = crate::paths::state_directory_handle(project)?;
         crate::sandbox_job::ensure_clean(&state)?;
         Ok(Self {
+            dependencies: None,
             writable_copy: false,
             private_git: false,
             jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
@@ -89,6 +92,7 @@ impl Sandbox {
         let (_, state) = crate::paths::state_directory_handle(project)?;
         crate::sandbox_job::ensure_clean(&state)?;
         Ok(Self {
+            dependencies: None,
             writable_copy: true,
             private_git: git,
             jobs: state.create_dirs(Path::new("sandbox-jobs"))?,
@@ -96,6 +100,13 @@ impl Sandbox {
             cache_fd: cache.open_dir(Path::new(""))?,
             inspection_cache: None,
         })
+    }
+    pub(crate) fn with_dependencies(
+        mut self,
+        dependencies: &crate::anchored_fs::Dir,
+    ) -> Result<Self> {
+        self.dependencies = Some(dependencies.open_dir(Path::new(""))?);
+        Ok(self)
     }
     fn build(&self, input: &str) -> Result<Command> {
         self.build_program(&["/bin/sh".into(), "-c".into(), input.into()])
@@ -188,6 +199,21 @@ impl Sandbox {
             });
         }
 
+        if let Some(dependencies) = &self.dependencies {
+            use std::os::fd::AsRawFd;
+            let dependencies = dependencies.clone_file()?;
+            let fd = dependencies.as_raw_fd();
+            command.args(["--dir", "/deps", "--ro-bind-fd", &fd.to_string(), "/deps"]);
+            unsafe {
+                command.pre_exec(move || {
+                    let _keep_alive = &dependencies;
+                    if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
         // Mask known secret and internal paths that would otherwise be visible
         // through the read-only project bind mount. Source code itself remains
         // readable; the mask is not a general secrets scanner.
@@ -248,6 +274,9 @@ impl Sandbox {
             ("GIT_CONFIG_GLOBAL", "/dev/null"),
             ("PYTHONPYCACHEPREFIX", "/cache/python-pycache"),
             ("PRE_COMMIT_HOME", "/cache/pre-commit"),
+            ("PIP_NO_INDEX", "1"),
+            ("PIP_DISABLE_PIP_VERSION_CHECK", "1"),
+            ("npm_config_offline", "true"),
         ] {
             command.args(["--setenv", name, value]);
         }

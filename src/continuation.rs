@@ -127,6 +127,8 @@ impl Engine {
                         | "verification.workspace"
                         | "verification.diagnostic"
                         | "verification.imported"
+                        | "dependency.prepared"
+                        | "dependency.cleared"
                         | "artifact.created"
                         | "human.approved"
                         | "human.declined"

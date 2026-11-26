@@ -82,7 +82,7 @@ impl Engine {
             if !definition.tools.as_ref().unwrap_or(&defaults).iter().any(|name| name == tool) {
                 bail!("Tool {tool} is disabled in the current workflow step");
             }
-            if tool == "check" {
+            if matches!(tool, "check" | "prepare_check") {
                 let input = action.input.as_deref().context("Missing check recipe")?;
                 let name = input.split_once('@').map_or(input, |(name, _)| name).to_owned();
                 let config = crate::config::load_config(&self.root)?;

@@ -10,6 +10,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Current TUI controls, popups, drafts, artifacts and Edits | [Interactive TUI](11-tui.md) |
 | Once/process/session/project/global permissions | [Saved approvals](08-persistent-approvals.md) |
 | Sandbox reliability and practical checks — accepted design | [Sandbox and verification proposal](53-sandbox-and-verification-design.md) |
+| Pinned artifact fetching, offline installation and cache cleanup | [Check dependencies](55-pinned-check-dependencies.md) |
 | Named offline checks, synthetic Git, generated diffs and guarded import | [Isolated verification](54-isolated-verification.md) |
 | Model role defaults and session dispatch budgets | [Roles and budgets](52-model-roles-and-session-budgets.md) |
 | Optional combined native diffs by step/attempt | [Grouped review](51-grouped-native-edit-review.md) |
