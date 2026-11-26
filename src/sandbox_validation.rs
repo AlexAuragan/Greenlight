@@ -389,7 +389,7 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
         }
         Scenario::Rust | Scenario::Python | Scenario::Node | Scenario::Hook => {
             let recipe = match scenario {
-                Scenario::Rust => recipe("cargo --version && rustc --version && cargo test --locked --offline",&["cargo","rustc"],false),
+                Scenario::Rust => recipe("cargo --version && rustc --version && cargo test --locked --offline",&["cargo","rustc","cc"],false),
                 Scenario::Python => recipe("python3 --version && python3 -m unittest test_fixture.py",&["python3"],false),
                 Scenario::Node => recipe("node --version && node --check app.js && node app.js",&["node"],false),
                 _ => recipe("pre-commit --version && test ! -e .git/original && test -z \"$(git remote)\" && git ls-files --error-unmatch data.txt && pre-commit run --all-files",&["pre-commit","python3","git"],true),

@@ -1,5 +1,9 @@
 # Validation
 
+## Runtime aliases and preflight diagnostics (GL-036) — 2026-11-26
+
+Implemented on the existing review branch, pending merge. The suite passes **585 tests**, with eight live/profiling tests ignored. Strict all-target Clippy and formatting pass. An explicitly run live preflight test confirms both missing requirements are reported before approval or check execution. The post-fix full 504-sample matrix passes 12/14 cases, including Rust linking, with all cleanup confirmed; Node/pre-commit remain blocked and GL-035 stays open. Fixed compiler aliases preserve GCC layout and add no new host runtime/configuration exposure. See [complete results and scope](56-sandbox-validation.md#gl-036-follow-up--2026-11-26).
+
 ## Synthetic sandbox validation (GL-035) — 2026-11-26
 
 Implemented on the review branch, pending merge. The full suite passes **583 tests**, with seven live/profiling tests ignored; strict all-target Clippy passes. The new runner also completed a real 504-sample synthetic matrix outside the tool filesystem wrapper: 11 of 14 cases passed, Rust failed on the hidden `cc` target, and Node/pre-commit were unavailable. All sample cleanup was confirmed. The wrapped probe still correctly reports UID-map denial. No provider calls, public downloads or host settings changes were used. See [commands, complete reports, timings and limits](56-sandbox-validation.md). GL-035 remains open; runtime discovery/diagnostics are tracked as GL-036.

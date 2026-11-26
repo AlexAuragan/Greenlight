@@ -61,6 +61,37 @@ impl Recipe {
         format!("{preparation}Named check: {name}\nCommand: {}\nProfile: disposable writable permitted-source snapshot; live project unchanged\nGit: {}\nNetwork/host services: unavailable; private HOME and job-local cache\nDependencies: only installed sandbox runtimes/offline artifacts; no downloads\nRequires: {}\nRecipe fingerprint: {}\n", self.command, if self.git {"fresh synthetic all-files index; no original index/history/config/hooks"} else {"no harness-provided metadata"}, self.requires.join(", "), self.fingerprint())
     }
 }
+// Diagnostic-only host lookup. Never run, mount or authorize these candidates.
+// Absolute PATH directories only: relative entries would inspect project code.
+fn runtime_hints(required: &[String], stderr: &str, host_path: Option<&std::ffi::OsStr>) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let mut hints = String::new();
+    for executable in required {
+        let marker = format!("Required runtime unavailable: {executable}");
+        if !stderr.lines().any(|line| line == marker) {
+            continue;
+        }
+        let candidate = host_path.and_then(|path| {
+            std::env::split_paths(path)
+                .take(32)
+                .filter(|directory| directory.is_absolute())
+                .map(|directory| directory.join(executable))
+                .find(|path| {
+                    std::fs::metadata(path)
+                        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                })
+        });
+        match candidate {
+            Some(path) => hints.push_str(&format!("\n{executable}: host candidate {path:?} is not usable through the sandbox PATH. Host PATH and virtualenvs are not inherited; no candidate was executed or mounted.")),
+            None => hints.push_str(&format!("\n{executable}: no executable found in the first 32 absolute host PATH directories. Install a supported system runtime or configure a separately prepared offline check.")),
+        }
+    }
+    if !hints.is_empty() {
+        hints.push_str("\nDeclare required interpreters/linkers in recipe.requires (for example cc for Rust tests). Presence checks do not prove all transitive libraries or services are available.");
+    }
+    hints
+}
+
 pub fn capabilities() -> &'static str {
     "Project-shell capabilities: /workspace is read-only; /tmp and /cache writable; network and host user services/sockets unavailable; original .git/config/hooks and secrets masked. Runtime/namespace readiness is not assumed. Native read remains project-scoped. Host virtualenvs and their absolute shebangs are not provisioned. Use an explicitly configured check for a disposable writable snapshot/private Git, or request manual user evidence. Shell approval/rerun does not change these capabilities."
 }
@@ -386,20 +417,24 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
     if recipe.git && !required.iter().any(|name| name == "git") {
         required.push("git".into());
     }
-    let mut probe = String::from("test -w /workspace && test -w /cache || exit 125; ");
-    for executable in required {
-        probe.push_str(&format!("command -v '{executable}' >/dev/null || {{ printf 'Required runtime unavailable: {executable}\\n' >&2; exit 127; }}; "));
+    let mut probe = String::from("test -w /workspace && test -w /cache || exit 125; missing=0; ");
+    for executable in &required {
+        probe.push_str(&format!("command -v '{executable}' >/dev/null || {{ printf 'Required runtime unavailable: {executable}\\n' >&2; missing=1; }}; "));
     }
-    probe.push_str("printf 'Sandbox profile ready\\n'");
+    probe.push_str("test \"$missing\" -eq 0 || exit 127; printf 'Sandbox profile ready\\n'");
     match sandbox.run_stoppable(&probe, stop).await {
         Ok(output) if output.status.success() => {}
         result => {
             receipt.diagnostic = match result {
-                Ok(output) => format!(
-                    "Preflight refused; check not started. {}{}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                ),
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let hints =
+                        runtime_hints(&required, &stderr, std::env::var_os("PATH").as_deref());
+                    format!(
+                        "Preflight refused; check not started. {}{stderr}{hints}",
+                        String::from_utf8_lossy(&output.stdout)
+                    )
+                }
                 Err(error) => {
                     if error.is::<crate::sandbox_job::CleanupIncomplete>() {
                         view.retain();
@@ -1159,6 +1194,28 @@ mod tests {
         assert_eq!(receipt.modifications, "unknown");
     }
     #[test]
+    fn missing_runtime_hints_are_diagnostic_only_and_ignore_relative_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let host = tempfile::tempdir().unwrap();
+        let candidate = host.path().join("fake-runtime");
+        std::fs::write(&candidate, "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let required = vec!["fake-runtime".into(), "missing-runtime".into()];
+        let path = std::env::join_paths([Path::new("relative"), host.path()]).unwrap();
+        let hints = runtime_hints(&required, "Required runtime unavailable: fake-runtime\nRequired runtime unavailable: missing-runtime\n", Some(&path));
+        assert!(hints.contains("host candidate"));
+        assert!(hints.contains(&format!("{candidate:?}")));
+        assert!(hints.contains("no executable found"));
+        assert!(runtime_hints(&required, "namespace unavailable", Some(&path)).is_empty());
+        assert!(runtime_hints(
+            &required,
+            "Required runtime unavailable: fake-runtime",
+            Some(std::ffi::OsStr::new("relative"))
+        )
+        .contains("no executable found"));
+    }
+
+    #[test]
     fn recipe_authority_is_fingerprinted_and_runtime_names_cannot_inject_shell() {
         let mut recipe = Recipe {
             command: "python3 -m unittest".into(),
@@ -1177,6 +1234,58 @@ mod tests {
         assert!(crate::tools::parse_action("action: tool\ntool: check\ninput: tests").is_ok());
         assert!(crate::tools::parse_action("action: tool\ntool: check").is_err());
     }
+    #[tokio::test]
+    #[ignore = "requires Bubblewrap user namespaces; asserts actual missing-runtime diagnostics"]
+    async fn live_preflight_reports_all_missing_runtimes_before_approval() {
+        let (root, _, store, session, _) = fixture();
+        let owner = store
+            .claim_tool_execution(&session.id, &session.active_branch)
+            .unwrap();
+        let recipe = Recipe {
+            command: "touch should-not-run".into(),
+            requires: vec![
+                "greenlight-fixture-missing-one".into(),
+                "greenlight-fixture-missing-two".into(),
+            ],
+            git: false,
+            preparation: None,
+        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut authorized = false;
+        let receipt = run(
+            Request {
+                root: root.path(),
+                store: &store,
+                session: &session,
+                step: "verify",
+                name: "missing",
+                recipe: &recipe,
+                stop: &stop,
+            },
+            || {
+                authorized = true;
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!authorized);
+        assert_eq!(receipt.outcome, "unavailable");
+        assert_eq!(receipt.launch, "not_started");
+        for name in &recipe.requires {
+            assert!(
+                receipt
+                    .diagnostic
+                    .contains(&format!("Required runtime unavailable: {name}")),
+                "{}",
+                receipt.diagnostic
+            );
+        }
+        assert!(receipt.diagnostic.contains("no executable found"));
+        assert!(!root.path().join("should-not-run").exists());
+        store.finish_execution(&session.id, &owner, None).unwrap();
+    }
+
     #[tokio::test]
     async fn real_profile_either_runs_in_copy_or_reports_exact_preflight_unavailability() {
         let (root, _, store, session, _) = fixture();

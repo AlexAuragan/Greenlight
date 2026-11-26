@@ -10,7 +10,7 @@ Add checks to the project's host-owned `.greenlight/config.yaml` (or its support
 checks:
   tests:
     command: cargo test --locked --offline
-    requires: [cargo]
+    requires: [cargo, rustc, cc]
     git: false
   precommit:
     command: pre-commit run --all-files
@@ -23,7 +23,9 @@ checks:
     requires: [python3]
 ```
 
-Recipes allow `command`, `requires`, `git`, and optional [`preparation`](55-pinned-check-dependencies.md). Pinned artifact fetching is a separate explicit operation; installation remains offline inside each check. Commands are arbitrary project-code execution **inside** this profile, not a safe-command whitelist. Requirements are executable basenames, checked with the sandbox's own PATH before check approval. This verifies binary presence and sandbox startup, not that every interpreter, dependency or service required by the project is installed. Errors after launch retain their exact output; a nonzero status alone does not establish a source regression.
+Recipes allow `command`, `requires`, `git`, and optional [`preparation`](55-pinned-check-dependencies.md). Pinned artifact fetching is a separate explicit operation; installation remains offline inside each check. Commands are arbitrary project-code execution **inside** this profile, not a safe-command whitelist. Requirements are executable basenames, checked with the sandbox's own PATH before check approval. This verifies binary presence and sandbox startup, not that every interpreter, dependency or service required by the project is installed. Errors after launch retain their exact output; a nonzero status alone does not establish a source regression. Preflight reports all missing declared tools together, before command approval. Its diagnostic-only host lookup checks up to 32 absolute PATH directories: a discovered host executable is reported as a candidate, never run or mounted. A candidate is not proof that its interpreter/libraries work. Relative PATH entries are ignored.
+
+Declare directly needed interpreters and linkers explicitly (`cc` for the Rust test recipe above); the harness does not infer arbitrary shell-command dependencies or execute unapproved runtime version probes. Unknown transitive requirements retain their actual failure output after launch. The sandbox provides fixed `cc`/`c++` aliases only when their canonical system targets are executable regular files under `/usr/bin`. These aliases point to already-visible executables; they do not expose `/etc/alternatives`. Other tools, including Node under `/opt`, host virtualenvs and arbitrary PATH entries, remain unprovisioned. Install a supported system runtime or explicitly prepare pinned offline dependencies; there is no automatic host-runtime import.
 
 At most 32 recipes are supported; names are ASCII letters/digits/hyphen/underscore, up to 64 bytes. Each command is nonempty and at most 16 KiB, with up to 32 required executable names of at most 128 bytes each. Agent file tools cannot read or modify these settings. Recipe names and command excerpts are advertised to the model; full commands appear in approvals/history, so credentials do not belong in recipe commands. A model can request a recipe, not replace its command or broaden its profile.
 

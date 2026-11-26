@@ -18,6 +18,14 @@ const BWRAP: &str = "/usr/bin/bwrap";
 const WORKSPACE: &str = "/workspace";
 const CACHE: &str = "/cache";
 
+// Only fixed compiler names may gain aliases. Their targets must already be
+// inside the exposed system binary directory; never import an arbitrary host
+// PATH entry, alternatives directory, script interpreter or runtime tree.
+fn compiler_alias_target(source: &Path) -> Option<PathBuf> {
+    let target = source.canonicalize().ok()?;
+    target.starts_with("/usr/bin").then_some(target)
+}
+
 pub struct Sandbox {
     dependencies: Option<crate::anchored_fs::Dir>,
     writable_copy: bool,
@@ -150,9 +158,6 @@ impl Sandbox {
             CACHE,
         ]);
 
-        // TODO(GL-036): diagnose transitive runtime dependencies (e.g. cc via
-        // hidden /etc/alternatives) and tools outside these mounts; do not
-        // broaden host configuration/PATH exposure as a compatibility fallback.
         // Only explicitly selected host system locations are visible. The
         // project is read-only: all code changes go through native writes.
         for path in ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/usr/local"] {
@@ -232,6 +237,26 @@ impl Sandbox {
             }
         }
 
+        // Debian compiler aliases go through hidden /etc/alternatives. Add
+        // symlinks to their already-visible targets, preserving the compiler's
+        // installation path for its linker/plugin discovery. Never mount /etc.
+        for alias in ["cc", "c++"] {
+            let Some(target) = compiler_alias_target(&Path::new("/usr/bin").join(alias)) else {
+                continue;
+            };
+            use std::os::unix::fs::PermissionsExt;
+            let Ok(metadata) = target.metadata() else {
+                continue;
+            };
+            if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+                continue;
+            }
+            command
+                .args(["--dir", "/compiler-bin", "--symlink"])
+                .arg(&target)
+                .arg(format!("/compiler-bin/{alias}"));
+        }
+
         // Rust development tools commonly live in HOME. Expose only the
         // tool binaries, toolchains, and offline registry cache, never all of
         // HOME or the Cargo credentials file.
@@ -260,9 +285,9 @@ impl Sandbox {
 
         command.args(["--chdir", WORKSPACE, "--clearenv"]);
         let path = if has_cargo_bin {
-            "/cargo-bin:/usr/local/bin:/usr/bin:/bin"
+            "/compiler-bin:/cargo-bin:/usr/local/bin:/usr/bin:/bin"
         } else {
-            "/usr/local/bin:/usr/bin:/bin"
+            "/compiler-bin:/usr/local/bin:/usr/bin:/bin"
         };
         for (name, value) in [
             ("PATH", path),
@@ -465,6 +490,26 @@ mod tests {
     }
 
     #[test]
+    fn compiler_aliases_refuse_targets_outside_system_binaries() {
+        use std::os::unix::fs::symlink;
+        let directory = tempfile::tempdir().unwrap();
+        let outside = directory.path().join("executable");
+        fs::write(&outside, "not a system tool").unwrap();
+        let alias = directory.path().join("cc");
+        symlink(&outside, &alias).unwrap();
+        assert!(compiler_alias_target(&alias).is_none());
+        fs::remove_file(&alias).unwrap();
+        if Path::new("/usr/bin/true").is_file() {
+            symlink("/usr/bin/true", &alias).unwrap();
+            assert_eq!(
+                compiler_alias_target(&alias),
+                Some(Path::new("/usr/bin/true").canonicalize().unwrap())
+            );
+        }
+        assert!(compiler_alias_target(&directory.path().join("absent")).is_none());
+    }
+
+    #[test]
     fn sandbox_arguments_require_read_only_workspace_and_network_isolation() {
         if !Path::new(BWRAP).is_file() {
             return;
@@ -487,6 +532,16 @@ mod tests {
             .windows(3)
             .any(|w| { matches!(w[0].as_str(), "--bind" | "--bind-fd") && w[2] == WORKSPACE }));
         assert!(args.contains(&"--clearenv".into()));
+        assert!(!args.iter().any(|arg| arg == "/etc/alternatives"));
+        for alias in ["cc", "c++"] {
+            if let Some(target) = compiler_alias_target(&Path::new("/usr/bin").join(alias)) {
+                let mount = args
+                    .windows(3)
+                    .find(|w| w[0] == "--symlink" && w[2] == format!("/compiler-bin/{alias}"))
+                    .unwrap();
+                assert_eq!(Path::new(&mount[1]), target);
+            }
+        }
     }
 
     #[test]
