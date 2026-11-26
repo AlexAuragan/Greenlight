@@ -327,7 +327,21 @@ impl Sandbox {
         input: &str,
         stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<Output> {
-        Self::execute(self.build(input)?, stop).await
+        Ok(self.run_measured(input, stop).await?.output)
+    }
+    pub(crate) async fn run_measured(
+        &self,
+        input: &str,
+        stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<pipeline::PipelineOutput> {
+        pipeline::run(
+            vec![self.build(input)?],
+            vec!["command".into()],
+            vec![],
+            stop,
+            Duration::from_secs(120),
+        )
+        .await
     }
     #[cfg(test)]
     pub async fn inspect(&self, plan: &crate::project_inspection::Inspection) -> Result<Output> {

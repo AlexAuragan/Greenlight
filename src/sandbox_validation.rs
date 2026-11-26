@@ -111,6 +111,7 @@ struct Sample {
     source_bytes: Option<usize>,
     stop_to_cleanup_ms: Option<f64>,
     phase_ms: BTreeMap<String, f64>,
+    executions: BTreeMap<String, crate::sandbox::pipeline::Measurements>,
     retained_paths: Vec<String>,
 }
 #[derive(Serialize)]
@@ -124,12 +125,20 @@ struct Summary {
     met_expectations_p50_ms: Option<f64>,
     met_expectations_p95_ms: Option<f64>,
     phase_ms: BTreeMap<String, PhaseSummary>,
+    execution_statistics: BTreeMap<String, MeasurementSummary>,
 }
 #[derive(Serialize)]
 struct PhaseSummary {
     measured_samples: usize,
     p50_ms: f64,
     p95_ms: f64,
+}
+#[derive(Serialize)]
+struct MeasurementSummary {
+    measured_samples: usize,
+    unit: &'static str,
+    p50: f64,
+    p95: f64,
 }
 struct Observation {
     gate: &'static str,
@@ -139,6 +148,7 @@ struct Observation {
     bytes: Option<usize>,
     stop_ms: Option<f64>,
     phase_ms: BTreeMap<String, f64>,
+    executions: BTreeMap<String, crate::sandbox::pipeline::Measurements>,
 }
 impl Observation {
     fn new(gate: &'static str, observed: impl Into<String>, diagnostic: impl Into<String>) -> Self {
@@ -150,6 +160,7 @@ impl Observation {
             bytes: None,
             stop_ms: None,
             phase_ms: BTreeMap::new(),
+            executions: BTreeMap::new(),
         }
     }
 }
@@ -379,6 +390,7 @@ fn from_receipt(receipt: &Receipt, met: bool) -> Observation {
         ),
     );
     observation.phase_ms = receipt.phase_ms.clone();
+    observation.executions = receipt.executions.clone();
     observation.files = Some(receipt.inputs.len());
     let known = files();
     observation.bytes = receipt
@@ -407,7 +419,9 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
             let view = plan.snapshot(fixture.path())?;
             let output = crate::sandbox::Sandbox::project_inspection(&view,fixture.path())?.inspect_pipeline(&plan,&stop).await?;
             let met = output.output.status.success() && output.output.stdout == b"fixture_value\n" && output.summary.contains("expected short read");
-            Ok(Observation::new(if met {"passed"}else{"failed"},format!("{}",output.output.status),output.summary))
+            let mut observation = Observation::new(if met {"passed"}else{"failed"},format!("{}",output.output.status),output.summary);
+            observation.executions.insert("inspection_pipeline".into(), output.measurements);
+            Ok(observation)
         }
         Scenario::ShellBoundaries => {
             let link = fixture.path().join("outside-link");
@@ -644,6 +658,7 @@ async fn sample(
         source_bytes: observation.bytes,
         stop_to_cleanup_ms: observation.stop_ms,
         phase_ms: observation.phase_ms,
+        executions: observation.executions,
         retained_paths: if fixture.keep {
             fixture.owned_paths()
         } else {
@@ -683,6 +698,53 @@ fn summary(samples: &[Sample], mode: &str) -> Summary {
                 .push(*elapsed);
         }
     }
+    let mut measurement_values: BTreeMap<String, (&'static str, Vec<f64>)> = BTreeMap::new();
+    let mut record = |key: String, unit: &'static str, value: f64| {
+        measurement_values
+            .entry(key)
+            .or_insert_with(|| (unit, Vec::new()))
+            .1
+            .push(value);
+    };
+    for sample in &samples {
+        for (phase, execution) in &sample.executions {
+            for (key, value) in [
+                ("first_stdout", execution.first_stdout_ms),
+                ("first_stderr", execution.first_stderr_ms),
+                ("elapsed", Some(execution.elapsed_ms)),
+            ] {
+                if let Some(value) = value {
+                    record(format!("{phase}.{key}"), "ms", value);
+                }
+            }
+            for (index, usage) in execution.stage_resources.iter().enumerate() {
+                let Some(usage) = usage else {
+                    continue;
+                };
+                for (key, unit, value) in [
+                    ("user_cpu", "us", usage.user_cpu_us),
+                    ("system_cpu", "us", usage.system_cpu_us),
+                    (
+                        "largest_child_maxrss",
+                        "KiB",
+                        usage.largest_child_maxrss_kib,
+                    ),
+                    (
+                        "input_block_operations",
+                        "operations",
+                        usage.input_block_operations,
+                    ),
+                    (
+                        "output_block_operations",
+                        "operations",
+                        usage.output_block_operations,
+                    ),
+                ] {
+                    record(format!("{phase}.stage_{index}.{key}"), unit, value as f64);
+                }
+            }
+        }
+    }
     Summary {
         samples: samples.len(),
         met_expectations: passed.len(),
@@ -692,6 +754,20 @@ fn summary(samples: &[Sample], mode: &str) -> Summary {
         all_p95_ms: percentile(&all, 0.95),
         met_expectations_p50_ms: percentile(&passed, 0.5),
         met_expectations_p95_ms: percentile(&passed, 0.95),
+        execution_statistics: measurement_values
+            .into_iter()
+            .map(|(key, (unit, values))| {
+                (
+                    key,
+                    MeasurementSummary {
+                        measured_samples: values.len(),
+                        unit,
+                        p50: percentile(&values, 0.5).unwrap(),
+                        p95: percentile(&values, 0.95).unwrap(),
+                    },
+                )
+            })
+            .collect(),
         phase_ms: phase_values
             .into_iter()
             .map(|(phase, values)| {
@@ -756,7 +832,7 @@ pub async fn run(
         fixture_public_files: public.len(),
         fixture_public_bytes: public.values().map(String::len).sum(),
         cache_definitions: BTreeMap::from([("cold","Fresh Greenlight project/state; fixture creation excluded from elapsed time. OS/page/toolchain/registry caches are not flushed."),("warm","Same synthetic project/state; check cache/venv remains fresh per invocation. Local pinned fixture objects only; no public downloads.")]),
-        unmeasured: vec!["first-output latency","per-phase elapsed time for non-verification shell/inspection operations","peak RSS/CPU/disk quotas","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
+        unmeasured: vec!["first-output latency for shell cases without retained execution measurements","per-phase elapsed time for non-verification shell/inspection operations","aggregate concurrent process-tree peak RSS, cache footprint and byte-level disk accounting; resource quotas are separate","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
         remaining_validation: vec!["Supported-host successful results must be reviewed before GL-035 closes","Real public HTTPS/TLS/DNS pinned artifact preparation","Representative remote pre-commit/Node dependency bundles","Original Git staged/history/worktree semantics remain unsupported, not tested as equivalent"],
         retained_paths: Vec::new(),
         cases: Vec::new(),
@@ -940,6 +1016,7 @@ mod tests {
             source_bytes: None,
             stop_to_cleanup_ms: None,
             phase_ms: BTreeMap::new(),
+            executions: BTreeMap::new(),
             retained_paths: Vec::new(),
         }
     }
@@ -1018,10 +1095,47 @@ mod tests {
             row("warmup", "passed", 500.0),
             row("cold", "passed", 700.0),
         ];
+        samples[0].executions.insert(
+            "check".into(),
+            crate::sandbox::pipeline::Measurements {
+                first_stdout_ms: Some(0.1),
+                first_stderr_ms: None,
+                elapsed_ms: 0.5,
+                stage_resources: vec![Some(crate::sandbox_job::ChildUsage {
+                    user_cpu_us: 1,
+                    system_cpu_us: 2,
+                    largest_child_maxrss_kib: 3,
+                    input_block_operations: 4,
+                    output_block_operations: 5,
+                })],
+            },
+        );
+        samples[1].executions.insert(
+            "check".into(),
+            crate::sandbox::pipeline::Measurements {
+                first_stdout_ms: None,
+                first_stderr_ms: Some(0.5),
+                elapsed_ms: 2.0,
+                stage_resources: vec![None],
+            },
+        );
         samples[0].phase_ms.insert("preflight".into(), 1.0);
         samples[1].phase_ms.insert("preflight".into(), 5.0);
         let report = summary(&samples, "warm");
         assert_eq!(report.phase_ms["preflight"].measured_samples, 2);
+        assert_eq!(
+            report.execution_statistics["check.first_stdout"].measured_samples,
+            1
+        );
+        assert_eq!(report.execution_statistics["check.first_stdout"].p50, 0.1);
+        assert_eq!(
+            report.execution_statistics["check.stage_0.largest_child_maxrss"].measured_samples,
+            1
+        );
+        assert_eq!(
+            report.execution_statistics["check.stage_0.largest_child_maxrss"].unit,
+            "KiB"
+        );
         assert_eq!(report.phase_ms["preflight"].p95_ms, 5.0);
         assert!(!report.phase_ms.contains_key("check_execution"));
         assert_eq!(report.samples, 3);

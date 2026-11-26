@@ -138,6 +138,8 @@ pub struct Receipt {
     /// Monotonic phase durations; absent keys mean unmeasured/not reached.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub phase_ms: BTreeMap<String, f64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub executions: BTreeMap<String, crate::sandbox::pipeline::Measurements>,
     #[serde(default)]
     pub dependency_fingerprint: Option<String>,
     #[serde(default)]
@@ -358,6 +360,31 @@ pub struct Request<'a> {
     pub recipe: &'a Recipe,
     pub stop: &'a Arc<AtomicBool>,
 }
+fn execution_result(
+    receipt: &mut Receipt,
+    phase: &str,
+    result: Result<crate::sandbox::pipeline::PipelineOutput>,
+) -> Result<std::process::Output> {
+    match result {
+        Ok(measured) => {
+            receipt
+                .executions
+                .insert(phase.into(), measured.measurements);
+            Ok(measured.output)
+        }
+        Err(error) => {
+            if let Some(measurements) =
+                error.downcast_ref::<crate::sandbox::pipeline::Measurements>()
+            {
+                receipt
+                    .executions
+                    .insert(phase.into(), measurements.clone());
+            }
+            Err(error)
+        }
+    }
+}
+
 pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -> Result<Receipt> {
     let Request {
         root,
@@ -408,6 +435,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
         launch: "not_started".into(),
         cleanup: "confirmed".into(),
         phase_ms: BTreeMap::new(),
+        executions: BTreeMap::new(),
         dependency_fingerprint: None,
         dependencies: Vec::new(),
         preparation_command: recipe.preparation.as_ref().and_then(|p| p.run.clone()),
@@ -432,7 +460,8 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
     }
     probe.push_str("test \"$missing\" -eq 0 || exit 127; printf 'Sandbox profile ready\\n'");
     let started = std::time::Instant::now();
-    let preflight = sandbox.run_stoppable(&probe, stop).await;
+    let measured = sandbox.run_measured(&probe, stop).await;
+    let preflight = execution_result(&mut receipt, "preflight", measured);
     receipt
         .phase_ms
         .insert("preflight".into(), started.elapsed().as_secs_f64() * 1000.0);
@@ -514,7 +543,8 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
     receipt.excluded = excluded;
     if recipe.git {
         let started = std::time::Instant::now();
-        let setup = sandbox.run_stoppable("git -c init.templateDir= -c core.hooksPath=/dev/null init -q && git -c core.hooksPath=/dev/null add -f -- .", stop).await;
+        let measured = sandbox.run_measured("git -c init.templateDir= -c core.hooksPath=/dev/null init -q && git -c core.hooksPath=/dev/null add -f -- .", stop).await;
+        let setup = execution_result(&mut receipt, "synthetic_git", measured);
         receipt.phase_ms.insert(
             "synthetic_git".into(),
             started.elapsed().as_secs_f64() * 1000.0,
@@ -546,7 +576,8 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
     if let Some(command) = recipe.preparation.as_ref().and_then(|p| p.run.as_deref()) {
         store.event(session, Some(step), "verification.bootstrap", &format!("Offline dependency installation; no host execution/network.\nRecipe fingerprint: {}\n{command}", recipe.fingerprint()))?;
         let started = std::time::Instant::now();
-        let output = sandbox.run_stoppable(command, stop).await;
+        let measured = sandbox.run_measured(command, stop).await;
+        let output = execution_result(&mut receipt, "offline_setup", measured);
         receipt.phase_ms.insert(
             "offline_setup".into(),
             started.elapsed().as_secs_f64() * 1000.0,
@@ -603,7 +634,8 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
     )?;
     receipt.launch = "unknown".into();
     let started = std::time::Instant::now();
-    let execution = sandbox.run_stoppable(&recipe.command, stop).await;
+    let measured = sandbox.run_measured(&recipe.command, stop).await;
+    let execution = execution_result(&mut receipt, "check_execution", measured);
     receipt.phase_ms.insert(
         "check_execution".into(),
         started.elapsed().as_secs_f64() * 1000.0,
@@ -878,6 +910,7 @@ mod tests {
             launch: "started".into(),
             cleanup: "confirmed".into(),
             phase_ms: BTreeMap::new(),
+            executions: BTreeMap::new(),
             dependency_fingerprint: None,
             dependencies: Vec::new(),
             preparation_command: None,
@@ -936,6 +969,7 @@ mod tests {
             12.5
         );
         value.as_object_mut().unwrap().remove("phase_ms");
+        value.as_object_mut().unwrap().remove("executions");
         value
             .as_object_mut()
             .unwrap()
@@ -946,7 +980,7 @@ mod tests {
             .remove("preparation_diagnostic");
         let old: Receipt = serde_json::from_value(value).unwrap();
         assert!(old.dependency_fingerprint.is_none() && old.preparation_diagnostic.is_none());
-        assert!(old.phase_ms.is_empty());
+        assert!(old.phase_ms.is_empty() && old.executions.is_empty());
     }
 
     #[tokio::test]
@@ -1369,7 +1403,20 @@ mod tests {
                     &receipt.report(),
                 )
                 .unwrap();
+            assert_eq!(
+                receipt.executions.contains_key("check_execution"),
+                !setup_fails
+            );
+            assert!(receipt.executions["offline_setup"].stage_resources[0].is_some());
+            assert!(receipt.executions["offline_setup"]
+                .first_stdout_ms
+                .is_none());
             let recorded = load(&store, &session, &receipt.id).unwrap();
+            assert_eq!(
+                recorded.executions.keys().collect::<Vec<_>>(),
+                receipt.executions.keys().collect::<Vec<_>>()
+            );
+            assert!(recorded.executions["offline_setup"].stage_resources[0].is_some());
             assert_eq!(
                 recorded.phase_ms.keys().collect::<Vec<_>>(),
                 receipt.phase_ms.keys().collect::<Vec<_>>()

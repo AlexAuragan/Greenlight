@@ -140,7 +140,41 @@ impl Job {
         }
     }
 }
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChildUsage {
+    pub user_cpu_us: u64,
+    pub system_cpu_us: u64,
+    pub largest_child_maxrss_kib: u64,
+    pub input_block_operations: u64,
+    pub output_block_operations: u64,
+}
 impl Guard {
+    pub fn resources(&self) -> Option<ChildUsage> {
+        self.confirmed().ok()?;
+        let mut buffer = [0; 256];
+        let count = self.lease.read_at(&mut buffer, 256).ok()?;
+        let text = std::str::from_utf8(&buffer[..count]).ok()?;
+        if count == buffer.len() || !text.ends_with('\n') {
+            return None;
+        }
+        let fields = text
+            .strip_prefix("usage_v1 ")?
+            .split_whitespace()
+            .map(str::parse::<u64>)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .ok()?;
+        if fields.len() != 5 {
+            return None;
+        }
+        Some(ChildUsage {
+            user_cpu_us: fields[0],
+            system_cpu_us: fields[1],
+            largest_child_maxrss_kib: fields[2],
+            input_block_operations: fields[3],
+            output_block_operations: fields[4],
+        })
+    }
+
     pub fn cancel(&mut self) {
         self.control.take();
     }
@@ -194,6 +228,39 @@ mod tests {
         sync::{atomic::AtomicBool, Arc},
         time::Duration,
     };
+
+    #[test]
+    fn resource_records_require_confirmed_cleanup_and_a_complete_known_schema() {
+        let job = Job::fixture("/usr/bin/true");
+        job.guard
+            .lease
+            .write_all_at(b"usage_v1 1 2 3 4 5\n", 256)
+            .unwrap();
+        assert!(job.guard.resources().is_none());
+        job.guard.lease.write_all_at(b"complete", 0).unwrap();
+        let usage = job.guard.resources().unwrap();
+        assert_eq!(
+            (
+                usage.user_cpu_us,
+                usage.system_cpu_us,
+                usage.largest_child_maxrss_kib,
+                usage.input_block_operations,
+                usage.output_block_operations
+            ),
+            (1, 2, 3, 4, 5)
+        );
+        job.guard
+            .lease
+            .set_len(256 + b"usage_v1 1 2 3 4 5".len() as u64)
+            .unwrap();
+        assert!(job.guard.resources().is_none());
+        job.guard.lease.set_len(256).unwrap();
+        job.guard
+            .lease
+            .write_all_at(b"usage_v2 1 2 3 4 5\n", 256)
+            .unwrap();
+        assert!(job.guard.resources().is_none());
+    }
 
     #[test]
     fn unfinished_jobs_block_recovery_even_after_their_lock_is_lost() {

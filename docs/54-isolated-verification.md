@@ -117,3 +117,23 @@ New receipts carry `phase_ms`, a map of monotonic elapsed milliseconds. `check-s
 | `change_inspection` | Inspect copy/live input state and assemble proposed edits/diffs |
 
 These are coarse wall-clock phases, not CPU time, pure command runtime, first-output latency or a complete decomposition of the whole operation. Inter-phase event publication, receipt persistence, final temporary-copy removal and caller ownership release are outside these spans. Required-runtime preflight failure has no check-execution span; failed bootstrap retains its setup and change-inspection spans without inventing a check span. Fatal errors before a receipt can return, including unconfirmed cleanup, still propagate normally and do not fabricate timing evidence.
+
+## Output latency and Linux child accounting
+
+New receipts also carry `executions`, keyed by subprocess phase (`preflight`, optional `synthetic_git`/`offline_setup`, and `check_execution`). `check-show` prints these measurements. Old receipts have no execution observations; nothing is backfilled. Metrics do not affect verification policy or authorize execution/imports.
+
+`first_stdout_ms` and `first_stderr_ms` record the first nonempty read observed by the executor, measured from immediately before stage launch after command construction. Stdout means the final pipeline stage; stderr covers captured stderr from any stage, including startup diagnostics. Intermediate pipe bytes and discarded upstream data are not visible stdout. Silent streams remain null, not zero. This is executor-observed latency, not model-token latency or time from a user's action to a TUI repaint. `elapsed_ms` covers launch through capture and confirmed owned-child cleanup, plus final diagnostic assembly; source capture and command construction are outside this clock.
+
+After the supervisor has reaped its invocation and received ECHILD, it optionally records Linux `getrusage(RUSAGE_CHILDREN)` counters in its private lease. The application reads them only after the existing cleanup confirmation. No process-wide accounting from the multithreaded Greenlight process is used, no unrelated process is sampled, and no new host-command authority is introduced. Metrics cannot replace cleanup evidence; unavailable/malformed resource records remain null. Failure to collect telemetry never weakens cleanup or changes a command result. A cleanup-incomplete error still propagates without claiming complete measurements.
+
+Each `stage_resources` entry corresponds to a launched stage's supervisor:
+
+| Field | Interpretation |
+| --- | --- |
+| `user_cpu_us`, `system_cpu_us` | Kernel CPU accounting for reaped children, in microseconds; excludes Greenlight and the supervisor itself |
+| `largest_child_maxrss_kib` | Linux's largest-child RSS high-water value in KiB; **not** peak concurrent memory of the whole tree, nor a sum across stages |
+| `input_block_operations`, `output_block_operations` | Kernel `ru_inblock`/`ru_oublock` counters; not byte totals, cache footprint, or a count guaranteed to match physical device requests |
+
+Descendant accounting follows Linux's child-reaping rules, including descendants accounted to intermediate children when those children waited for them; it is not independent exhaustive accounting of adversarial process trees. Resource data is returned per stage, without inventing an aggregate memory peak or combining unrelated invocations. Zero is a legitimate measured counter; null means unavailable. Retained output-limit/cancellation errors can carry measurements after confirmed cleanup while keeping their original failure classification and diagnostic.
+
+These observations impose no memory/CPU/PID/disk quotas. Resource enforcement remains GL-023. Aggregate process-tree peak memory, cache footprint and byte-level disk accounting still need separate measurement work.

@@ -7,7 +7,7 @@ use std::{
     process::{ExitStatus, Output, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
     time::Duration,
 };
@@ -22,13 +22,30 @@ const CAP: usize = 128 * 1024;
 pub(crate) struct PipelineOutput {
     pub output: Output,
     pub summary: String,
+    pub measurements: Measurements,
 }
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Measurements {
+    pub first_stdout_ms: Option<f64>,
+    pub first_stderr_ms: Option<f64>,
+    pub elapsed_ms: f64,
+    pub stage_resources: Vec<Option<crate::sandbox_job::ChildUsage>>,
+}
+impl std::fmt::Display for Measurements {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Execution measurements retained after confirmed cleanup")
+    }
+}
+impl std::error::Error for Measurements {}
 
 async fn capture<R: AsyncRead + Unpin>(
     mut reader: R,
     budget: Arc<AtomicUsize>,
     overflow: Arc<AtomicBool>,
     wake: Arc<Notify>,
+    started: tokio::time::Instant,
+    first: Arc<OnceLock<Duration>>,
 ) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     let mut buffer = [0; 4096];
@@ -37,6 +54,7 @@ async fn capture<R: AsyncRead + Unpin>(
         if count == 0 {
             break;
         }
+        let _ = first.set(started.elapsed());
         let mut current = budget.load(Ordering::SeqCst);
         let left = loop {
             match budget.compare_exchange_weak(
@@ -158,6 +176,8 @@ pub(crate) async fn run(
     let overflow = Arc::new(AtomicBool::new(false));
     let wake = Arc::new(Notify::new());
     let started = tokio::time::Instant::now();
+    let first_stdout = Arc::new(OnceLock::new());
+    let first_stderr = Arc::new(OnceLock::new());
     // The closure owns every unused pipe/Command end, so even a partial spawn
     // failure closes parent copies before cleanup waits for the started children.
     let launch = (|| -> Result<()> {
@@ -195,19 +215,29 @@ pub(crate) async fn run(
             let budget = stderr_budget.clone();
             let flag = overflow.clone();
             let notify = wake.clone();
+            let first = first_stderr.clone();
             readers.spawn(async move {
                 Ok(Captured::Stderr(
                     index,
-                    capture(error, budget, flag, notify).await?,
+                    capture(error, budget, flag, notify, started, first).await?,
                 ))
             });
             if index + 1 == count {
                 let output = child.stdout.take().context("Missing pipeline stdout")?;
                 let flag = overflow.clone();
                 let notify = wake.clone();
+                let first = first_stdout.clone();
                 readers.spawn(async move {
                     Ok(Captured::Stdout(
-                        capture(output, Arc::new(AtomicUsize::new(CAP)), flag, notify).await?,
+                        capture(
+                            output,
+                            Arc::new(AtomicUsize::new(CAP)),
+                            flag,
+                            notify,
+                            started,
+                            first,
+                        )
+                        .await?,
                     ))
                 });
             }
@@ -376,6 +406,16 @@ pub(crate) async fn run(
         errors.extend_from_slice(bytes);
         errors.push(b'\n');
     }
+    let measurements = Measurements {
+        first_stdout_ms: first_stdout
+            .get()
+            .map(|duration| duration.as_secs_f64() * 1000.0),
+        first_stderr_ms: first_stderr
+            .get()
+            .map(|duration| duration.as_secs_f64() * 1000.0),
+        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
+        stage_resources: owners.iter().map(|owner| owner.resources()).collect(),
+    };
     if let Err(error) = outcome {
         let kind = if count == 1 {
             "Sandbox command"
@@ -387,7 +427,7 @@ pub(crate) async fn run(
             String::from_utf8_lossy(&stdout),
             String::from_utf8_lossy(&errors)
         );
-        return Err(error.context(details));
+        return Err(error.context(measurements).context(details));
     }
     let status = statuses[real_failure.unwrap_or(count - 1)];
     Ok(PipelineOutput {
@@ -397,12 +437,72 @@ pub(crate) async fn run(
             stderr: errors,
         },
         summary,
+        measurements,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn output_latency_and_child_usage_are_optional_observations() {
+        for script in [
+            "true",
+            "printf out",
+            "printf err >&2",
+            "printf out; printf err >&2; exit 7",
+        ] {
+            let result = run(
+                vec![command("/bin/sh", &["-c", script])],
+                vec!["fixture".into()],
+                vec![],
+                &Arc::new(AtomicBool::new(false)),
+                Duration::from_secs(3),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                result.measurements.first_stdout_ms.is_some(),
+                script.contains("printf out")
+            );
+            assert_eq!(
+                result.measurements.first_stderr_ms.is_some(),
+                script.contains("printf err")
+            );
+            for first in [
+                result.measurements.first_stdout_ms,
+                result.measurements.first_stderr_ms,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                assert!(first >= 0.0 && first <= result.measurements.elapsed_ms);
+            }
+            assert_eq!(result.measurements.stage_resources.len(), 1);
+            assert!(result.measurements.stage_resources[0].is_some());
+            assert_eq!(
+                result.output.status.code(),
+                Some(if script.contains("exit 7") { 7 } else { 0 })
+            );
+        }
+        let error = run(
+            vec![command("/bin/sh", &["-c", "yes flood"])],
+            vec!["flood".into()],
+            vec![],
+            &Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(3),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains("output limit"));
+        assert!(error
+            .downcast_ref::<Measurements>()
+            .unwrap()
+            .first_stdout_ms
+            .is_some());
+    }
+
     fn command(program: &str, args: &[&str]) -> Command {
         let mut command = Command::fixture(program);
         command.args(args).env_clear();

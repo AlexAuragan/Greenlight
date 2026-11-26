@@ -158,3 +158,26 @@ The [full provisioned phase report](benchmarks/sandbox-phase-provisioned-2026-11
 The [direct broker failure probe](benchmarks/sandbox-phase-direct-failure-2026-11-26.json.gz) remains incomplete: both public cases record `artifact_preparation` duration and omit `check_execution`, because DNS failed before checks began. No zero-filled or invented command timings are supplied.
 
 Validation: 587 ordinary tests pass (nine live/profiling tests ignored), strict all-target Clippy, formatting and offline build pass. The new live setup/check failure regression was run explicitly and passed, including persisted receipt phase keys. Existing regressions now verify legacy timing absence, numeric round-trip, reached/absent phase boundaries, and summary coverage without zero-filling. These remain debug/shared-host functional measurements; compilation/tests overlapped part of collection. First-output latency, non-verification phases, peak resource accounting and UI acknowledgement are still unmeasured.
+
+## Output/resource observations
+
+Verification samples now retain the primary receipt's [`executions`](54-isolated-verification.md#output-latency-and-linux-child-accounting); the finite inspection pipeline retains its execution observation too. Other shell cases can still have no retained observation. Earlier reports are unchanged. All values describe subprocess execution, not application/TUI responsiveness, and are separate from the coarse `phase_ms` clocks.
+
+Each cold/warm/warmup summary adds `execution_statistics`. Keys identify the execution phase, stream/counter, and zero-based stage where applicable; every statistic has `measured_samples`, `unit`, `p50`, and `p95`. Null stream times and missing resource records are omitted from distributions, rather than filled with zero. Genuine zero counters are retained. These are all-measured-attempt distributions, including failed checks and cleanup-confirmed output-limit errors. The raw per-stage resource records remain available; no aggregate peak RSS is inferred.
+
+### Recorded output/resource results — 2026-11-26
+
+The [full output/resource report](benchmarks/sandbox-output-resource-2026-11-26.json.gz) passes **14/14 cases, 504 samples**, all cleanup confirmed, no retained job fixtures. Every retained launched-stage observation in this run has a valid resource record. It uses externally supplied pinned artifacts and real Bubblewrap outside the outer tool filesystem wrapper; direct broker download success remains unvalidated. Exact executable/fixture hashes and all raw observations are retained.
+
+| Provisioned case | Execution phase | First stdout warm p50 / p95, ms | User CPU warm p50, ms | Largest-child RSS warm p95, KiB |
+| --- | --- | --- | --- | --- |
+| public_node_offline | offline_setup | Not observed | 1226.8 | 66432 |
+| public_node_offline | check_execution | 9.9 / 11.6 | 28.4 | 41908 |
+| public_precommit_offline | offline_setup | 1527.8 / 1907.0 | 2354.0 | 68836 |
+| public_precommit_offline | check_execution | 393.3 / 786.7 | 819.4 | 29836 |
+
+The table uses stage 0, the sole stage of each listed invocation, with 30 warm resource observations per row. Silent Node extraction has no stdout observation. The finite inspection pipeline retains two separate stage records, not an invented combined memory peak. Output-limit fixtures retain measured output/usage after cleanup while preserving unknown/incomplete check outcomes as their expected gate behavior.
+
+Validation passes 589 ordinary tests (nine live/profiling tests ignored), strict all-target Clippy, formatting and offline build. The live failed-setup/failed-check persistence test passes explicitly. Added tests cover silent/stdout/stderr-only and nonzero commands, output-flood error metadata, pending/malformed/truncated lease records and summary coverage without zero-filling. Cleanup quarantine and existing cancellation/lifecycle regressions remain intact. This is shared-cloud/debug evidence; builds and tests overlapped part of collection, so it is not a controlled release performance comparison.
+
+Remaining measurement work includes shell cases without retained observations, user-action/TUI feedback latency, non-verification phases, aggregate concurrent tree memory, cache footprint and byte-level disk accounting. These are separate from enforced quotas (GL-023). GL-035 also retains direct-fetch, broader dependency-fixture and evidence-review requirements.

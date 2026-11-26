@@ -1,5 +1,9 @@
 # Validation
 
+## Observed output and child-resource measurements (GL-035) — 2026-11-26
+
+Implemented on the existing review branch, pending merge. Receipts/`check-show` and benchmark observations now retain observed stdout/stderr latency and per-stage Linux reaped-child CPU, largest-child RSS and block-operation counters after confirmed cleanup. Missing/silent observations remain null; error outcomes and cleanup quarantine are preserved. The full provisioned matrix passes **14/14 cases, 504 samples**, all cleanup confirmed. The suite passes **589 tests** (nine live/profiling tests ignored), strict all-target Clippy, formatting and offline build; the live failed-setup/failed-check resource persistence test also passes explicitly. See [exact scope, report and limitations](56-sandbox-validation.md#recorded-outputresource-results--2026-11-26). Whole-tree peak memory, cache footprint, byte-I/O, broader fixtures and direct fetching remain open; no quotas or model requests were introduced.
+
 ## Verification phase timings (GL-035) — 2026-11-26
 
 Implemented on the existing review branch, pending merge. Receipts and `check-show` retain reached monotonic phase durations; benchmark samples/summaries include per-phase coverage and p50/p95. Legacy receipts remain unmeasured. The full provisioned matrix passes **14/14 cases, 504 samples**, all cleanup confirmed. Direct DNS-failure probes record attempted preparation without inventing check execution. The suite passes **587 tests** (nine live/profiling tests ignored); the new live failed-setup/failed-check persistence regression also passes explicitly. Strict all-target Clippy, formatting and offline build pass. See [reports and timing scope](56-sandbox-validation.md#phase-measurement-results--2026-11-26). Remaining GL-035 gaps stay open.

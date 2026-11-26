@@ -10,11 +10,20 @@ use std::{
     process::{Command, ExitStatus},
     time::Duration,
 };
+// Linux getrusage ABI: two timeval fields followed by 14 long counters.
+#[repr(C)]
+#[derive(Default)]
+struct Usage {
+    user: [std::ffi::c_long; 2],
+    system: [std::ffi::c_long; 2],
+    counters: [std::ffi::c_long; 14],
+}
 unsafe extern "C" {
     fn prctl(option: i32, ...) -> i32;
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
     fn kill(pid: i32, signal: i32) -> i32;
     fn signal(signal: i32, handler: usize) -> usize;
+    fn getrusage(who: i32, usage: *mut Usage) -> i32;
     fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
 }
 fn run() -> io::Result<ExitStatus> {
@@ -129,7 +138,16 @@ fn run() -> io::Result<ExitStatus> {
             } else {
                 let error = io::Error::last_os_error();
                 if error.raw_os_error() == Some(10) {
-                    // ECHILD: positively confirmed clean.
+                    // ECHILD: positively confirmed clean. Telemetry is optional
+                    // and never substitutes for this cleanup evidence.
+                    let mut usage = Usage::default();
+                    if unsafe { getrusage(-1, &mut usage) } == 0 {
+                        let record = format!("usage_v1 {} {} {} {} {}\n",
+                            usage.user[0] as i128 * 1_000_000 + usage.user[1] as i128,
+                            usage.system[0] as i128 * 1_000_000 + usage.system[1] as i128,
+                            usage.counters[0], usage.counters[7], usage.counters[8]);
+                        let _ = lease.write_all_at(record.as_bytes(), 256);
+                    }
                     lease.write_all_at(b"complete", 0)?;
                     lease.sync_data()?;
                     return Ok(result.unwrap_or(ExitStatus::from_raw(125 << 8)));
