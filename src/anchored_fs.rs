@@ -125,6 +125,22 @@ impl Dir {
     pub fn open_file(&self, relative: &Path) -> Result<File> {
         self.target(relative)?.open()
     }
+    /// Inspect the leaf itself without reading data, following links, or
+    /// activating a FIFO/device. O_PATH is available on supported Linux hosts.
+    pub fn metadata(&self, relative: &Path) -> Result<std::fs::Metadata> {
+        let target = self.target(relative)?;
+        let name = cstring(&target.name)?;
+        // SAFETY: parent descriptor and NUL-terminated name remain alive; the
+        // returned O_PATH descriptor pins the inspected leaf, including links.
+        let file = owned_fd(unsafe {
+            libc::openat(
+                target.parent.file.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        })?;
+        Ok(file.metadata()?)
+    }
     pub fn read(&self, relative: &Path, limit: u64) -> Result<Vec<u8>> {
         let file = self.open_file(relative)?;
         if file.metadata()?.len() > limit {

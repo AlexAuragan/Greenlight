@@ -50,6 +50,7 @@ mod tui;
 mod tui_actions;
 mod usage;
 mod verification_export;
+mod verification_storage;
 mod verification_workspace;
 mod workspace;
 mod workspace_audit;
@@ -535,12 +536,13 @@ async fn main() -> Result<()> {
             let session = store.session(&session)?;
             let receipt = verification_workspace::load(&store, &session, &run)?;
             println!(
-                "{}\nRecorded command:\n{}\nFull raw diagnostic:\n{}\nPhase timings (milliseconds; absent = unmeasured/not reached):\n{}\nExecution measurements (observed output latency and Linux child accounting):\n{}\nConfigured offline preparation:\n{}\nVerified dependency inputs:\n{}\nOffline preparation output:\n{}\n{}\nManifest:\n{}\nExcluded inputs:\n{}",
+                "{}\nRecorded command:\n{}\nFull raw diagnostic:\n{}\nPhase timings (milliseconds; absent = unmeasured/not reached):\n{}\nExecution measurements (observed output latency and Linux child accounting):\n{}\nEnd-of-command private-cache storage (not bytes written):\n{}\nConfigured offline preparation:\n{}\nVerified dependency inputs:\n{}\nOffline preparation output:\n{}\n{}\nManifest:\n{}\nExcluded inputs:\n{}",
                 receipt.report(),
                 receipt.command,
                 receipt.diagnostic,
                 serde_json::to_string_pretty(&receipt.phase_ms)?,
                 serde_json::to_string_pretty(&receipt.executions)?,
+                serde_json::to_string_pretty(&receipt.cache_storage)?,
                 receipt.preparation_command.as_deref().unwrap_or("Not configured"),
                 serde_json::to_string_pretty(&receipt.dependencies)?,
                 receipt.preparation_diagnostic.as_deref().unwrap_or("Not configured/not run"),

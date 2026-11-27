@@ -140,6 +140,8 @@ pub struct Receipt {
     pub phase_ms: BTreeMap<String, f64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub executions: BTreeMap<String, crate::sandbox::pipeline::Measurements>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_storage: Option<crate::verification_storage::Observation>,
     #[serde(default)]
     pub dependency_fingerprint: Option<String>,
     #[serde(default)]
@@ -360,6 +362,26 @@ pub struct Request<'a> {
     pub recipe: &'a Recipe,
     pub stop: &'a Arc<AtomicBool>,
 }
+// Only returned check paths reach this point, after process cleanup. Optional
+// observation failures never change check outcomes or replace cleanup evidence.
+fn observe_cache(receipt: &mut Receipt, cache: &crate::anchored_fs::Dir) {
+    if receipt.cache_storage.is_none() {
+        let observation = crate::verification_storage::observe(cache);
+        receipt
+            .phase_ms
+            .insert("cache_inspection".into(), observation.inspection_ms);
+        receipt.cache_storage = Some(observation);
+    }
+}
+fn persist_check(
+    store: &crate::store::Store,
+    receipt: &mut Receipt,
+    cache: &crate::anchored_fs::Dir,
+) -> Result<()> {
+    observe_cache(receipt, cache);
+    persist(store, receipt)
+}
+
 fn execution_result(
     receipt: &mut Receipt,
     phase: &str,
@@ -436,6 +458,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
         cleanup: "confirmed".into(),
         phase_ms: BTreeMap::new(),
         executions: BTreeMap::new(),
+        cache_storage: None,
         dependency_fingerprint: None,
         dependencies: Vec::new(),
         preparation_command: recipe.preparation.as_ref().and_then(|p| p.run.clone()),
@@ -486,7 +509,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                     format!("Preflight unavailable; check command not started: {error:#}")
                 }
             };
-            persist(store, &receipt)?;
+            persist_check(store, &mut receipt, &cache)?;
             return Ok(receipt);
         }
     }
@@ -500,7 +523,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
     if let Err(error) = staging {
         receipt.diagnostic =
             format!("Dependency preparation unavailable; check command not started: {error:#}");
-        persist(store, &receipt)?;
+        persist_check(store, &mut receipt, &cache)?;
         return Ok(receipt);
     }
     if let Some(preparation) = recipe
@@ -568,7 +591,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                         )
                     }
                 };
-                persist(store, &receipt)?;
+                persist_check(store, &mut receipt, &cache)?;
                 return Ok(receipt);
             }
         }
@@ -592,6 +615,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                 ));
                 if !output.status.success() {
                     receipt.diagnostic = "Offline dependency preparation failed; check command not started. Inspect preparation output, not a claimed source regression.".into();
+                    observe_cache(&mut receipt, &cache);
                     let started = std::time::Instant::now();
                     let inspection = record_changes(&mut receipt, &source, &copy);
                     receipt.phase_ms.insert(
@@ -599,7 +623,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                         started.elapsed().as_secs_f64() * 1000.0,
                     );
                     inspection?;
-                    persist(store, &receipt)?;
+                    persist_check(store, &mut receipt, &cache)?;
                     return Ok(receipt);
                 }
             }
@@ -609,6 +633,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                     return Err(error);
                 }
                 receipt.diagnostic = format!("Offline dependency preparation incomplete; check command not started: {error:#}");
+                observe_cache(&mut receipt, &cache);
                 let started = std::time::Instant::now();
                 let inspection = record_changes(&mut receipt, &source, &copy);
                 receipt.phase_ms.insert(
@@ -616,7 +641,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                     started.elapsed().as_secs_f64() * 1000.0,
                 );
                 inspection?;
-                persist(store, &receipt)?;
+                persist_check(store, &mut receipt, &cache)?;
                 return Ok(receipt);
             }
         }
@@ -671,6 +696,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
                 format!("Execution/capture failed; do not infer a source regression: {error:#}");
         }
     }
+    observe_cache(&mut receipt, &cache);
     let started = std::time::Instant::now();
     let inspection = record_changes(&mut receipt, &source, &copy);
     receipt.phase_ms.insert(
@@ -678,7 +704,7 @@ pub async fn run(request: Request<'_>, authorize: impl FnOnce() -> Result<()>) -
         started.elapsed().as_secs_f64() * 1000.0,
     );
     inspection?;
-    persist(store, &receipt)?;
+    persist_check(store, &mut receipt, &cache)?;
     Ok(receipt)
 }
 
@@ -911,6 +937,7 @@ mod tests {
             cleanup: "confirmed".into(),
             phase_ms: BTreeMap::new(),
             executions: BTreeMap::new(),
+            cache_storage: None,
             dependency_fingerprint: None,
             dependencies: Vec::new(),
             preparation_command: None,
@@ -970,6 +997,7 @@ mod tests {
         );
         value.as_object_mut().unwrap().remove("phase_ms");
         value.as_object_mut().unwrap().remove("executions");
+        value.as_object_mut().unwrap().remove("cache_storage");
         value
             .as_object_mut()
             .unwrap()
@@ -980,7 +1008,9 @@ mod tests {
             .remove("preparation_diagnostic");
         let old: Receipt = serde_json::from_value(value).unwrap();
         assert!(old.dependency_fingerprint.is_none() && old.preparation_diagnostic.is_none());
-        assert!(old.phase_ms.is_empty() && old.executions.is_empty());
+        assert!(
+            old.phase_ms.is_empty() && old.executions.is_empty() && old.cache_storage.is_none()
+        );
     }
 
     #[tokio::test]
@@ -1342,6 +1372,52 @@ mod tests {
         assert!(crate::tools::parse_action("action: tool\ntool: check").is_err());
     }
     #[tokio::test]
+    #[ignore = "requires Bubblewrap namespaces and Python; verifies optional telemetry cannot fail a passing check"]
+    async fn live_cache_budget_does_not_change_a_passing_check() {
+        let (root, _, store, session, _) = fixture();
+        let owner = store
+            .claim_tool_execution(&session.id, &session.active_branch)
+            .unwrap();
+        let recipe = Recipe {
+            command: r#"python3 - <<'CACHE_FIXTURE'
+from pathlib import Path
+cache_path = Path('/cache')
+for _ in range(65):
+    cache_path /= 'nested'
+    cache_path.mkdir()
+CACHE_FIXTURE
+"#
+            .into(),
+            requires: vec!["python3".into()],
+            git: false,
+            preparation: None,
+        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let receipt = run(
+            Request {
+                root: root.path(),
+                store: &store,
+                session: &session,
+                step: "verify",
+                name: "cache-budget",
+                recipe: &recipe,
+                stop: &stop,
+            },
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipt.outcome, "passed");
+        assert_eq!(receipt.modifications, "none");
+        assert!(receipt.live_inputs_match);
+        assert_eq!(receipt.cleanup, "confirmed");
+        let observation = receipt.cache_storage.unwrap();
+        assert!(observation.footprint.is_none());
+        assert!(observation.unavailable_reason.unwrap().contains("budget"));
+        store.finish_execution(&session.id, &owner, None).unwrap();
+    }
+
+    #[tokio::test]
     #[ignore = "requires Bubblewrap user namespaces; verifies setup/check failure timing boundaries"]
     async fn live_phase_timings_preserve_failed_setup_and_failed_check() {
         let (root, _, store, session, _) = fixture();
@@ -1417,6 +1493,7 @@ mod tests {
                 receipt.executions.keys().collect::<Vec<_>>()
             );
             assert!(recorded.executions["offline_setup"].stage_resources[0].is_some());
+            assert!(recorded.cache_storage.as_ref().unwrap().footprint.is_some());
             assert_eq!(
                 recorded.phase_ms.keys().collect::<Vec<_>>(),
                 receipt.phase_ms.keys().collect::<Vec<_>>()
@@ -1512,6 +1589,8 @@ mod tests {
             fs::read_to_string(root.path().join("a.txt")).unwrap(),
             "before\n"
         );
+        assert!(receipt.cache_storage.as_ref().unwrap().footprint.is_some());
+        assert!(receipt.phase_ms.contains_key("cache_inspection"));
         assert!(receipt.phase_ms.contains_key("workspace_setup"));
         assert!(receipt.phase_ms.contains_key("preflight"));
         assert!(receipt

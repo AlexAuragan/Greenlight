@@ -1,5 +1,9 @@
 # Validation
 
+## End-of-command private-cache footprint (GL-035) — 2026-11-26
+
+Implemented on the existing review branch, pending merge. Optional bounded, anchored metadata observations report unique regular-file logical/allocation totals while skipping links and special files. Incomplete scans claim no total and never change check outcomes; observation precedes the final live-source recheck. The full provisioned matrix passes **14/14 cases, 504 samples**, with all cleanup confirmed and every attempted footprint available. The suite passes **593 tests** (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. Explicit live persistence and over-budget/nonfatal-check regressions pass. See [scope and full report](56-sandbox-validation.md#recorded-cache-footprint-results--2026-11-26). This measures end-of-command cache files before disposal, not bytes written or permanent project storage. GL-035 remains open.
+
 ## Observed output and child-resource measurements (GL-035) — 2026-11-26
 
 Implemented on the existing review branch, pending merge. Receipts/`check-show` and benchmark observations now retain observed stdout/stderr latency and per-stage Linux reaped-child CPU, largest-child RSS and block-operation counters after confirmed cleanup. Missing/silent observations remain null; error outcomes and cleanup quarantine are preserved. The full provisioned matrix passes **14/14 cases, 504 samples**, all cleanup confirmed. The suite passes **589 tests** (nine live/profiling tests ignored), strict all-target Clippy, formatting and offline build; the live failed-setup/failed-check resource persistence test also passes explicitly. See [exact scope, report and limitations](56-sandbox-validation.md#recorded-outputresource-results--2026-11-26). Whole-tree peak memory, cache footprint, byte-I/O, broader fixtures and direct fetching remain open; no quotas or model requests were introduced.

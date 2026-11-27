@@ -112,6 +112,7 @@ struct Sample {
     stop_to_cleanup_ms: Option<f64>,
     phase_ms: BTreeMap<String, f64>,
     executions: BTreeMap<String, crate::sandbox::pipeline::Measurements>,
+    cache_storage: Option<crate::verification_storage::Observation>,
     retained_paths: Vec<String>,
 }
 #[derive(Serialize)]
@@ -149,6 +150,7 @@ struct Observation {
     stop_ms: Option<f64>,
     phase_ms: BTreeMap<String, f64>,
     executions: BTreeMap<String, crate::sandbox::pipeline::Measurements>,
+    cache_storage: Option<crate::verification_storage::Observation>,
 }
 impl Observation {
     fn new(gate: &'static str, observed: impl Into<String>, diagnostic: impl Into<String>) -> Self {
@@ -161,6 +163,7 @@ impl Observation {
             stop_ms: None,
             phase_ms: BTreeMap::new(),
             executions: BTreeMap::new(),
+            cache_storage: None,
         }
     }
 }
@@ -391,6 +394,7 @@ fn from_receipt(receipt: &Receipt, met: bool) -> Observation {
     );
     observation.phase_ms = receipt.phase_ms.clone();
     observation.executions = receipt.executions.clone();
+    observation.cache_storage = receipt.cache_storage.clone();
     observation.files = Some(receipt.inputs.len());
     let known = files();
     observation.bytes = receipt
@@ -659,6 +663,7 @@ async fn sample(
         stop_to_cleanup_ms: observation.stop_ms,
         phase_ms: observation.phase_ms,
         executions: observation.executions,
+        cache_storage: observation.cache_storage,
         retained_paths: if fixture.keep {
             fixture.owned_paths()
         } else {
@@ -707,6 +712,31 @@ fn summary(samples: &[Sample], mode: &str) -> Summary {
             .push(value);
     };
     for sample in &samples {
+        if let Some(footprint) = sample
+            .cache_storage
+            .as_ref()
+            .and_then(|observation| observation.footprint.as_ref())
+        {
+            for (key, unit, value) in [
+                (
+                    "unique_regular_files",
+                    "files",
+                    footprint.unique_regular_files as u64,
+                ),
+                (
+                    "logical_regular_file_bytes",
+                    "bytes",
+                    footprint.logical_regular_file_bytes,
+                ),
+                (
+                    "allocated_regular_file_bytes",
+                    "bytes",
+                    footprint.allocated_regular_file_bytes,
+                ),
+            ] {
+                record(format!("cache.{key}"), unit, value as f64);
+            }
+        }
         for (phase, execution) in &sample.executions {
             for (key, value) in [
                 ("first_stdout", execution.first_stdout_ms),
@@ -832,7 +862,7 @@ pub async fn run(
         fixture_public_files: public.len(),
         fixture_public_bytes: public.values().map(String::len).sum(),
         cache_definitions: BTreeMap::from([("cold","Fresh Greenlight project/state; fixture creation excluded from elapsed time. OS/page/toolchain/registry caches are not flushed."),("warm","Same synthetic project/state; check cache/venv remains fresh per invocation. Local pinned fixture objects only; no public downloads.")]),
-        unmeasured: vec!["first-output latency for shell cases without retained execution measurements","per-phase elapsed time for non-verification shell/inspection operations","aggregate concurrent process-tree peak RSS, cache footprint and byte-level disk accounting; resource quotas are separate","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
+        unmeasured: vec!["first-output latency for shell cases without retained execution measurements","per-phase elapsed time for non-verification shell/inspection operations","aggregate concurrent process-tree peak RSS and bytes written; cache footprint is retained regular-file metadata only, resource quotas are separate","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
         remaining_validation: vec!["Supported-host successful results must be reviewed before GL-035 closes","Real public HTTPS/TLS/DNS pinned artifact preparation","Representative remote pre-commit/Node dependency bundles","Original Git staged/history/worktree semantics remain unsupported, not tested as equivalent"],
         retained_paths: Vec::new(),
         cases: Vec::new(),
@@ -1017,6 +1047,7 @@ mod tests {
             stop_to_cleanup_ms: None,
             phase_ms: BTreeMap::new(),
             executions: BTreeMap::new(),
+            cache_storage: None,
             retained_paths: Vec::new(),
         }
     }
@@ -1119,10 +1150,39 @@ mod tests {
                 stage_resources: vec![None],
             },
         );
+        samples[0].cache_storage = Some(crate::verification_storage::Observation {
+            inspection_ms: 1.0,
+            footprint: Some(crate::verification_storage::Footprint {
+                entries: 1,
+                unique_regular_files: 1,
+                logical_regular_file_bytes: 4,
+                allocated_regular_file_bytes: 0,
+                skipped_symlinks: 0,
+                skipped_special_files: 0,
+            }),
+            unavailable_reason: None,
+        });
+        samples[1].cache_storage = Some(crate::verification_storage::Observation {
+            inspection_ms: 2.0,
+            footprint: None,
+            unavailable_reason: Some("budget reached".into()),
+        });
         samples[0].phase_ms.insert("preflight".into(), 1.0);
         samples[1].phase_ms.insert("preflight".into(), 5.0);
         let report = summary(&samples, "warm");
         assert_eq!(report.phase_ms["preflight"].measured_samples, 2);
+        assert_eq!(
+            report.execution_statistics["cache.logical_regular_file_bytes"].measured_samples,
+            1
+        );
+        assert_eq!(
+            report.execution_statistics["cache.logical_regular_file_bytes"].p50,
+            4.0
+        );
+        assert_eq!(
+            report.execution_statistics["cache.allocated_regular_file_bytes"].p50,
+            0.0
+        );
         assert_eq!(
             report.execution_statistics["check.first_stdout"].measured_samples,
             1

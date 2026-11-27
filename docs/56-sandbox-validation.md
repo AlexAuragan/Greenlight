@@ -181,3 +181,22 @@ The table uses stage 0, the sole stage of each listed invocation, with 30 warm r
 Validation passes 589 ordinary tests (nine live/profiling tests ignored), strict all-target Clippy, formatting and offline build. The live failed-setup/failed-check persistence test passes explicitly. Added tests cover silent/stdout/stderr-only and nonzero commands, output-flood error metadata, pending/malformed/truncated lease records and summary coverage without zero-filling. Cleanup quarantine and existing cancellation/lifecycle regressions remain intact. This is shared-cloud/debug evidence; builds and tests overlapped part of collection, so it is not a controlled release performance comparison.
 
 Remaining measurement work includes shell cases without retained observations, user-action/TUI feedback latency, non-verification phases, aggregate concurrent tree memory, cache footprint and byte-level disk accounting. These are separate from enforced quotas (GL-023). GL-035 also retains direct-fetch, broader dependency-fixture and evidence-review requirements.
+
+## Retained-cache measurements
+
+Verification samples now copy the primary receipt's [`cache_storage`](54-isolated-verification.md#retained-private-cache-footprint). Summaries add `cache.unique_regular_files`, `cache.logical_regular_file_bytes` and `cache.allocated_regular_file_bytes` under `execution_statistics`, with units, measured sample counts and p50/p95. Only complete footprints enter these distributions. Unavailable scans are omitted, not filled with zero; measured empty/sparse allocation values remain genuine zeros. `phase_ms.cache_inspection` includes the attempted scan's elapsed time even when no footprint is available.
+
+This is retained regular-file metadata, not cache writes, total filesystem occupancy or resource enforcement. Symlinks and special files are skipped, hard links are deduplicated, and budgets can leave an observation unavailable without failing the underlying check. Original compressed reports remain unchanged.
+
+### Recorded cache-footprint results — 2026-11-26
+
+The [full cache-footprint report](benchmarks/sandbox-cache-footprint-2026-11-26.json.gz) passes **14/14 cases, 504 samples**, all cleanup confirmed. Every attempted footprint observation completed within its budget in this run; no job fixtures were retained. Externally supplied pinned artifacts and real namespace-capable Bubblewrap are used as before. Direct broker download success remains unvalidated.
+
+| Provisioned case | Warm complete footprints | Logical regular-file size p50, MiB | Allocated regular-file size p50 / p95, MiB | Inspection p50 / p95, ms |
+| --- | --- | --- | --- | --- |
+| public_node_offline | 30 | 177.07 | 187.83 / 187.83 | 44.71 / 54.61 |
+| public_precommit_offline | 30 | 21.57 | 24.64 / 24.64 | 11.63 / 26.65 |
+
+These values describe files remaining in `/cache` after command completion, before normal disposable-cache removal. They are not permanent project-cache growth, bytes written, peak storage, total device occupancy or resource limits. The report keeps original integer byte counters, counts and scan-unavailability fields. This remains shared-cloud/debug evidence with builds/tests overlapping part of collection.
+
+Validation passes 593 ordinary tests (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. Both live regressions were also run explicitly: persisted failed setup/check receipts keep their observations, and an over-depth cache returns an unavailable footprint while its underlying check remains clean/passed with live inputs matched. Unit tests cover sparse files, hard links, outside symlinks, sockets, replaced-root anchors, measured empty caches, entry/depth/time budgets and summary coverage without zero-filling. No model calls, public downloads, host installations or security-configuration changes were required for this validation.
