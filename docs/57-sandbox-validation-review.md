@@ -1,6 +1,6 @@
 # GL-035 validation review — 2026-11-28
 
-**Current disposition: functional validation complete; branch ready for final checks and merge.** The user-host [v4 smoke summary](benchmarks/sandbox-user-v4-smoke-summary-2026-11-28.json) records fresh direct HTTPS provisioning and offline execution of both dependency projects: **3/3 cases, nine samples, all cleanup confirmed**, no retained fixtures. Reviewed pins match the repository. Python 3.14.10 was reported separately by the user; the independent exact-version regression remains separate evidence. The successful run does not explain the preceding interrupted startup stall.
+**Current disposition: functional validation complete; sandbox stack merged into `master` on 2026-11-28 after final checks.** The user-host [v4 smoke summary](benchmarks/sandbox-user-v4-smoke-summary-2026-11-28.json) records fresh direct HTTPS provisioning and offline execution of both dependency projects: **3/3 cases, nine samples, all cleanup confirmed**, no retained fixtures. Reviewed pins match the repository. Python 3.14.10 was reported separately by the user; the independent exact-version regression remains separate evidence. The successful run does not explain the preceding interrupted startup stall.
 
 This review reconciles the accepted [benchmark matrix](53-sandbox-and-verification-design.md#proposed-benchmark-matrix), implementation and recorded evidence. It is a scoped review of the sandbox stack, not an exhaustive project security audit. Earlier sections/reports retain their original failure gates and collection contexts. The scope revision below makes deferred measurements explicit rather than calling them complete.
 
@@ -63,4 +63,4 @@ Reviewed supervisor ownership/control-FD lifetime, detached process groups, canc
 
 No additional merge-blocking defect was found in those reviewed paths. This is a scoped review, not a claim that every line of the application was audited. Runtime namespace tests must still be selected explicitly on a capable host; ordinary tests do not silently acquire network access or paid model usage.
 
-The validation counts below are historical to the earlier review, not the final suite result: 594 ordinary tests passed, eleven live/network/profiling tests were ignored; strict Clippy/formatting/offline build passed. Final checks are recorded in [validation](06-validation.md).
+These counts are historical to the earlier review, not the final suite result: 594 ordinary tests passed, eleven live/network/profiling tests were ignored; strict Clippy/formatting/offline build passed. Final checks are recorded in [validation](06-validation.md).
