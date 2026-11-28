@@ -241,7 +241,7 @@ async fn fetch(
     .await?;
     if !resolution.output.status.success() {
         bail!(
-            "Dependency DNS resolver failed: {}\n{}",
+            "Dependency DNS resolver failed for {host}: {}\n{}\nThis profile requires direct public DNS; environment proxies are not used.",
             resolution.output.status,
             String::from_utf8_lossy(&resolution.output.stderr)
         );
@@ -528,6 +528,64 @@ mod tests {
             .atomic_write(b"pinned")
             .unwrap();
     }
+    #[tokio::test]
+    #[ignore = "requires direct public DNS/HTTPS; fetches a pinned 7 KiB wheel without executing it"]
+    async fn integration_public_fetch_verifies_pinned_bytes() -> Result<()> {
+        let pins: std::collections::BTreeMap<String, Vec<Artifact>> =
+            serde_json::from_str(include_str!("sandbox_validation_dependencies.json"))?;
+        let artifact = pins["precommit"]
+            .iter()
+            .find(|artifact| artifact.name == "cfgv-3.4.0-py2.py3-none-any.whl")
+            .context("Missing compiled probe pin")?
+            .clone();
+        let recipe = Recipe {
+            command: "true".into(),
+            requires: vec![],
+            git: false,
+            preparation: Some(Preparation {
+                artifacts: vec![artifact.clone()],
+                run: None,
+            }),
+        };
+        let (root, store, session) = fixture();
+        let owner = store.claim_tool_execution(&session.id, &session.active_branch)?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let prepared = prepare(
+            Request {
+                root: root.path(),
+                store: &store,
+                session: &session,
+                step: "verify",
+                name: "direct-fetch-probe",
+                recipe: &recipe,
+                stop: &stop,
+            },
+            || Ok(()),
+        )
+        .await;
+        let cleanup = store.finish_execution(&session.id, &owner, prepared.as_ref().err());
+        if cleanup.is_err() {
+            eprintln!(
+                "Retained unconfirmed fetch fixture: {}",
+                root.keep().display()
+            );
+        }
+        cleanup?;
+        let report = prepared?;
+        let (objects, _) = directories(&store.directory_fd)?;
+        assert_eq!(verified(&objects, &artifact)?.len(), 7249);
+        assert!(store
+            .history(&session)?
+            .iter()
+            .any(|event| event.2 == "dependency.download"));
+        assert!(!store
+            .history(&session)?
+            .iter()
+            .any(|event| event.2.starts_with("verification.")));
+        println!("{report}Public pinned bytes verified; no package code executed.");
+        Ok(())
+    }
+
     #[test]
     fn validates_closed_artifact_manifest_and_rejects_credentials_or_ambiguous_urls() {
         let mut recipe = recipe();

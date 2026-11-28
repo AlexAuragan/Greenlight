@@ -1,5 +1,9 @@
 # Code review — 2026-11-19
 
+## GL-035 measurement/evidence review — 2026-11-28
+
+Reviewed fixture measurement forwarding, uncertain-cleanup retention, recorded report claims and host capability assumptions. Fixed discarded shell observations and unconditional test-link removal on cleanup-incomplete. The [acceptance matrix](57-sandbox-validation-review.md) separates successful provisioned subsets from the native run's unavailable tools, direct DNS failure and remaining UI/aggregate-accounting measurements. It also corrects the assumption that the outer wrapper's read-only cgroup mount describes the actual benchmark path. This is a scoped review; it does not approve merging the whole sandbox stack or close GL-035.
+
 This review prioritizes readable control flow, shared safety policies and concrete failure cases. It is not an exhaustive security audit or a redesign of the engine/TUI.
 
 ## Changes

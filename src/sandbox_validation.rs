@@ -157,6 +157,11 @@ struct Observation {
     cache_storage: Option<crate::verification_storage::Observation>,
 }
 impl Observation {
+    fn record_error_execution(&mut self, phase: &str, error: &anyhow::Error) {
+        if let Some(measurements) = error.downcast_ref::<crate::sandbox::pipeline::Measurements>() {
+            self.executions.insert(phase.into(), measurements.clone());
+        }
+    }
     fn new(gate: &'static str, observed: impl Into<String>, diagnostic: impl Into<String>) -> Self {
         Self {
             gate,
@@ -438,51 +443,137 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
     let stop = Arc::new(AtomicBool::new(false));
     match scenario {
         Scenario::Isolation => {
-            match crate::sandbox::Sandbox::open(fixture.path())?.run("test ! -w /workspace && test -w /cache && test -w /tmp && printf 'isolation ready\\n'").await {
-                Ok(output) => Ok(Observation::new(if output.status.success(){"passed"}else{"failed"},format!("{}",output.status),format!("{}{}",String::from_utf8_lossy(&output.stdout),String::from_utf8_lossy(&output.stderr)))),
+            let result = crate::sandbox::Sandbox::open(fixture.path())?
+                .run_measured("test ! -w /workspace && test -w /cache && test -w /tmp && printf 'isolation ready\\n'", &stop).await;
+            match result {
+                Ok(measured) => {
+                    let output = measured.output;
+                    let mut observation = Observation::new(
+                        if output.status.success() {
+                            "passed"
+                        } else {
+                            "failed"
+                        },
+                        format!("{}", output.status),
+                        format!(
+                            "{}{}",
+                            String::from_utf8_lossy(&output.stdout),
+                            String::from_utf8_lossy(&output.stderr)
+                        ),
+                    );
+                    observation
+                        .executions
+                        .insert("isolation".into(), measured.measurements);
+                    Ok(observation)
+                }
                 Err(error) if error.is::<crate::sandbox_job::CleanupIncomplete>() => Err(error),
-                Err(error) => Ok(Observation::new("blocked","sandbox setup unavailable",format!("{error:#}"))),
+                Err(error) => {
+                    let mut observation = Observation::new(
+                        "blocked",
+                        "sandbox setup unavailable",
+                        format!("{error:#}"),
+                    );
+                    observation.record_error_execution("isolation", &error);
+                    Ok(observation)
+                }
             }
         }
         Scenario::Pipeline => {
-            let plan = crate::project_inspection::parse(fixture.path(),"cat values.txt | head -n 1").context("Invalid fixed validation pipeline")?;
+            let plan =
+                crate::project_inspection::parse(fixture.path(), "cat values.txt | head -n 1")
+                    .context("Invalid fixed validation pipeline")?;
             let view = plan.snapshot(fixture.path())?;
-            let output = crate::sandbox::Sandbox::project_inspection(&view,fixture.path())?.inspect_pipeline(&plan,&stop).await?;
-            let met = output.output.status.success() && output.output.stdout == b"fixture_value\n" && output.summary.contains("expected short read");
-            let mut observation = Observation::new(if met {"passed"}else{"failed"},format!("{}",output.output.status),output.summary);
-            observation.executions.insert("inspection_pipeline".into(), output.measurements);
+            let output = crate::sandbox::Sandbox::project_inspection(&view, fixture.path())?
+                .inspect_pipeline(&plan, &stop)
+                .await?;
+            let met = output.output.status.success()
+                && output.output.stdout == b"fixture_value\n"
+                && output.summary.contains("expected short read");
+            let mut observation = Observation::new(
+                if met { "passed" } else { "failed" },
+                format!("{}", output.output.status),
+                output.summary,
+            );
+            observation
+                .executions
+                .insert("inspection_pipeline".into(), output.measurements);
             Ok(observation)
         }
         Scenario::ShellBoundaries => {
             let link = fixture.path().join("outside-link");
-            std::os::unix::fs::symlink(fixture.outside().join("sentinel"),&link)?;
+            std::os::unix::fs::symlink(fixture.outside().join("sentinel"), &link)?;
             let command = format!("test ! -w /workspace && test ! -s /workspace/.env && test ! -s /workspace/.greenlight/config.yaml && test ! -e /workspace/.git/original && test ! -e /workspace/outside-link && test ! -e {} && test ! -e /home/agent/.ssh && test -z \"${{DEEPINFRA_API_KEY:-}}\"",quote(fixture.outside().join("sentinel").to_str().context("Non-UTF8 fixture path")?));
-            let result = crate::sandbox::Sandbox::open(fixture.path())?.run(&command).await;
+            let result = crate::sandbox::Sandbox::open(fixture.path())?
+                .run_measured(&command, &stop)
+                .await;
+            let measured = match result {
+                Ok(measured) => measured,
+                Err(error) => {
+                    // Keep the fixture intact if a child may still own it.
+                    if !error.is::<crate::sandbox_job::CleanupIncomplete>() {
+                        fs::remove_file(link)?;
+                    }
+                    return Err(error);
+                }
+            };
             fs::remove_file(link)?;
-            let output = result?;
-            Ok(Observation::new(if output.status.success(){"passed"}else{"failed"},format!("{}",output.status),String::from_utf8_lossy(&output.stderr)))
+            let output = measured.output;
+            let mut observation = Observation::new(
+                if output.status.success() {
+                    "passed"
+                } else {
+                    "failed"
+                },
+                format!("{}", output.status),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            observation
+                .executions
+                .insert("shell_boundaries".into(), measured.measurements);
+            Ok(observation)
         }
         Scenario::NetworkIpc => {
-            use std::net::{TcpListener,TcpStream};
-            use std::os::unix::net::{UnixListener,UnixStream};
+            use std::net::{TcpListener, TcpStream};
+            use std::os::unix::net::{UnixListener, UnixStream};
             let mut selected = None;
             for _ in 0..16 {
                 let listener = TcpListener::bind("127.0.0.1:0")?;
-                if ![22,8000,8001,8080,8081,8082,8083,8085,9222,31460,50002].contains(&listener.local_addr()?.port()) {
-                    selected = Some(listener); break;
+                if ![
+                    22, 8000, 8001, 8080, 8081, 8082, 8083, 8085, 9222, 31460, 50002,
+                ]
+                .contains(&listener.local_addr()?.port())
+                {
+                    selected = Some(listener);
+                    break;
                 }
             }
             let tcp = selected.context("No free non-reserved loopback fixture port")?;
             let address = tcp.local_addr()?;
-            let _positive = TcpStream::connect_timeout(&address,Duration::from_secs(1))?; drop(tcp.accept()?); drop(_positive); tcp.set_nonblocking(true)?;
+            let _positive = TcpStream::connect_timeout(&address, Duration::from_secs(1))?;
+            drop(tcp.accept()?);
+            drop(_positive);
+            tcp.set_nonblocking(true)?;
             let socket = fixture.outside().join("service.sock");
             let unix = UnixListener::bind(&socket)?;
-            let _positive = UnixStream::connect(&socket)?; drop(unix.accept()?); drop(_positive); unix.set_nonblocking(true)?;
+            let _positive = UnixStream::connect(&socket)?;
+            drop(unix.accept()?);
+            drop(_positive);
+            unix.set_nonblocking(true)?;
             let python = format!("import socket\nfor family,target in [(socket.AF_INET,('127.0.0.1',{})),(socket.AF_UNIX,{})]:\n s=socket.socket(family); s.settimeout(.5)\n try:\n  s.connect(target)\n except OSError:\n  pass\n else:\n  raise AssertionError('host service reachable')\n finally:\n  s.close()\n",address.port(),serde_json::to_string(socket.to_str().unwrap())?);
-            let receipt = check(fixture,&recipe(format!("python3 --version && python3 -c {}",quote(&python)),&["python3"],false),&stop).await?;
-            let accepted = matches!(tcp.accept(),Err(e) if e.kind()==std::io::ErrorKind::WouldBlock) && matches!(unix.accept(),Err(e) if e.kind()==std::io::ErrorKind::WouldBlock);
+            let receipt = check(
+                fixture,
+                &recipe(
+                    format!("python3 --version && python3 -c {}", quote(&python)),
+                    &["python3"],
+                    false,
+                ),
+                &stop,
+            )
+            .await?;
+            let accepted = matches!(tcp.accept(),Err(e) if e.kind()==std::io::ErrorKind::WouldBlock)
+                && matches!(unix.accept(),Err(e) if e.kind()==std::io::ErrorKind::WouldBlock);
             fs::remove_file(socket)?;
-            Ok(from_receipt(&receipt,clean_pass(&receipt) && accepted))
+            Ok(from_receipt(&receipt, clean_pass(&receipt) && accepted))
         }
         Scenario::Rust | Scenario::Python | Scenario::Node | Scenario::Hook => {
             let recipe = match scenario {
@@ -491,44 +582,73 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
                 Scenario::Node => recipe("node --version && node --check app.js && node app.js",&["node"],false),
                 _ => recipe("pre-commit --version && test ! -e .git/original && test -z \"$(git remote)\" && git ls-files --error-unmatch data.txt && pre-commit run --all-files",&["pre-commit","python3","git"],true),
             };
-            let receipt = check(fixture,&recipe,&stop).await?;
-            Ok(from_receipt(&receipt,clean_pass(&receipt)))
+            let receipt = check(fixture, &recipe, &stop).await?;
+            Ok(from_receipt(&receipt, clean_pass(&receipt)))
         }
-        Scenario::PreparedNode | Scenario::PreparedHook | Scenario::NpmProject | Scenario::PythonHookProject => {
+        Scenario::PreparedNode
+        | Scenario::PreparedHook
+        | Scenario::NpmProject
+        | Scenario::PythonHookProject => {
             let recipe = public_recipe(scenario)?;
             let supplied_started = Instant::now();
             if let Some(directory) = &fixture.artifact_directory {
-                let objects = fixture.store.directory_fd.create_dirs(Path::new("check-dependencies/objects"))?;
+                let objects = fixture
+                    .store
+                    .directory_fd
+                    .create_dirs(Path::new("check-dependencies/objects"))?;
                 for artifact in &recipe.preparation.as_ref().unwrap().artifacts {
                     let mut bytes = Vec::new();
-                    directory.open_file(Path::new(&artifact.name))?.take(32 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+                    directory
+                        .open_file(Path::new(&artifact.name))?
+                        .take(32 * 1024 * 1024 + 1)
+                        .read_to_end(&mut bytes)?;
                     if bytes.len() > 32 * 1024 * 1024 || digest(&bytes) != artifact.sha256 {
                         bail!("Externally supplied artifact {} failed size/SHA-256 validation; no broker fallback", artifact.name);
                     }
-                    objects.target(Path::new(&format!("{}.bin",artifact.sha256)))?.atomic_write(&bytes)?;
+                    objects
+                        .target(Path::new(&format!("{}.bin", artifact.sha256)))?
+                        .atomic_write(&bytes)?;
                 }
             }
             let supplied_ms = supplied_started.elapsed().as_secs_f64() * 1000.0;
             let preparation_started = Instant::now();
-            let prepared = crate::check_dependencies::prepare(fixture.request(&recipe, &stop), || Ok(())).await;
+            let prepared =
+                crate::check_dependencies::prepare(fixture.request(&recipe, &stop), || Ok(()))
+                    .await;
             let preparation_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
             let preparation = match prepared {
                 Ok(text) => text,
-                Err(error) if error.is::<crate::sandbox_job::CleanupIncomplete>() => return Err(error),
+                Err(error) if error.is::<crate::sandbox_job::CleanupIncomplete>() => {
+                    return Err(error)
+                }
                 Err(error) => {
-                    let mut observation = Observation::new("blocked", "Public artifact preparation unavailable; offline check not started", format!("{error:#}"));
-                    observation.phase_ms.insert("artifact_preparation".into(), preparation_ms);
+                    let mut observation = Observation::new(
+                        "blocked",
+                        "Public artifact preparation unavailable; offline check not started",
+                        format!("{error:#}"),
+                    );
+                    observation
+                        .phase_ms
+                        .insert("artifact_preparation".into(), preparation_ms);
                     if fixture.artifact_directory.is_some() {
-                        observation.phase_ms.insert("external_artifact_verification_and_copy".into(), supplied_ms);
+                        observation.phase_ms.insert(
+                            "external_artifact_verification_and_copy".into(),
+                            supplied_ms,
+                        );
                     }
                     return Ok(observation);
                 }
             };
             let receipt = check(fixture, &recipe, &stop).await?;
             let mut observation = from_receipt(&receipt, clean_pass(&receipt));
-            observation.phase_ms.insert("artifact_preparation".into(), preparation_ms);
+            observation
+                .phase_ms
+                .insert("artifact_preparation".into(), preparation_ms);
             if fixture.artifact_directory.is_some() {
-                observation.phase_ms.insert("external_artifact_verification_and_copy".into(), supplied_ms);
+                observation.phase_ms.insert(
+                    "external_artifact_verification_and_copy".into(),
+                    supplied_ms,
+                );
             }
             observation.diagnostic = format!("{preparation}\n{}", observation.diagnostic);
             Ok(observation)
@@ -536,92 +656,234 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
         Scenario::Venv => {
             // White-box fixture seeding, NOT a network fetch or a claim about
             // production TLS/DNS provenance. No downloader is called here.
-            let artifact = crate::check_dependencies::Artifact { name:"pinned.bin".into(),url:"https://fixture.invalid/pinned.bin".into(),sha256:digest(PINNED) };
+            let artifact = crate::check_dependencies::Artifact {
+                name: "pinned.bin".into(),
+                url: "https://fixture.invalid/pinned.bin".into(),
+                sha256: digest(PINNED),
+            };
             let mut recipe = recipe("/cache/venv/bin/python -c 'from pathlib import Path; assert Path(\"/cache/copied\").read_bytes() == b\"trusted local dependency fixture\\n\"'",&["python3"],false);
             recipe.preparation = Some(crate::check_dependencies::Preparation { artifacts:vec![artifact.clone()],run:Some("test ! -e /cache/venv && python3 -m venv --without-pip /cache/venv && cp /deps/pinned.bin /cache/copied && if printf poison > /deps/pinned.bin; then exit 91; fi".into()) });
-            let objects = fixture.store.directory_fd.create_dirs(Path::new("check-dependencies/objects"))?;
-            let object_path = format!("{}.bin",artifact.sha256);
-            if objects.open_file(Path::new(&object_path)).is_err() { objects.target(Path::new(&object_path))?.atomic_write(PINNED)?; }
+            let objects = fixture
+                .store
+                .directory_fd
+                .create_dirs(Path::new("check-dependencies/objects"))?;
+            let object_path = format!("{}.bin", artifact.sha256);
+            if objects.open_file(Path::new(&object_path)).is_err() {
+                objects
+                    .target(Path::new(&object_path))?
+                    .atomic_write(PINNED)?;
+            }
             let manifest = serde_json::json!({"fingerprint":recipe.fingerprint(),"artifacts":[artifact],"bytes":PINNED.len(),"prepared_at":"synthetic local fixture, not a download"});
-            let manifests = fixture.store.directory_fd.create_dirs(Path::new("check-dependencies/manifests"))?;
-            let manifest_path = format!("{}.json",recipe.fingerprint());
-            if manifests.open_file(Path::new(&manifest_path)).is_err() { manifests.target(Path::new(&manifest_path))?.atomic_write(&serde_json::to_vec(&manifest)?)?; }
-            let receipt = check(fixture,&recipe,&stop).await?;
-            Ok(from_receipt(&receipt,clean_pass(&receipt) && receipt.dependencies.len()==1 && receipt.preparation_diagnostic.is_some()))
+            let manifests = fixture
+                .store
+                .directory_fd
+                .create_dirs(Path::new("check-dependencies/manifests"))?;
+            let manifest_path = format!("{}.json", recipe.fingerprint());
+            if manifests.open_file(Path::new(&manifest_path)).is_err() {
+                manifests
+                    .target(Path::new(&manifest_path))?
+                    .atomic_write(&serde_json::to_vec(&manifest)?)?;
+            }
+            let receipt = check(fixture, &recipe, &stop).await?;
+            Ok(from_receipt(
+                &receipt,
+                clean_pass(&receipt)
+                    && receipt.dependencies.len() == 1
+                    && receipt.preparation_diagnostic.is_some(),
+            ))
         }
         Scenario::Formatter => {
-            let receipt = check(fixture,&recipe("printf 'formatted\\n' > data.txt",&[],false),&stop).await?;
-            let mut met = receipt.outcome=="passed" && receipt.modifications=="present" && receipt.edits.len()==1 && fixture.source_matches(&[])?;
+            let receipt = check(
+                fixture,
+                &recipe("printf 'formatted\\n' > data.txt", &[], false),
+                &stop,
+            )
+            .await?;
+            let mut met = receipt.outcome == "passed"
+                && receipt.modifications == "present"
+                && receipt.edits.len() == 1
+                && fixture.source_matches(&[])?;
             if met {
-                crate::verification_workspace::import(fixture.path(),&fixture.store,&fixture.session,&receipt.id,&["data.txt".into()])?;
-                met &= fixture.source_matches(&[("data.txt","formatted\n")])?;
-                let recheck = check(fixture,&recipe("test \"$(cat data.txt)\" = formatted",&["cat"],false),&stop).await?;
+                crate::verification_workspace::import(
+                    fixture.path(),
+                    &fixture.store,
+                    &fixture.session,
+                    &receipt.id,
+                    &["data.txt".into()],
+                )?;
+                met &= fixture.source_matches(&[("data.txt", "formatted\n")])?;
+                let recheck = check(
+                    fixture,
+                    &recipe("test \"$(cat data.txt)\" = formatted", &["cat"], false),
+                    &stop,
+                )
+                .await?;
                 met &= clean_pass(&recheck);
             }
-            Ok(from_receipt(&receipt,met))
+            Ok(from_receipt(&receipt, met))
         }
         Scenario::Drift => {
             let marker = uuid::Uuid::new_v4().to_string();
             let recipe = recipe(format!("printf {marker} > /cache/ready; while test ! -e /cache/continue; do sleep .01; done; printf 'formatted\\n' > data.txt"), &["sleep"], false);
             let done = std::cell::Cell::new(false);
-            let execute = async { let result = check(fixture, &recipe, &stop).await; done.set(true); result };
+            let execute = async {
+                let result = check(fixture, &recipe, &stop).await;
+                done.set(true);
+                result
+            };
             let edit = async {
                 let result = async {
-                    let runs = fixture.store.directory_fd.create_dirs(Path::new("verification-runs"))?;
+                    let runs = fixture
+                        .store
+                        .directory_fd
+                        .create_dirs(Path::new("verification-runs"))?;
                     let deadline = Instant::now() + Duration::from_secs(5);
                     loop {
                         for entry in runs.entries()? {
                             let entry = entry?;
-                            if !entry.directory { continue; }
-                            let Ok(cache) = runs.open_dir(Path::new(&entry.name)).and_then(|dir|dir.open_dir(Path::new("cache"))) else { continue; };
-                            if cache.read_string(Path::new("ready"),128).is_ok_and(|s|s==marker) {
-                                fs::write(fixture.path().join("other.txt"),"external change\n")?;
-                                cache.target(Path::new("continue"))?.atomic_write(b"continue")?;
-                                return Ok::<_,anyhow::Error>(true);
+                            if !entry.directory {
+                                continue;
+                            }
+                            let Ok(cache) = runs
+                                .open_dir(Path::new(&entry.name))
+                                .and_then(|dir| dir.open_dir(Path::new("cache")))
+                            else {
+                                continue;
+                            };
+                            if cache
+                                .read_string(Path::new("ready"), 128)
+                                .is_ok_and(|s| s == marker)
+                            {
+                                fs::write(fixture.path().join("other.txt"), "external change\n")?;
+                                cache
+                                    .target(Path::new("continue"))?
+                                    .atomic_write(b"continue")?;
+                                return Ok::<_, anyhow::Error>(true);
                             }
                         }
-                        if done.get() || Instant::now() >= deadline { return Ok(false); }
+                        if done.get() || Instant::now() >= deadline {
+                            return Ok(false);
+                        }
                         tokio::time::sleep(Duration::from_millis(5)).await;
                     }
-                }.await;
-                if !matches!(result, Ok(true)) { stop.store(true,Ordering::SeqCst); }
+                }
+                .await;
+                if !matches!(result, Ok(true)) {
+                    stop.store(true, Ordering::SeqCst);
+                }
                 result
             };
             let (receipt, edited) = tokio::join!(execute, edit);
-            let receipt = receipt?; let edited = edited?;
-            let refused = crate::verification_workspace::import(fixture.path(), &fixture.store, &fixture.session, &receipt.id, &["data.txt".into()]).is_err();
-            Ok(from_receipt(&receipt, edited && !receipt.live_inputs_match && refused && fixture.source_matches(&[("other.txt","external change\n")])?))
+            let receipt = receipt?;
+            let edited = edited?;
+            let refused = crate::verification_workspace::import(
+                fixture.path(),
+                &fixture.store,
+                &fixture.session,
+                &receipt.id,
+                &["data.txt".into()],
+            )
+            .is_err();
+            Ok(from_receipt(
+                &receipt,
+                edited
+                    && !receipt.live_inputs_match
+                    && refused
+                    && fixture.source_matches(&[("other.txt", "external change\n")])?,
+            ))
         }
         Scenario::FailingCheck | Scenario::OutputLimit => {
-            let recipe = if matches!(scenario,Scenario::FailingCheck) { recipe("printf 'intentional fixture failure\\n' >&2; exit 7",&[],false) } else {recipe("head -c 1048576 /dev/zero",&["head"],false)};
-            let receipt = check(fixture,&recipe,&stop).await?;
-            let expected = if matches!(scenario,Scenario::FailingCheck) { receipt.outcome=="failed" && receipt.diagnostic.contains("exit status: 7") } else {receipt.outcome=="unknown" && receipt.diagnostic.contains("output limit")};
-            Ok(from_receipt(&receipt,expected && fixture.source_matches(&[])?))
+            let recipe = if matches!(scenario, Scenario::FailingCheck) {
+                recipe(
+                    "printf 'intentional fixture failure\\n' >&2; exit 7",
+                    &[],
+                    false,
+                )
+            } else {
+                recipe("head -c 1048576 /dev/zero", &["head"], false)
+            };
+            let receipt = check(fixture, &recipe, &stop).await?;
+            let expected = if matches!(scenario, Scenario::FailingCheck) {
+                receipt.outcome == "failed" && receipt.diagnostic.contains("exit status: 7")
+            } else {
+                receipt.outcome == "unknown" && receipt.diagnostic.contains("output limit")
+            };
+            Ok(from_receipt(
+                &receipt,
+                expected && fixture.source_matches(&[])?,
+            ))
         }
         Scenario::Stop => {
             let marker = uuid::Uuid::new_v4().to_string();
             let command = format!("command -v setsid >/dev/null || exit 127; setsid /bin/sh -c 'trap \"\" TERM; printf {marker} > /cache/ready; sleep 30' & wait");
-            let cache = fixture.store.directory_fd.create_dirs(Path::new("sandbox-cache"))?;
+            let cache = fixture
+                .store
+                .directory_fd
+                .create_dirs(Path::new("sandbox-cache"))?;
             let done = std::cell::Cell::new(false);
             let signal = async {
-                let deadline = Instant::now()+Duration::from_secs(5);
+                let deadline = Instant::now() + Duration::from_secs(5);
                 loop {
-                    if cache.read_string(Path::new("ready"),128).is_ok_and(|s|s==marker) { break; }
-                    if done.get() { return None; }
-                    if Instant::now()>=deadline { stop.store(true,Ordering::SeqCst); return None; }
+                    if cache
+                        .read_string(Path::new("ready"), 128)
+                        .is_ok_and(|s| s == marker)
+                    {
+                        break;
+                    }
+                    if done.get() {
+                        return None;
+                    }
+                    if Instant::now() >= deadline {
+                        stop.store(true, Ordering::SeqCst);
+                        return None;
+                    }
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
-                let requested = Instant::now(); stop.store(true,Ordering::SeqCst); Some(requested)
+                let requested = Instant::now();
+                stop.store(true, Ordering::SeqCst);
+                Some(requested)
             };
             let sandbox = crate::sandbox::Sandbox::open(fixture.path())?;
-            let execute = async { let result = sandbox.run_stoppable(&command,&stop).await; done.set(true); result };
-            let (result,requested) = tokio::join!(execute,signal);
-            let mut observation = match result {
-                Err(error) if error.is::<crate::sandbox_job::CleanupIncomplete>() => return Err(error),
-                Err(error) => Observation::new(if requested.is_some() && format!("{error:#}").contains("stopped by user"){"passed"}else{"failed"},"user stop",format!("{error:#}")),
-                Ok(output) => Observation::new(if output.status.code()==Some(127){"blocked"}else{"failed"},format!("{}",output.status),"Stop fixture did not reach expected owned-child cancellation"),
+            let execute = async {
+                let result = sandbox.run_measured(&command, &stop).await;
+                done.set(true);
+                result
             };
-            observation.stop_ms = requested.map(|start|start.elapsed().as_secs_f64()*1000.0);
+            let (result, requested) = tokio::join!(execute, signal);
+            let mut observation = match result {
+                Err(error) if error.is::<crate::sandbox_job::CleanupIncomplete>() => {
+                    return Err(error)
+                }
+                Err(error) => {
+                    let mut observation = Observation::new(
+                        if requested.is_some() && format!("{error:#}").contains("stopped by user") {
+                            "passed"
+                        } else {
+                            "failed"
+                        },
+                        "user stop",
+                        format!("{error:#}"),
+                    );
+                    observation.record_error_execution("stop_execution", &error);
+                    observation
+                }
+                Ok(measured) => {
+                    let mut observation = Observation::new(
+                        if measured.output.status.code() == Some(127) {
+                            "blocked"
+                        } else {
+                            "failed"
+                        },
+                        format!("{}", measured.output.status),
+                        "Stop fixture did not reach expected owned-child cancellation",
+                    );
+                    observation
+                        .executions
+                        .insert("stop_execution".into(), measured.measurements);
+                    observation
+                }
+            };
+            observation.stop_ms = requested.map(|start| start.elapsed().as_secs_f64() * 1000.0);
             Ok(observation)
         }
     }
@@ -649,7 +911,12 @@ async fn sample(
         cleanup.is_ok() && crate::sandbox_job::ensure_clean(&fixture.store.directory_fd).is_ok();
     let mut observation = match result {
         Ok(o) => o,
-        Err(e) => Observation::new("failed", "execution error", format!("{e:#}")),
+        Err(error) => {
+            let mut observation =
+                Observation::new("failed", "execution error", format!("{error:#}"));
+            observation.record_error_execution("failed_operation", &error);
+            observation
+        }
     };
     if let Err(error) = cleanup {
         observation.gate = "failed";
@@ -905,7 +1172,7 @@ pub async fn run(
         fixture_public_files: public.len(),
         fixture_public_bytes: public.values().map(String::len).sum(),
         cache_definitions: BTreeMap::from([("cold","Fresh Greenlight project/state; fixture creation excluded from elapsed time. OS/page/toolchain/registry caches are not flushed."),("warm","Same synthetic project/state; check cache/venv remains fresh per invocation. Local pinned fixture objects only; no public downloads.")]),
-        unmeasured: vec!["first-output latency for shell cases without retained execution measurements","per-phase elapsed time for non-verification shell/inspection operations","aggregate concurrent process-tree peak RSS and bytes written; cache footprint is retained regular-file metadata only, resource quotas are separate","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
+        unmeasured: vec!["user-action/TUI feedback latency (executor-observed output is measured)","per-phase elapsed time for non-verification shell/inspection operations","aggregate concurrent process-tree peak RSS and bytes written; cache footprint is retained regular-file metadata only, resource quotas are separate","TUI stop acknowledgement (stop-to-cleanup is measured separately)"],
         remaining_validation: vec!["Supported-host successful results must be reviewed before GL-035 closes","Real public HTTPS/TLS/DNS pinned artifact preparation","Representative remote pre-commit/Node dependency bundles","Original Git staged/history/worktree semantics remain unsupported, not tested as equivalent"],
         retained_paths: Vec::new(),
         cases: Vec::new(),

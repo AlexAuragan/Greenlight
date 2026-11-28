@@ -1,5 +1,7 @@
 # Synthetic sandbox validation (GL-035)
 
+For current acceptance status and the distinction between completed subsets, host blockers and remaining measurements, see the [GL-035 review](57-sandbox-validation-review.md). Historical reports below retain their original scope and fields.
+
 Implemented on `docs/sandbox-verification-plan`, pending merge. This runner tests production sandbox/verification/import paths against disposable trusted fixtures. It does not use an LLM or an API key, load project `.env`, edit the current project or execute fixture programs on the host as a fallback. The default mode does not download dependencies; optional public provisioning is described below.
 
 ## Run
@@ -249,3 +251,7 @@ Every npm sample exercised the positive graph and the specific missing-transitiv
 The cloud run used reviewed externally obtained artifacts, the production broker's verified cache path, fresh offline setup and real Bubblewrap outside the outer tool wrapper. Source bytes were downloaded/verified by task tooling; package/hook code executed only inside the sandbox. This is **not** a successful direct broker fetch, live GitHub clone, original Git-history check, or general package resolver. Reports retain selected pins, source revision/hash, executable hash, phase/output/resource/footprint observations and all-attempt distributions. Timings are debug/shared-host evidence, not a controlled release performance comparison.
 
 Validation passes 594 ordinary tests (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. The existing recipe regression now covers all four provisioning profiles, and a new lock/manifest test checks the two-module npm graph's URLs/versions and integrity metadata. CLI parsing rejects focused dependency mode without explicit public-dependency consent. The normal 14-case selection remains available without this flag.
+
+## Shell-observation review follow-up — 2026-11-28
+
+Isolation, private-path and stopped-descendant samples now retain the executor measurements they previously discarded. [The native-runtime run](benchmarks/sandbox-shell-observation-review-2026-11-28.json.gz) collected 504 samples: 12/14 gates passed, two system-runtime cases blocked, all cleanup confirmed. Overall status is incomplete; it is not substituted for the separate provisioned runtime reports. Missing output from silent commands remains null. The [acceptance review and host observations](57-sandbox-validation-review.md) reconcile this evidence with the public DNS failure and lack of task-user cgroup delegation.

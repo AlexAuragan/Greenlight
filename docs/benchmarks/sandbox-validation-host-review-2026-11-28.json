@@ -1,0 +1,44 @@
+{
+  "schema": "greenlight.validation-host-observations.v1",
+  "generated_at": "2026-11-28T12:47:44.006676+00:00",
+  "execution_context": "Approved execution outside the task-tool filesystem wrapper; read-only capability probes, no host settings changed",
+  "uid": 1000,
+  "cgroup2_mounts": [
+    {
+      "mount_point": "/sys/fs/cgroup",
+      "mount_options": [
+        "rw",
+        "nosuid",
+        "nodev",
+        "noexec",
+        "relatime"
+      ]
+    }
+  ],
+  "cgroup_root_writable": false,
+  "cgroup_procs_writable": false,
+  "exclusive_job_cgroup_configured": false,
+  "aggregate_job_memory_peak_measured": false,
+  "public_artifact": {
+    "name": "cfgv-3.4.0-py2.py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/c5/55/51844dd50c4fc7a33b653bfaba4c2456f06955289ca770a5dbd5fd267374/cfgv-3.4.0-py2.py3-none-any.whl",
+    "sha256": "b7265b1f29fd3316bfcd2b330d63d024f2bfd8bcb8b0272f8e19a504856c48f9"
+  },
+  "ordinary_https_client": {
+    "inherited_https_proxy_configured": true,
+    "http_status": 200,
+    "bytes": 7249,
+    "sha256_verified": true
+  },
+  "direct_broker_probe": {
+    "command": "cargo test --locked --offline integration_public_fetch_verifies_pinned_bytes -- --ignored --nocapture",
+    "result": "failed before HTTP at supervised DNS",
+    "diagnostic": "Dependency DNS resolver failed for files.pythonhosted.org: exit status: 2; direct public DNS required; environment proxies are not used",
+    "passed": false
+  },
+  "limitations": [
+    "No memory.peak or io.stat value from the whole shared environment is presented as per-job evidence",
+    "Writable cgroup delegation was not identified or configured; no remount, sysctl or supervisor fallback was attempted",
+    "Ordinary HTTPS client success is not direct broker DNS/TLS/provenance success"
+  ]
+}

@@ -56,6 +56,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 - [Conversational coordinator contract](20-conversational-coordinator.md): retains unimplemented targeted delivery, guarded routing and live-owner inbox requirements. Read-only Q&A and explicit idle delivery are implemented; confirmed restart binding and live delivery remain open.
 - [Code review](code-review.md): readability changes, corrected oversights and deferred findings.
 - [Synthetic sandbox validation](56-sandbox-validation.md): reproducible CLI, cold/warm, verification-phase and output/child-resource/retained-cache measurements, opt-in pinned runtime/dependency-project provisioning and exact execution/download provenance.
+- [GL-035 acceptance review](57-sandbox-validation-review.md): current coverage, review fixes, exact host constraints and closure conditions.
 - [Validation](06-validation.md): current evidence and reproducible checks.
 - [Manual smoke tests](17-smoke-test.md): acceptance scenarios for real terminals and disposable projects.
 

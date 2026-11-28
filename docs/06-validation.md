@@ -1,5 +1,9 @@
 # Validation
 
+## GL-035 shell-observation and acceptance review — 2026-11-28
+
+Implemented on the existing review branch, pending merge. Shell startup/privacy/stop observations are retained instead of discarded; incomplete cleanup preserves the test link. The native 504-sample run has **12 passed / 2 unavailable system-runtime cases**, all cleanup confirmed, overall incomplete. Prior provisioned runtime successes remain separate evidence. The suite passes **594 tests** (eleven live/network/profiling tests ignored), strict all-target Clippy, formatting and offline build. The new explicitly selected 7 KiB broker probe **fails at direct DNS**, while the ordinary proxy-aware client verifies the same bytes. Actual cgroup mounts are read-write outside the wrapper but not task-user-writable/delegated. See [review, exact reports and closure conditions](57-sandbox-validation-review.md). GL-035 stays open.
+
 ## Focused npm/Python-hook dependency projects (GL-035) — 2026-11-28
 
 Implemented on the existing review branch, pending merge. A locked npm transitive graph and a real pre-commit Python hook environment now have focused provision/install/run fixtures, including a specific offline dependency miss and an actual rewrite rejection followed by source restoration. The focused matrix passes **3/3 cases, 108 samples**, all cleanup confirmed and footprint observations complete. The suite passes **594 tests** (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. Artifact digests, mirror provenance, exact hook versions and scope are in the [full report/guide](56-sandbox-validation.md#recorded-dependency-project-results--2026-11-28). The historical 14-case baseline was not repeated. Direct broker networking, live GitHub cloning and original Git state are not claimed by these externally provisioned local-mirror results. GL-035 remains open.

@@ -2,6 +2,8 @@
 
 **Design accepted, 2026-11-23. GL-033 lifecycle and GL-027 offline verification profiles are implemented on the review branch.** Current supervision, bounds and recovery behavior are documented in [Linux shell sandbox](10-shell-sandbox.md#process-lifecycle-and-cleanup). Current named-check configuration, source-copy/import controls and remaining limits are documented in [isolated verification](54-isolated-verification.md). GL-034 now implements [pinned artifact fetching and offline preparation](55-pinned-check-dependencies.md). Automatic registry/package-graph provisioning and broader integrations below remain future work; proposed benchmark targets are not measured guarantees. No broader execution permission is introduced by the lifecycle work.
 
+The November 23 audit below is historical. Successful namespace-capable runs, current coverage and remaining gates are reconciled in the [GL-035 acceptance review](57-sandbox-validation-review.md); the original tool-wrapper denial must not be generalized to every execution path on this host.
+
 ## Recommendation
 
 Keep automatic read-only inspection. First make sandbox process ownership and cleanup reliable (GL-033), then provide truthful capability/preflight feedback. For practical project checks (GL-027), prefer an explicitly requested **isolated verification workspace**: run project code against a captured source tree with prepared dependencies and private Git metadata, return check evidence and any formatter diff, and import selected source edits through the existing guarded native journal only after review.
