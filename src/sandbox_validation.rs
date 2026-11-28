@@ -70,6 +70,8 @@ pub struct Report {
     build_profile: &'static str,
     timing_scope: &'static str,
     binary_sha256: Option<String>,
+    binary_sha256_note: Option<String>,
+    current_phase: String,
     os: &'static str,
     arch: &'static str,
     kernel: Option<String>,
@@ -1127,6 +1129,45 @@ fn summary(samples: &[Sample], mode: &str) -> Summary {
             .collect(),
     }
 }
+fn checkpoint(
+    report: &mut Report,
+    target: Option<&crate::anchored_fs::Target>,
+    phase: String,
+) -> Result<()> {
+    report.current_phase = phase;
+    eprintln!("Benchmark: {}", report.current_phase);
+    for case in &mut report.cases {
+        if case.status == "running" {
+            case.summaries = ["cold", "warmup", "warm"]
+                .into_iter()
+                .map(|mode| (mode.into(), summary(&case.samples, mode)))
+                .collect();
+        }
+    }
+    if let Some(target) = target {
+        target.atomic_write(&serde_json::to_vec_pretty(report)?)?;
+    }
+    Ok(())
+}
+fn bounded_digest(reader: &mut impl Read, budget: Duration) -> Result<Option<String>> {
+    let started = Instant::now();
+    let mut digest = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        if started.elapsed() >= budget {
+            return Ok(None);
+        }
+        let count = reader.read(&mut buffer)?;
+        if started.elapsed() >= budget {
+            return Ok(None);
+        }
+        if count == 0 {
+            return Ok(Some(format!("{:x}", digest.finalize())));
+        }
+        digest.update(&buffer[..count]);
+    }
+}
+
 pub async fn run(
     warm: u8,
     cold: u8,
@@ -1134,6 +1175,7 @@ pub async fn run(
     public_dependencies: bool,
     dependency_projects: bool,
     artifact_directory: Option<&Path>,
+    report_path: Option<&Path>,
 ) -> Result<Report> {
     if !(1..=100).contains(&warm) || !(1..=20).contains(&cold) {
         bail!("Warm samples must be 1..100 and cold samples 1..20");
@@ -1163,6 +1205,22 @@ pub async fn run(
             })
             .collect()
     };
+    eprintln!("Benchmark startup: preparing report metadata");
+    let output = report_path
+        .map(|path| -> Result<crate::anchored_fs::Target> {
+            eprintln!(
+                "Benchmark startup: opening checkpoint destination {}",
+                path.display()
+            );
+            let name = path.file_name().context("Report path must name a file")?;
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            let directory = crate::anchored_fs::Dir::open(&parent.canonicalize()?)?;
+            directory.target(Path::new(name))
+        })
+        .transpose()?;
     let public = files();
     let mut report = Report {
         schema: "greenlight.sandbox-validation.v1",
@@ -1172,11 +1230,13 @@ pub async fn run(
         build_profile: if cfg!(debug_assertions) { "debug" } else { "release" },
         timing_scope: "Monotonic operation duration after fixture reset/owner acquisition, through result checks and owner cleanup. Excludes app startup, binary hashing, fixture creation/deletion.",
         binary_sha256: None,
+        binary_sha256_note: None,
+        current_phase: "initializing".into(),
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         kernel: fs::read_to_string("/proc/sys/kernel/osrelease").ok().map(|s|s.trim().to_owned()),
         bubblewrap_version: "unavailable".into(),
-        gate_status: "passed".into(),
+        gate_status: "running".into(),
         public_dependencies,
         dependency_projects,
         artifact_origin: if artifact_directory.is_some() { "Externally supplied files, size/SHA-256 verified and seeded into disposable fixture caches. Broker cache reuse only; not a broker DNS/TLS/download success." } else if public_dependencies { "Production broker direct public HTTPS preparation; failures remain failures." } else { "Synthetic local fixture only; no public artifacts." },
@@ -1214,23 +1274,44 @@ pub async fn run(
             "Real broker public HTTPS/TLS/DNS fetch remains unvalidated in external-artifact mode",
         );
     }
-    if let Ok(mut file) = fs::File::open("/proc/self/exe") {
-        let mut digest = Sha256::new();
-        let mut buffer = [0; 64 * 1024];
-        loop {
-            let count = file.read(&mut buffer)?;
-            if count == 0 {
-                break;
-            }
-            digest.update(&buffer[..count]);
+    checkpoint(
+        &mut report,
+        output.as_ref(),
+        "Hashing executable (5-second best-effort budget; before fixture startup)".into(),
+    )?;
+    let hash = fs::File::open("/proc/self/exe")
+        .map_err(anyhow::Error::from)
+        .and_then(|mut file| bounded_digest(&mut file, Duration::from_secs(5)));
+    match hash {
+        Ok(Some(hash)) => report.binary_sha256 = Some(hash),
+        Ok(None) => {
+            report.binary_sha256_note = Some(
+                "Executable hashing exceeded the 5-second budget; no partial digest reported"
+                    .into(),
+            )
         }
-        report.binary_sha256 = Some(format!("{:x}", digest.finalize()));
+        Err(error) => {
+            report.binary_sha256_note = Some(format!("Executable hash unavailable: {error:#}"))
+        }
     }
+    if report.binary_sha256.is_none() {
+        report.remaining_validation.push("Executable digest unavailable; inspect binary_sha256_note before treating this run as reproducible evidence");
+    }
+    checkpoint(
+        &mut report,
+        output.as_ref(),
+        "Creating version-probe fixture (SQLite/private temporary directories)".into(),
+    )?;
     let version_fixture = Fixture::new(artifact_directory)?;
     let jobs = version_fixture
         .store
         .directory_fd
         .create_dirs(Path::new("sandbox-jobs"))?;
+    checkpoint(
+        &mut report,
+        output.as_ref(),
+        "Probing Bubblewrap version (3-second execution / 5-second cleanup budget)".into(),
+    )?;
     let version: Result<String> = async {
         let mut command = crate::sandbox_job::Job::new("/usr/bin/bwrap", &jobs)?;
         command.arg("--version").env_clear().current_dir("/");
@@ -1259,13 +1340,23 @@ pub async fn run(
         report.gate_status = "failed".into();
         report.retained_paths = version_fixture.owned_paths();
         report.cases = scenarios.iter().map(|(scenario,name)|Case { name:(*name).into(),expectation:expectation(*scenario),status:"not_run".into(),reason:Some("Version probe cleanup unconfirmed; retained fixture on stderr; no replacement execution".into()),samples:Vec::new(),summaries:BTreeMap::new() }).collect();
+        checkpoint(
+            &mut report,
+            output.as_ref(),
+            "Finished: version-probe cleanup unconfirmed; no replacement execution".into(),
+        )?;
         return Ok(report);
     }
+    checkpoint(
+        &mut report,
+        output.as_ref(),
+        "Removing clean version-probe fixture".into(),
+    )?;
     drop(version_fixture);
     let mut isolation_ready = false;
     let mut cleanup_failed = false;
     for &(scenario, name) in &scenarios {
-        eprintln!("Validation case: {name}");
+        checkpoint(&mut report, output.as_ref(), format!("Case {name}"))?;
         if (!isolation_ready && !matches!(scenario, Scenario::Isolation)) || cleanup_failed {
             report.cases.push(Case {
                 name: name.into(),
@@ -1284,56 +1375,97 @@ pub async fn run(
             });
             continue;
         }
-        let mut samples = Vec::new();
+        report.cases.push(Case {
+            name: name.into(),
+            expectation: expectation(scenario),
+            status: "running".into(),
+            reason: None,
+            samples: Vec::new(),
+            summaries: BTreeMap::new(),
+        });
+        let case_index = report.cases.len() - 1;
         for index in 1..=cold {
+            checkpoint(
+                &mut report,
+                output.as_ref(),
+                format!("{name}: cold {index}/{cold}: creating fixture"),
+            )?;
             let mut fixture = Fixture::new(artifact_directory)?;
+            checkpoint(
+                &mut report,
+                output.as_ref(),
+                format!("{name}: cold {index}/{cold}: running"),
+            )?;
             let row = sample(&mut fixture, scenario, "cold", index, keep_failures).await?;
             cleanup_failed |= !row.cleanup_confirmed;
-            samples.push(row);
+            let gate = row.gate.clone();
+            report.cases[case_index].samples.push(row);
+            checkpoint(
+                &mut report,
+                output.as_ref(),
+                format!("{name}: cold {index}/{cold}: {gate}"),
+            )?;
             if cleanup_failed {
                 break;
             }
         }
         if !cleanup_failed {
+            checkpoint(
+                &mut report,
+                output.as_ref(),
+                format!("{name}: creating warm fixture"),
+            )?;
             let mut fixture = Fixture::new(artifact_directory)?;
-            let warmup = sample(&mut fixture, scenario, "warmup", 0, keep_failures).await?;
-            cleanup_failed |= !warmup.cleanup_confirmed;
-            samples.push(warmup);
+            checkpoint(
+                &mut report,
+                output.as_ref(),
+                format!("{name}: warmup: running"),
+            )?;
+            let row = sample(&mut fixture, scenario, "warmup", 0, keep_failures).await?;
+            cleanup_failed |= !row.cleanup_confirmed;
+            report.cases[case_index].samples.push(row);
+            checkpoint(
+                &mut report,
+                output.as_ref(),
+                format!("{name}: warmup complete"),
+            )?;
             for index in 1..=warm {
                 if cleanup_failed {
                     break;
                 }
+                checkpoint(
+                    &mut report,
+                    output.as_ref(),
+                    format!("{name}: warm {index}/{warm}: running"),
+                )?;
                 let row = sample(&mut fixture, scenario, "warm", index, keep_failures).await?;
                 cleanup_failed |= !row.cleanup_confirmed;
-                samples.push(row);
-                if cleanup_failed {
-                    break;
-                }
+                let gate = row.gate.clone();
+                report.cases[case_index].samples.push(row);
+                checkpoint(
+                    &mut report,
+                    output.as_ref(),
+                    format!("{name}: warm {index}/{warm}: {gate}"),
+                )?;
             }
         }
-        let status = if samples.iter().any(|s| s.gate == "failed") {
+        let case = &mut report.cases[case_index];
+        case.status = if case.samples.iter().any(|s| s.gate == "failed") {
             "failed"
-        } else if samples.iter().any(|s| s.gate == "blocked") {
+        } else if case.samples.iter().any(|s| s.gate == "blocked") {
             "blocked"
         } else {
             "passed"
-        };
-        if matches!(scenario, Scenario::Isolation) {
-            isolation_ready = status == "passed";
         }
-        let summaries = BTreeMap::from([
-            ("warmup".into(), summary(&samples, "warmup")),
-            ("cold".into(), summary(&samples, "cold")),
-            ("warm".into(), summary(&samples, "warm")),
-        ]);
-        report.cases.push(Case {
-            name: name.into(),
-            expectation: expectation(scenario),
-            status: status.into(),
-            reason: None,
-            samples,
-            summaries,
-        });
+        .into();
+        case.summaries = ["warmup", "cold", "warm"]
+            .into_iter()
+            .map(|mode| (mode.into(), summary(&case.samples, mode)))
+            .collect();
+        if matches!(scenario, Scenario::Isolation) {
+            isolation_ready = case.status == "passed";
+        }
+        checkpoint(&mut report, output.as_ref(), format!("{name}: finished"))?;
     }
     report.recommended_sample_count_met = report.cases.iter().all(|case| {
         case.samples.iter().filter(|s| s.cache == "cold").count() >= 5
@@ -1360,12 +1492,43 @@ pub async fn run(
         "passed"
     }
     .into();
+    checkpoint(&mut report, output.as_ref(), "Finished".into())?;
     Ok(report)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn executable_digest_never_reports_partial_bytes() {
+        use std::io::Cursor;
+        assert_eq!(
+            bounded_digest(&mut Cursor::new(b"abc"), Duration::from_secs(1)).unwrap(),
+            Some(digest(b"abc"))
+        );
+        assert_eq!(
+            bounded_digest(&mut Cursor::new(b""), Duration::from_secs(1)).unwrap(),
+            Some(digest(b""))
+        );
+        struct MustNotRead;
+        impl Read for MustNotRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("expired budget must not read")
+            }
+        }
+        assert_eq!(
+            bounded_digest(&mut MustNotRead, Duration::ZERO).unwrap(),
+            None
+        );
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("fixture read failure"))
+            }
+        }
+        assert!(bounded_digest(&mut Broken, Duration::from_secs(1)).is_err());
+    }
+
     fn row(mode: &str, gate: &str, ms: f64) -> Sample {
         Sample {
             cache: mode.into(),
@@ -1733,7 +1896,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires working Linux user namespaces, all declared runtimes and Python venv"]
     async fn integration_all_synthetic_validation_gates() {
-        let report = run(1, 1, false, false, false, None).await.unwrap();
+        let report = run(1, 1, false, false, false, None, None).await.unwrap();
         assert_eq!(
             report.gate_status,
             "passed",

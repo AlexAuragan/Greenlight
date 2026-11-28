@@ -13,7 +13,7 @@ cargo build --release --locked
 target/release/greenlight sandbox-benchmark --warm 30 --cold 5 > sandbox-report.json
 ```
 
-For a quick compatibility check use `--warm 1 --cold 1`. The JSON report goes to stdout; progress and errors go to stderr. Exit zero means every synthetic gate passed; a blocked, failed or incomplete gate returns nonzero after writing the report. An infrastructure error before report construction can return nonzero without JSON. A passed synthetic report does not complete the broader GL-035 matrix.
+For a quick compatibility check use `--warm 1 --cold 1`. Without `--report`, final JSON goes to stdout; progress and errors go to stderr. Use `--report PATH` to atomically save startup and sample checkpoints as well as the final report. The parent directory must already exist; symlink report targets are refused. Exit zero means every synthetic gate passed; a blocked, failed or incomplete gate returns nonzero after writing the report. An infrastructure error before report construction can return nonzero without JSON. A passed synthetic report does not complete the broader GL-035 matrix.
 
 The suite uses its own random directories under `/tmp`, irrespective of `--root`. It explicitly authorizes only its fixed recipes. Runtime cases need Rust/Cargo plus the default C linker, Python 3 with venv, Node, Git and pre-commit available **inside the existing sandbox profile**. Installing a tool somewhere on host PATH does not automatically expose it to checks. No runtime installation is performed.
 
@@ -279,3 +279,21 @@ GREENLIGHT_VALIDATION_ARTIFACT_DIRECTORY=/absolute/path/to/reviewed-artifacts \
 ```
 
 Ordinary users should instead pull/build the fix and rerun their normal focused smoke command, without an external artifact directory, against their existing Python. Fresh end-to-end v4 fetching on that user's host remains to be confirmed. The existing 108-sample v3 report remains historical evidence and is not backfilled. Ordinary validation passes 595 tests, with twelve live/network/profiling tests ignored; strict Clippy, formatting and offline build pass.
+
+## Interrupted-run diagnostics — 2026-11-28
+
+A user-host v4 run produced no case banner and was interrupted before final JSON was emitted. The cause of that startup stall is not yet established. The benchmark now skips project-root/config discovery and prints startup stages before executable hashing, fixture/SQLite creation, Bubblewrap probing, and each sample. Executable hashing has a five-second best-effort budget checked between reads; a blocked filesystem syscall cannot be interrupted by this budget. Missing executable identity is recorded explicitly, never as a partial digest.
+
+For the next diagnostic run, keep stderr visible and use checkpoint output:
+
+```sh
+./target/debug/greenlight sandbox-benchmark \
+  --public-dependencies --dependency-projects \
+  --warm 1 --cold 1 --report dependency-diagnostic.json
+```
+
+A checkpoint with `gate_status: "running"` is unfinished evidence. `current_phase` identifies the last entered stage; completed samples remain available. An interruption inside a sample does not establish that sample's outcome or cleanup. Setup errors leave the last checkpoint rather than inventing a completed report. Checkpoint writes use the existing anchored atomic-file mechanism, and a write error stops the run.
+
+The invocation supervisor now enters a separate process group, so terminal Ctrl+C reaches Greenlight without also killing its cleanup owner. Closing Greenlight's control pipe then triggers the existing owned-child teardown and reaping. This improves interruption cleanup; it does not make a partial report proof of confirmed cleanup.
+
+Validation for this diagnostic change: 597 ordinary tests pass (12 ignored); strict Clippy, formatting and offline build pass. A live focused 1/1 run with externally supplied verified artifacts passed all three cases/nine samples with confirmed cleanup. A separate controlled SIGINT check preserved valid startup JSON, and a symlink report target was rejected without changing its destination. This validates reporting/cleanup behavior, not the unresolved user-host stall or fresh direct downloads.

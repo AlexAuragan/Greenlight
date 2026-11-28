@@ -97,6 +97,9 @@ enum Commands {
         cold: u8,
         #[arg(long)]
         keep_failures: bool,
+        /// Atomically save startup/sample checkpoints and final JSON to this path
+        #[arg(long)]
+        report: Option<PathBuf>,
         /// Explicitly fetch reviewed public pins and provision Node/pre-commit offline
         #[arg(long)]
         public_dependencies: bool,
@@ -329,12 +332,45 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let cwd = std::env::current_dir()?;
     let command = cli.command.unwrap_or(Commands::Tui { session: None });
-    let root = project::resolve_root(cli.root.as_deref(), &cwd, matches!(command, Commands::Init))?;
-    if !matches!(command, Commands::SandboxBenchmark { .. }) {
-        project::load_environment(&root)?;
+    if let Commands::SandboxBenchmark {
+        warm,
+        cold,
+        keep_failures,
+        public_dependencies,
+        dependency_projects,
+        artifact_directory,
+        report,
+    } = &command
+    {
+        eprintln!(
+            "Benchmark startup: synthetic fixtures only; project config/root resolution skipped"
+        );
+        let result = sandbox_validation::run(
+            *warm,
+            *cold,
+            *keep_failures,
+            *public_dependencies,
+            *dependency_projects,
+            artifact_directory.as_deref(),
+            report.as_deref(),
+        )
+        .await?;
+        let destination = if let Some(path) = report {
+            println!("Benchmark report saved to {}", path.display());
+            path.display().to_string()
+        } else {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            "stdout".into()
+        };
+        if result.gate_status != "passed" {
+            bail!("Sandbox validation {}. Report: {destination}; no host fallback. GL-035 remains open.",result.gate_status);
+        }
+        return Ok(());
     }
+    let cwd = std::env::current_dir()?;
+    let root = project::resolve_root(cli.root.as_deref(), &cwd, matches!(command, Commands::Init))?;
+    project::load_environment(&root)?;
     match command {
         Commands::Init => {
             println!("{}", project::init(&root)?);
@@ -572,27 +608,8 @@ async fn main() -> Result<()> {
             let message = result?;
             println!("{message}");
         }
-        Commands::SandboxBenchmark {
-            warm,
-            cold,
-            keep_failures,
-            public_dependencies,
-            dependency_projects,
-            artifact_directory,
-        } => {
-            let report = sandbox_validation::run(
-                warm,
-                cold,
-                keep_failures,
-                public_dependencies,
-                dependency_projects,
-                artifact_directory.as_deref(),
-            )
-            .await?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if report.gate_status != "passed" {
-                bail!("Sandbox validation {}. Report written to stdout; no host fallback. GL-035 remains open.",report.gate_status);
-            }
+        Commands::SandboxBenchmark { .. } => {
+            unreachable!("benchmark handled before project resolution")
         }
         Commands::SandboxCheck => {
             let output = sandbox::Sandbox::open(&root)?

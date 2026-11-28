@@ -102,6 +102,9 @@ impl Job {
         lease.sync_data()?;
         jobs.sync()?;
         let mut command = Command::new(executable);
+        // Terminal Ctrl+C must not kill the invocation owner together with
+        // Greenlight. Parent exit closes control; the owner then reaps its tree.
+        command.process_group(0);
         let child_lease = lease.try_clone()?;
         command
             .arg(read.as_raw_fd().to_string())
@@ -343,6 +346,29 @@ while True: time.sleep(1)
         .await
         .expect("session-escaped descendant was not reaped");
     }
+    #[tokio::test]
+    async fn supervisor_leaves_foreground_group_and_reaps_after_owner_drop() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("escaped-pid");
+        let mut job = escaped_child(&path, false);
+        job.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let (mut supervisor, owner) = job.spawn().unwrap();
+        let descendant = child_pid(&path).await;
+        let pid = supervisor.id().unwrap() as i32;
+        assert_eq!(unsafe { libc::getpgid(pid) }, pid);
+        assert_ne!(unsafe { libc::getpgid(pid) }, unsafe { libc::getpgrp() });
+        // Like application exit, this closes control without sending a signal
+        // to the owner's isolated process group. No test-runner group is killed.
+        drop(owner);
+        tokio::time::timeout(Duration::from_secs(5), supervisor.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_reaped(descendant).await;
+    }
+
     #[tokio::test]
     async fn startup_failure_reaps_session_escaped_pipe_holder() {
         let dir = tempfile::tempdir().unwrap();
