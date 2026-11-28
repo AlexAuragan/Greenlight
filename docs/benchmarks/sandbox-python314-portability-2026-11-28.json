@@ -1,0 +1,100 @@
+{
+  "cache_storage": {
+    "footprint": {
+      "allocated_regular_file_bytes": 167071744,
+      "entries": 9806,
+      "logical_regular_file_bytes": 146581381,
+      "skipped_special_files": 0,
+      "skipped_symlinks": 1056,
+      "unique_regular_files": 7906
+    },
+    "inspection_ms": 54.149192,
+    "unavailable_reason": null
+  },
+  "cleanup": "confirmed",
+  "executions": {
+    "check_execution": {
+      "elapsed_ms": 8009.024988,
+      "first_stderr_ms": null,
+      "first_stdout_ms": 505.72158199999996,
+      "stage_resources": [
+        {
+          "input_block_operations": 0,
+          "largest_child_maxrss_kib": 73956,
+          "output_block_operations": 30448,
+          "system_cpu_us": 781263,
+          "user_cpu_us": 7198125
+        }
+      ]
+    },
+    "offline_setup": {
+      "elapsed_ms": 11411.746593,
+      "first_stderr_ms": 6282.316834,
+      "first_stdout_ms": 2461.674886,
+      "stage_resources": [
+        {
+          "input_block_operations": 8,
+          "largest_child_maxrss_kib": 78456,
+          "output_block_operations": 307248,
+          "system_cpu_us": 2303671,
+          "user_cpu_us": 8893413
+        }
+      ]
+    },
+    "preflight": {
+      "elapsed_ms": 13.565294999999999,
+      "first_stderr_ms": null,
+      "first_stdout_ms": 10.882965,
+      "stage_resources": [
+        {
+          "input_block_operations": 0,
+          "largest_child_maxrss_kib": 1052,
+          "output_block_operations": 0,
+          "system_cpu_us": 2463,
+          "user_cpu_us": 6818
+        }
+      ]
+    },
+    "synthetic_git": {
+      "elapsed_ms": 27.107585999999998,
+      "first_stderr_ms": null,
+      "first_stdout_ms": null,
+      "stage_resources": [
+        {
+          "input_block_operations": 0,
+          "largest_child_maxrss_kib": 2240,
+          "output_block_operations": 168,
+          "system_cpu_us": 14114,
+          "user_cpu_us": 2097
+        }
+      ]
+    }
+  },
+  "fixture_revision": "sandbox-fixtures-v4",
+  "live_inputs_match": true,
+  "modifications": "none",
+  "outcome": "passed",
+  "phase_ms": {
+    "approval_wait": 0.0015919999999999999,
+    "cache_inspection": 54.149192,
+    "change_inspection": 5.399431,
+    "check_execution": 8010.0422659999995,
+    "dependency_staging": 806.793994,
+    "offline_setup": 11412.732754,
+    "preflight": 17.268689000000002,
+    "source_capture_and_recheck": 10.578934,
+    "synthetic_git": 28.606568,
+    "workspace_setup": 3.805828
+  },
+  "python": "3.14.10",
+  "recipe_fingerprint": "86474e9ada0407121e2386e7abb8e6c02a11a7f9fe44a8c9633603cef8ef17c8",
+  "runtime": {
+    "bytes": 26945324,
+    "name": "python314.tar.xz",
+    "recompression": "gzip to xz; identical uncompressed tar stream; no host extraction/execution",
+    "sha256": "772bc05322a559d7878af70c3956e8ddef70adb3ad1928744b415e1f3036d092",
+    "source_sha256": "4d3c16c59ed0802a3d1d34d8bce504b15ceeaff39d62dadecc6a9fa803412aed",
+    "source_url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+  },
+  "schema": "greenlight.python314-portability.v1"
+}

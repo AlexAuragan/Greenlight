@@ -1,6 +1,6 @@
 # GL-035 validation review — 2026-11-28
 
-GL-035 remains open. This review reconciles the accepted [benchmark matrix](53-sandbox-and-verification-design.md#proposed-benchmark-matrix), implementation and recorded evidence. It is not an approval to merge, a complete security audit of the project, or a claim that every proposed measurement exists.
+GL-035 remains open. **Portability follow-up:** user-provided direct-fetch evidence subsequently passed transport/integrity but exposed the v3 CPython-only wheel defect; the [v4 fix and exact Python 3.14.10 regression](56-sandbox-validation.md#python-minor-portability-fix--fixture-v4-2026-11-28) supersede that fixture limitation. The cloud host observations below remain historical and do not negate the user-host transport result. This review reconciles the accepted [benchmark matrix](53-sandbox-and-verification-design.md#proposed-benchmark-matrix), implementation and recorded evidence. It is not an approval to merge, a complete security audit of the project, or a claim that every proposed measurement exists.
 
 ## Acceptance and evidence
 

@@ -1,5 +1,9 @@
 # Validation
 
+## Python 3.14 fixture portability — 2026-11-28
+
+Fixed the CPython 3.13-specific PyYAML pin exposed by the user's Python 3.14.10 run. v4 builds a pure-Python wheel from pinned source/build tools offline, checks no C extension is used, and keeps all artifact limits unchanged. The focused Python 3.13 smoke passes all three cases (nine observations); a separately staged exact Python **3.14.10** regression passes the complete hook case with unchanged source and confirmed cleanup. Ordinary tests pass **595** (twelve opt-in tests ignored); strict Clippy, formatting and offline build pass. User-reported v3 downloads are transport successes, but that hook run was blocked by ABI incompatibility. See [evidence and scope](56-sandbox-validation.md#python-minor-portability-fix--fixture-v4-2026-11-28). No raw user host report is published; user-host v4 rerun remains pending.
+
 ## GL-035 shell-observation and acceptance review — 2026-11-28
 
 Implemented on the existing review branch, pending merge. Shell startup/privacy/stop observations are retained instead of discarded; incomplete cleanup preserves the test link. The native 504-sample run has **12 passed / 2 unavailable system-runtime cases**, all cleanup confirmed, overall incomplete. Prior provisioned runtime successes remain separate evidence. The suite passes **594 tests** (eleven live/network/profiling tests ignored), strict all-target Clippy, formatting and offline build. The new explicitly selected 7 KiB broker probe **fails at direct DNS**, while the ordinary proxy-aware client verifies the same bytes. Actual cgroup mounts are read-write outside the wrapper but not task-user-writable/delegated. See [review, exact reports and closure conditions](57-sandbox-validation-review.md). GL-035 stays open.

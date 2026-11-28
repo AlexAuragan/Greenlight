@@ -1,0 +1,31 @@
+{
+  "schema": "greenlight.user-validation-summary.v1",
+  "evidence_source": "User-supplied terminal output and JSON report; not collected by the cloud runner",
+  "personal_host_details_omitted": true,
+  "reported_python": "3.14.10",
+  "fixture_revision": "sandbox-fixtures-v3",
+  "artifact_origin": "Production broker direct public HTTPS preparation; failures remain failures.",
+  "overall_gate": "incomplete",
+  "small_direct_probe": "User reported successful fresh 7249-byte pinned fetch",
+  "cases": [
+    {
+      "name": "isolation_startup",
+      "gate": "passed",
+      "observed": "exit status: 0",
+      "artifact_preparation_ready": false
+    },
+    {
+      "name": "npm_dependency_project",
+      "gate": "passed",
+      "observed": "check=passed modifications=none launch=started",
+      "artifact_preparation_ready": true
+    },
+    {
+      "name": "python_hook_project",
+      "gate": "blocked",
+      "observed": "check=unavailable modifications=none launch=not_started",
+      "artifact_preparation_ready": true
+    }
+  ],
+  "root_cause": "Python hook installation received a CPython 3.13-only PyYAML wheel on CPython 3.14; transport and integrity preparation had succeeded."
+}

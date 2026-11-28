@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const REVISION: &str = "sandbox-fixtures-v3";
+const REVISION: &str = "sandbox-fixtures-v4";
 const PROJECT_FILES: &str = include_str!("sandbox_validation_projects.json");
 const PUBLIC_PINS: &str = include_str!("sandbox_validation_dependencies.json");
 const PREFIX: &str = "greenlight-validation-";
@@ -358,6 +358,7 @@ fn public_recipe(scenario: Scenario) -> Result<Recipe> {
         let artifacts = &pins["precommit"];
         let lock = artifacts
             .iter()
+            .filter(|a| a.name.ends_with(".whl"))
             .map(|a| {
                 let mut parts = a.name.split('-');
                 format!(
@@ -369,8 +370,30 @@ fn public_recipe(scenario: Scenario) -> Result<Recipe> {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let setup = format!("python3 -m venv --without-pip /cache/venv && printf '%s\\n' {} > /cache/requirements.lock && PYTHONPATH=/deps/pip-25.1.1-py3-none-any.whl /cache/venv/bin/python -m pip --isolated install --no-index --no-deps --require-hashes --find-links=/deps -r /cache/requirements.lock", quote(&lock));
-        (recipe("/cache/venv/bin/pre-commit --version && test ! -e .git/original && test -z \"$(git remote)\" && /cache/venv/bin/pre-commit run --all-files", &["python3", "git"], true), "precommit", setup)
+        let build_lock = artifacts
+            .iter()
+            .filter(|a| {
+                a.name.starts_with("setuptools-")
+                    || a.name.starts_with("wheel-")
+                    || a.name.starts_with("packaging-")
+            })
+            .map(|a| {
+                let mut parts = a.name.split('-');
+                format!(
+                    "{}=={} --hash=sha256:{}",
+                    parts.next().unwrap(),
+                    parts.next().unwrap(),
+                    a.sha256
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let setup = format!(
+            r#"python3 --version && python3 -m venv --without-pip /cache/venv && printf '%s\n' {} > /cache/build.lock && printf '%s\n' {} > /cache/requirements.lock && PYTHONPATH=/deps/pip-25.1.1-py3-none-any.whl /cache/venv/bin/python -m pip --isolated install --no-index --no-deps --require-hashes --find-links=/deps -r /cache/build.lock && mkdir /cache/pyyaml /cache/wheels && tar -xzf /deps/pyyaml-6.0.3.tar.gz --strip-components=1 -C /cache/pyyaml && (cd /cache/pyyaml && PYYAML_FORCE_LIBYAML=0 /cache/venv/bin/python setup.py --quiet --without-libyaml bdist_wheel --dist-dir /cache/wheels) && PYTHONPATH=/deps/pip-25.1.1-py3-none-any.whl /cache/venv/bin/python -m pip --isolated install --no-index --no-deps /cache/wheels/pyyaml-6.0.3-py3-none-any.whl && PYTHONPATH=/deps/pip-25.1.1-py3-none-any.whl /cache/venv/bin/python -m pip --isolated install --no-index --no-deps --require-hashes --find-links=/deps -r /cache/requirements.lock && /cache/venv/bin/python -c 'import yaml; assert yaml.__version__ == "6.0.3"; assert not yaml.__with_libyaml__; print("Pure-Python PyYAML verified")'"#,
+            quote(&build_lock),
+            quote(&lock)
+        );
+        (recipe("/cache/venv/bin/pre-commit --version && test ! -e .git/original && test -z \"$(git remote)\" && /cache/venv/bin/pre-commit run --all-files", &["python3", "git", "tar"], true), "precommit", setup)
     };
     if matches!(scenario, Scenario::NpmProject) {
         key = "npm_project";
@@ -380,9 +403,7 @@ fn public_recipe(scenario: Scenario) -> Result<Recipe> {
     }
     if matches!(scenario, Scenario::PythonHookProject) {
         key = "python_hook";
-        recipe
-            .requires
-            .extend(["tar".into(), "cmp".into(), "grep".into()]);
+        recipe.requires.extend(["cmp".into(), "grep".into()]);
         setup.push_str(r#" && mkdir /cache/hook-repo && tar -xzf /deps/pyupgrade-ce40a160603ab0e7d9c627ae33d7ef3906e2d2b2.tar.gz --strip-components=1 -C /cache/hook-repo && test ! -e /cache/hook-repo/.git && git -C /cache/hook-repo -c init.templateDir= -c core.hooksPath=/dev/null init -q && git -C /cache/hook-repo -c core.hooksPath=/dev/null add -f -- . && GIT_AUTHOR_DATE=2025-03-01T00:00:00Z GIT_COMMITTER_DATE=2025-03-01T00:00:00Z git -C /cache/hook-repo -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null commit -qm 'Pinned pyupgrade archive fixture' && git -C /cache/hook-repo tag fixture-source-v3.19.1"#);
         recipe.command = r#"export PATH=/cache/venv/bin:$PATH PIP_FIND_LINKS=/deps PIP_NO_INDEX=1 VIRTUALENV_NO_PERIODIC_UPDATE=1 VIRTUALENV_DOWNLOAD=0 GIT_ALLOW_PROTOCOL=file && test ! -e .git/original && pre-commit run --config project-hooks.yaml --all-files && /cache/venv/bin/python verify-hook-environment.py && cp test_fixture.py /cache/original-python && printf "name = 'world'\nmessage = '{}'.format(name)\n" > test_fixture.py && cp test_fixture.py /cache/bad-python && if pre-commit run --config project-hooks.yaml --files test_fixture.py > /cache/negative-hook.log 2>&1; then echo 'Unexpected pass for outdated Python syntax'; exit 93; else grep 'files were modified' /cache/negative-hook.log; fi && ! cmp -s /cache/bad-python test_fixture.py && cp /cache/original-python test_fixture.py && printf 'Python hook rewrite failure confirmed and fixture restored\n'"#.into();
     }
@@ -1382,6 +1403,108 @@ mod tests {
             assert!(!prep.artifacts.is_empty());
             assert!(prep.run.unwrap().contains("/cache/"));
         }
+    }
+
+    #[test]
+    fn python_bundle_has_no_interpreter_specific_wheels() {
+        let pins: BTreeMap<String, Vec<crate::check_dependencies::Artifact>> =
+            serde_json::from_str(PUBLIC_PINS).unwrap();
+        for group in ["precommit", "python_hook"] {
+            assert!(pins[group].iter().any(|a| a.name == "pyyaml-6.0.3.tar.gz"));
+            for artifact in &pins[group] {
+                if artifact.name.ends_with(".whl") {
+                    assert!(
+                        artifact.name.ends_with("none-any.whl"),
+                        "ABI-specific fixture pin: {}",
+                        artifact.name
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Bubblewrap and externally supplied pinned Python 3.14 validation archive"]
+    async fn integration_python314_hook_with_external_runtime() -> Result<()> {
+        let path = std::env::var_os("GREENLIGHT_VALIDATION_ARTIFACT_DIRECTORY").context(
+            "Set GREENLIGHT_VALIDATION_ARTIFACT_DIRECTORY to the reviewed artifact directory",
+        )?;
+        let source = crate::anchored_fs::Dir::open(Path::new(&path))?;
+        let runtime: serde_json::Value =
+            serde_json::from_str(include_str!("sandbox_validation_python314.json"))?;
+        let mut recipe = public_recipe(Scenario::PythonHookProject)?;
+        let preparation = recipe.preparation.as_mut().unwrap();
+        preparation
+            .artifacts
+            .push(crate::check_dependencies::Artifact {
+                name: "python314.tar.xz".into(),
+                url: "https://fixture.invalid/python314.tar.xz".into(),
+                sha256: runtime["sha256"].as_str().unwrap().into(),
+            });
+        let original_setup = preparation.run.take().unwrap();
+        preparation.run = Some(format!(
+            r#"mkdir /cache/python314 && tar -xJf /deps/python314.tar.xz --strip-components=1 -C /cache/python314 && export PATH=/cache/python314/bin:$PATH && python3 -c 'import sys; assert sys.version_info[:3] == (3,14,10)' && {original_setup}"#
+        ));
+        recipe.requires.push("xz".into());
+        recipe.validate()?;
+        let fixture = Fixture::new(None)?;
+        let owner = fixture
+            .store
+            .claim_tool_execution(&fixture.session.id, &fixture.session.active_branch)?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let result = async {
+            let objects = fixture
+                .store
+                .directory_fd
+                .create_dirs(Path::new("check-dependencies/objects"))?;
+            for artifact in &recipe.preparation.as_ref().unwrap().artifacts {
+                let bytes = source.read(Path::new(&artifact.name), 32 * 1024 * 1024)?;
+                if digest(&bytes) != artifact.sha256 {
+                    bail!("Supplied test artifact {} has wrong SHA-256", artifact.name);
+                }
+                objects
+                    .target(Path::new(&format!("{}.bin", artifact.sha256)))?
+                    .atomic_write(&bytes)?;
+            }
+            crate::check_dependencies::prepare(fixture.request(&recipe, &stop), || Ok(())).await?;
+            check(&fixture, &recipe, &stop).await
+        }
+        .await;
+        let cleanup =
+            fixture
+                .store
+                .finish_execution(&fixture.session.id, &owner, result.as_ref().err());
+        drop(owner);
+        cleanup?;
+        let receipt = result?;
+        assert!(
+            clean_pass(&receipt),
+            "{}\n{:?}",
+            receipt.diagnostic,
+            receipt.preparation_diagnostic
+        );
+        assert!(receipt
+            .preparation_diagnostic
+            .as_ref()
+            .unwrap()
+            .contains("Python 3.14.10"));
+        assert!(receipt
+            .preparation_diagnostic
+            .as_ref()
+            .unwrap()
+            .contains("Pure-Python PyYAML verified"));
+        assert!(
+            receipt
+                .diagnostic
+                .contains("Pinned hook environment versions verified")
+                && receipt.diagnostic.contains("fixture restored")
+        );
+        assert!(fixture.source_matches(&[])?);
+        println!(
+            "PYTHON314_RESULT {}",
+            serde_json::json!({"schema":"greenlight.python314-portability.v1","python":"3.14.10","fixture_revision":REVISION,"runtime":runtime,"outcome":receipt.outcome,"modifications":receipt.modifications,"live_inputs_match":receipt.live_inputs_match,"cleanup":receipt.cleanup,"phase_ms":receipt.phase_ms,"executions":receipt.executions,"cache_storage":receipt.cache_storage,"recipe_fingerprint":receipt.fingerprint})
+        );
+        Ok(())
     }
 
     #[test]

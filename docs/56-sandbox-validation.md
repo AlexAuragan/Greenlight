@@ -102,7 +102,7 @@ greenlight sandbox-benchmark --public-dependencies --warm 1 --cold 1 > public-sm
 
 This replaces the installed-Node and installed-pre-commit cases with pinned provisioning cases. It uses the production broker to fetch the [compiled fixture pins](../src/sandbox_validation_dependencies.json), then extracts Node or installs pre-commit and its complete pinned wheel set **inside** each fresh network-isolated check. It never installs host packages or imports arbitrary host runtimes. `requires` lists bootstrap tools, not tools that setup has yet to install. Pin selection is fixed, not registry discovery during a benchmark.
 
-The fixtures target Linux x86_64, Node 22.15.0 and CPython 3.13 (the PyYAML wheel is ABI-specific), with pre-commit 4.2.0. These are reproducible test versions, not application deployment recommendations. Node needs `tar`/`xz`; pre-commit needs Python's `venv` and system Git. The pre-commit hook is local with `language: system`; remote hook provisioning is not covered. Node tests syntax/execution of a zero-dependency fixture, not an npm package graph. The full pin metadata includes URLs and SHA-256; wheel digests came from the corresponding PyPI version JSON, and Node's digest from `https://nodejs.org/dist/v22.15.0/SHASUMS256.txt`.
+The original v1–v3 fixtures targeted Linux x86_64, Node 22.15.0 and CPython 3.13 (their PyYAML wheel was ABI-specific), with pre-commit 4.2.0. Current v4 uses a pure-Python source build; see the portability fix below. These are reproducible test versions, not application deployment recommendations. Node needs `tar`/`xz`; pre-commit needs Python's `venv` and system Git. The pre-commit hook is local with `language: system`; remote hook provisioning is not covered. Node tests syntax/execution of a zero-dependency fixture, not an npm package graph. The full pin metadata includes URLs and SHA-256; wheel digests came from the corresponding PyPI version JSON, and Node's digest from `https://nodejs.org/dist/v22.15.0/SHASUMS256.txt`.
 
 In this cloud environment the direct broker attempt fails: its supervised DNS resolver returns exit 2 for the public endpoints. The configured cloud proxy can download them using ordinary HTTPS clients, but the broker's direct destination validation cannot succeed through that route. Proxy-only networks remain unsupported; the benchmark does not weaken address pinning, TLS checks or redirect rules to make a test pass.
 
@@ -215,7 +215,7 @@ greenlight sandbox-benchmark --public-dependencies --dependency-projects \
 
 Omit `--artifact-directory` to exercise actual broker fetching on a compatible direct-DNS/HTTPS network. The cloud network limitation still applies. Default counts (30 warm / 5 cold, plus one warmup) produce 108 observations across the three selected cases. Public artifact verification/copying and fresh installation are included in timings. No host runtime installation or package execution is performed.
 
-The compiled [source corpus](../src/sandbox_validation_projects.json) and [artifact manifest](../src/sandbox_validation_dependencies.json) are fixture revision v3. Reports identify focused mode and include only the selected artifact groups. Older compressed reports retain their original corpus revisions and are not backfilled. Node remains pinned at 22.15.0; the Python bundle targets CPython 3.13/Linux x86_64. These are reproducible validation versions, not deployment recommendations.
+The original focused source corpus/artifact bundle was fixture revision v3; current [source corpus](../src/sandbox_validation_projects.json) and [pins](../src/sandbox_validation_dependencies.json) are v4 after the portability fix. Reports identify focused mode and include only the selected artifact groups. Older compressed reports retain their original corpus revisions and are not backfilled. Node remains pinned at 22.15.0; the v3 Python bundle targeted CPython 3.13/Linux x86_64; v4 removes that ABI-specific wheel. These are reproducible validation versions, not deployment recommendations.
 
 ### npm graph and offline miss
 
@@ -255,3 +255,27 @@ Validation passes 594 ordinary tests (ten live/profiling tests ignored), strict 
 ## Shell-observation review follow-up — 2026-11-28
 
 Isolation, private-path and stopped-descendant samples now retain the executor measurements they previously discarded. [The native-runtime run](benchmarks/sandbox-shell-observation-review-2026-11-28.json.gz) collected 504 samples: 12/14 gates passed, two system-runtime cases blocked, all cleanup confirmed. Overall status is incomplete; it is not substituted for the separate provisioned runtime reports. Missing output from silent commands remains null. The [acceptance review and host observations](57-sandbox-validation-review.md) reconcile this evidence with the public DNS failure and lack of task-user cgroup delegation.
+
+## Python-minor portability fix — fixture v4, 2026-11-28
+
+A user-run direct test exposed a fixture defect: artifact fetching and npm passed on Python 3.14.10, but the Python hook bundle contained a CPython 3.13-only PyYAML wheel. pip correctly refused that wheel. This was an incomplete fixture, not a reason to change the user's Python, enable network inside checks, or weaken wheel compatibility. The [sanitized user evidence summary](benchmarks/sandbox-user-direct-fetch-summary-2026-11-28.json) records reported results without publishing their raw host report. It establishes user-reported fresh broker transfer/integrity success for the small probe and both bundle preparations; the v3 hook run itself remained blocked.
+
+Fixture v4 replaces that wheel with pinned PyYAML 6.0.3 source. Its build tools (setuptools/wheel/packaging) are separately pinned and installed offline in the disposable venv. Setup explicitly disables LibYAML (`PYYAML_FORCE_LIBYAML=0` and `--without-libyaml`), builds a `py3-none-any` wheel, installs it locally, and asserts both the version and that the C extension is absent. No compiler/Cython, host installation, ABI guessing, unpinned registry resolution or networked check is needed. The source archive/build tools remain verified `/deps` inputs; the locally built wheel is a job-local build output, not claimed to have a published wheel digest.
+
+The ordinary framework wheel lock remains hash-required and excludes source archives. All remaining wheel pins in the Python profiles are interpreter-independent `none-any` wheels; a regression rejects ABI-specific wheel pins. The basic pre-commit profile has 13 artifacts and the Python-hook profile 15, within the unchanged limit of 16. Node's Linux x86_64 restriction remains. Python 3.13.5 and 3.14.10 are tested; these results do not claim every interpreter/platform combination.
+
+Evidence:
+
+- [v4 focused smoke on system Python 3.13.5](benchmarks/sandbox-pureyaml-smoke-2026-11-28.json.gz): all three cases passed, nine cold/warmup/warm observations, cleanup confirmed.
+- [Exact Python 3.14.10 hook regression](benchmarks/sandbox-python314-portability-2026-11-28.json): source build, framework, hook environment/version checks, positive check and actual rewrite rejection/restoration all passed; no source modifications, matched live inputs and confirmed cleanup. This is one functional sample, not a new 30/5 timing matrix.
+
+The exact-version regression stages a pinned standalone Python archive only inside `/cache`. Its [test-only runtime record](../src/sandbox_validation_python314.json) identifies the upstream URL/hash and a gzip-to-xz recompression of the identical tar stream. Task tooling did not extract or execute it on the host. The recompressed 26.9 MB artifact fits the existing 32 MiB limit and is the 16th test artifact, so no limit was raised. This runtime is not part of normal benchmark downloads and does not replace host Python.
+
+Developers can reproduce the opt-in exact-version test with a reviewed artifact directory containing the normal Python-hook pins plus `python314.tar.xz` matching the test record:
+
+```sh
+GREENLIGHT_VALIDATION_ARTIFACT_DIRECTORY=/absolute/path/to/reviewed-artifacts \
+  cargo test --locked --offline integration_python314_hook_with_external_runtime -- --ignored --nocapture
+```
+
+Ordinary users should instead pull/build the fix and rerun their normal focused smoke command, without an external artifact directory, against their existing Python. Fresh end-to-end v4 fetching on that user's host remains to be confirmed. The existing 108-sample v3 report remains historical evidence and is not backfilled. Ordinary validation passes 595 tests, with twelve live/network/profiling tests ignored; strict Clippy, formatting and offline build pass.
