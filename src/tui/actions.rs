@@ -241,7 +241,7 @@ pub(super) const BINDINGS: &[Binding] = &[
     binding!(New, 'n', "New session"),
     binding!(Preview, 'P', "Toggle preview"),
     binding!(Expand, 'Z', "Expand preview"),
-    binding!(RetrySaved, 't', "Retry saved request"),
+    binding!(RetrySaved, 't', "Continue saved work"),
     binding!(RetrySavedManager, 'T', "Retry saved manager"),
     binding!(RerunTool, 'R', "Run tool again"),
     binding!(Stop, 'k', "Stop"),

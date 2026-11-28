@@ -14,7 +14,6 @@ Functional sandbox validation is merged into `master` (2026-11-28). Remaining re
 
 ## Later: scale and integrations
 
-- [ ] **GL-019** — Extend the implemented model preview/future-request stop controls with safe in-flight cancel/interrupt/queue semantics and durable continuation across process restarts.
 - [ ] **GL-020** — Safe Git-aware checkpoints and patch export; do not imply native restore captures arbitrary workspace changes.
 - [ ] **GL-021** — Parallel/subworkflow orchestration with explicit session ownership and approval routing.
 - [ ] **GL-022** — Provider flexibility, context compaction, bounded code retrieval/indexing and opt-in MCP tool integrations.
@@ -28,6 +27,8 @@ Functional sandbox validation is merged into `master` (2026-11-28). Remaining re
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. GL-012/GL-032 already implement bounded read-only inspection and safe pipe-only classification. Broader argument-varying executable grants and verification execution profiles still require scoped design; unsupported commands retain exact approval and the existing sandbox boundary. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-019** — **Implemented on the review branch (2026-11-28), pending merge:** active HTTP/tool/approval/retry cancellation and existing FIFO guidance queues now combine with confirmed coding-boundary checkpoints. Stop after a tool retains its outcome without replay; Stop after a completed response retains its unexecuted action for explicit continuation, then advances with updated context. `[t] Continue saved work` reuses the same attempt across reopening. Unanswered approvals, uncertain writes/cleanup and in-progress tool effects are never restored or blindly retried; existing drift/ownership/input/permission guards remain. Queueing uses GL-008's accepted guidance inbox, not a competing worker or mutation of an in-flight/saved request. [Contract and limits](docs/38-provider-continuations.md#stop-at-coding-boundaries-gl-019).
 
 - [x] **GL-018** — **Assessment complete on the review branch (2026-11-28):** retain guarded per-file native restoration; current evidence does not justify full-workspace capture or atomic multi-file rollback. Documented partial application, journal/completion/fork publication failures and crash-window limits; clarified preview/diagnostic guidance and strengthened three-file partial-failure/final-completion regressions. No automatic compensation or broader body capture. [Evidence, recovery guidance and reopen criteria](docs/58-restore-failure-assessment.md).
 

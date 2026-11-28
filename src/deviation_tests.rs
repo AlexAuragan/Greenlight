@@ -1423,3 +1423,167 @@ async fn budget_pause_can_resume_exact_saved_messages_after_only_the_limit_chang
         .calls;
     assert_eq!(calls[0].attempt, attempt);
 }
+
+#[tokio::test]
+async fn stopping_a_tool_wait_preserves_its_result_without_replaying_approval_after_restart() {
+    use std::sync::{atomic::Ordering, mpsc};
+    let mut h = Harness::new(
+        PAUSE,
+        vec![Ok(
+            "action: tool\ntool: write\npath: new.txt\ncontent: proposed",
+        )],
+    );
+    let step = h.root.path().join("workflows/demo/step.md");
+    fs::write(
+        &step,
+        fs::read_to_string(&step)
+            .unwrap()
+            .replace("tools: []", "tools: [write]"),
+    )
+    .unwrap();
+    let cancel = h.engine.provider.retry_cancel.clone();
+    h.engine.tools.stop = cancel.clone();
+    let (requests, prompts) = mpsc::channel();
+    let (_answers, replies) = mpsc::channel();
+    h.engine.tools.use_tui(requests, replies);
+    let trigger = std::thread::spawn(move || {
+        prompts
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        cancel.store(true, Ordering::SeqCst);
+    });
+    h.run().await;
+    trigger.join().unwrap();
+    let s = h.engine.store.session(&h.session).unwrap();
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    let attempt = cp.attempt.clone();
+    assert!(matches!(
+        cp.frame,
+        crate::continuation::Frame::Coding { response: None, .. }
+    ));
+    assert!(cp.messages.last().unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .contains("Execution stopped by user while waiting"));
+    assert!(!h.root.path().join("new.txt").exists());
+    assert_eq!(h.count("tool.request"), 1);
+    assert_eq!(h.count("tool.error"), 1);
+    assert_eq!(h.count("permission.decision"), 0);
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    let script = Arc::new(Mutex::new(Script {
+        responses: vec![Ok(FINISH.into())].into(),
+        ..Default::default()
+    }));
+    reopened.provider.script = Some(script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(script.lock().unwrap().requests[0], cp.messages);
+    let done = reopened.store.session(&s.id).unwrap();
+    assert_eq!(done.status, "completed");
+    let attempts: i64 = reopened
+        .store
+        .db
+        .query_row(
+            "SELECT COUNT(*) FROM step_attempts WHERE session=?1",
+            [&s.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(attempts, 1);
+    assert!(reopened
+        .store
+        .history(&done)
+        .unwrap()
+        .iter()
+        .any(|e| e.2 == "attempt.continued" && e.3.contains(attempt.as_deref().unwrap())));
+    assert_eq!(h.count("tool.request"), 1);
+    assert!(!h.root.path().join("new.txt").exists());
+}
+
+#[tokio::test]
+async fn stop_after_response_retains_unexecuted_action_for_explicit_continuation() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        OnceLock,
+    };
+    static CANCEL: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
+    fn respond(_: &[serde_json::Value]) -> Result<String, String> {
+        CANCEL
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap()
+            .store(true, Ordering::SeqCst);
+        Ok("action: artifact\nname: held.md\ncontent: retained response".into())
+    }
+    let mut h = Harness::new(PAUSE, vec![]);
+    *CANCEL.get_or_init(|| Mutex::new(None)).lock().unwrap() =
+        Some(h.engine.provider.retry_cancel.clone());
+    h.script.lock().unwrap().responder = Some(respond);
+    h.run().await;
+    assert_eq!(h.status(), "blocked");
+    assert_eq!(h.count("artifact.created"), 0);
+    let s = h.engine.store.session(&h.session).unwrap();
+    let cp = h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cp.schema_version, 2);
+    assert!(matches!(
+        cp.frame,
+        crate::continuation::Frame::Coding {
+            response: Some(_),
+            ..
+        }
+    ));
+    let mut reopened = Engine::open(h.root.path()).unwrap();
+    let script = Arc::new(Mutex::new(Script {
+        responses: vec![Ok(FINISH.into())].into(),
+        ..Default::default()
+    }));
+    reopened.provider.script = Some(script.clone());
+    reopened.resume_saved(&s.id).await.unwrap();
+    assert_eq!(h.count("artifact.created"), 1);
+    assert_eq!(h.count("model.output"), 2);
+    assert_eq!(script.lock().unwrap().requests.len(), 1);
+    assert_eq!(
+        script.lock().unwrap().requests[0].last().unwrap()["content"],
+        "Artifact held.md stored."
+    );
+    assert_eq!(reopened.store.session(&s.id).unwrap().status, "completed");
+}
+
+#[test]
+fn interrupted_coding_never_saves_a_resumable_boundary_with_unconfirmed_cleanup() {
+    let h = Harness::new(PAUSE, vec![]);
+    let s = h.engine.store.session(&h.session).unwrap();
+    let jobs = h
+        .engine
+        .store
+        .directory_fd
+        .create_dirs(std::path::Path::new("sandbox-jobs"))
+        .unwrap();
+    jobs.target(std::path::Path::new("uncertain.lease"))
+        .unwrap()
+        .atomic_write(b"pending ")
+        .unwrap();
+    let error = h
+        .engine
+        .checkpoint_interrupted_coding(&s, "step", "fixture", &[], None)
+        .unwrap_err();
+    assert!(error.is::<crate::sandbox_job::CleanupIncomplete>());
+    assert!(h
+        .engine
+        .store
+        .pending_continuation(&s, false)
+        .unwrap()
+        .is_none());
+}

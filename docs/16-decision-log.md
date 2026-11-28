@@ -137,3 +137,7 @@ Merged GL-027/033/034/035/036 into `master` by fast-forward after 597 passing or
 ## 2026-11-28 — Keep guarded per-file restoration after GL-018 assessment
 
 Do not add full-workspace body collection or atomic multi-file rollback without a concrete recovery case that justifies it. Existing preflight/drift/ownership checks and partial-failure refusal remain the contract. Make preview and error guidance explicit, retain confirmed-versus-uncertain mutation distinctions, and cover both middle-file journaling failure and final completion-publication failure. Successful earlier writes remain applied; compensation is another fallible mutation and can overwrite external work. See the [assessment and reopen criteria](58-restore-failure-assessment.md).
+
+## 2026-11-28 — Preserve interrupted coding boundaries (GL-019)
+
+Reuse the existing cancellation token, exact-request checkpoints and accepted manager-guidance inbox. Preserve a completed tool outcome before stopping at the next coding boundary, or retain a completed response whose action has not started. Consume the saved response slot before processing its action so it cannot silently replay after an action crash, and use updated context for the next inference. Require clean write/sandbox state before saving; retain ownership, drift and permission checks on explicit continuation. Rename the workflow control to Continue saved work because resending inference is not always the next action. Live queued guidance remains owner/attempt-bound; no new general tool replay or concurrent worker protocol is introduced.

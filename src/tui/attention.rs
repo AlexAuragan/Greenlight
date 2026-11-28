@@ -235,7 +235,7 @@ pub(super) fn project(
                 .unwrap_or("Budget accounting unavailable")
                 .into();
             state.next = if state.saved_request {
-                "Review budgets.session, then t / Retry saved request. New worker settings are reloaded."
+                "Review budgets.session, then t / Continue saved work. New worker settings are reloaded."
             } else {
                 "Review budgets.session, then resume explicitly. Inspect recorded work first."
             };
@@ -283,7 +283,7 @@ pub(super) fn project(
     }
     if state.saved_request && state.resumable {
         state.next =
-            "t / Retry saved request validates the workspace and resends the exact messages.";
+            "t / Continue saved work validates the workspace and continues the saved request or unexecuted response.";
         state.impact = "The original attempt is retained; earlier tools/checks are not repeated. Credentials reload on restart. Fresh instructions start a new attempt.";
     }
     Some(state)

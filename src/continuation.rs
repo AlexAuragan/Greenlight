@@ -163,6 +163,24 @@ impl Engine {
         ))?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
     }
+    /// Save only at a confirmed coding boundary, never an unfinished tool.
+    pub(crate) fn checkpoint_interrupted_coding(
+        &self,
+        s: &Session,
+        step: &str,
+        model: &str,
+        messages: &[Value],
+        response: Option<(String, i64)>,
+    ) -> Result<()> {
+        self.store.ensure_no_pending_writes()?;
+        crate::sandbox_job::ensure_clean(&self.store.directory_fd)?;
+        *self.frame.borrow_mut() = Frame::Coding {
+            messages: messages.to_vec(),
+            response,
+        };
+        self.checkpoint(s, step, "coding", model, messages, None)?;
+        Ok(())
+    }
     pub(crate) fn checkpoint(
         &self,
         s: &Session,
@@ -181,7 +199,20 @@ impl Engine {
             return Ok(None);
         }
         let cp = Checkpoint {
-            schema_version: 1,
+            // Older binaries must refuse this new consume-before-action
+            // continuation instead of replaying it with their old semantics.
+            schema_version: if purpose == "coding"
+                && matches!(
+                    &frame,
+                    Frame::Coding {
+                        response: Some(_),
+                        ..
+                    }
+                ) {
+                2
+            } else {
+                1
+            },
             id: uuid::Uuid::new_v4().to_string(),
             session: s.id.clone(),
             branch: s.active_branch.clone(),
@@ -200,7 +231,7 @@ impl Engine {
         Ok(Some(cp))
     }
     pub(crate) fn validate_continuation(&self, s: &Session, cp: &Checkpoint) -> Result<()> {
-        if cp.schema_version != 1 {
+        if !matches!(cp.schema_version, 1 | 2) {
             bail!("Unsupported saved continuation version; checkpoint retained");
         }
         let current = self.store.session(&s.id)?;

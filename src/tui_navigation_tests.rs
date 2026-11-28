@@ -886,7 +886,7 @@ fn saved_provider_request_is_visible_after_reopen_and_help_cannot_retry_it() {
     app.refresh(&store).unwrap();
     assert!(app.saved_workflow_request);
     assert!(app.footer_actions().contains(&shell::Action::RetrySaved));
-    assert!(screen(&mut app, 120, 36).contains("[t] Retry saved request"));
+    assert!(screen(&mut app, 120, 36).contains("[t] Continue saved work"));
     key(&mut app, &store, root.path(), KeyCode::Char('h'));
     key(&mut app, &store, root.path(), KeyCode::Char('t'));
     assert!(app.runner.is_none());

@@ -4,7 +4,7 @@ A provider pause no longer depends on the worker or TUI remaining alive. Exact r
 
 ## Retry or start fresh
 
-- **[t] Retry saved request** restores a workflow's exact message list, model, step and attempt. Earlier tool calls and completed verification checks do not run again.
+- **[t] Continue saved work** restores a workflow's exact message list, model, step and attempt. Earlier tool calls and completed verification checks do not run again.
 - **More → [T] Retry saved manager** restores the original side question, message/snapshot IDs and evidence snapshot. This is read-only; a proposed route is never executed.
 - Ordinary resume instructions or `/resume` deliberately start a fresh attempt and replace the old workflow continuation. Earlier work may run again. They do not replace a pending manager request.
 
@@ -30,10 +30,20 @@ Workspace validation uses the existing bounded manifest scope: state, Git intern
 
 ## Persistence, cooldown and accounting
 
-Version-1 checkpoint blobs use the private content-addressed trace store with checksum validation. Branch-visible `continuation.state` events reference the newest saved blob or explicitly close that slot. Workflow and manager slots are independent. The payload includes exact messages, model/purpose, frame, completed checks, attempt and interaction identity, a validation fingerprint and optional cooldown deadline. Keys and unanswered approvals are excluded. Routine checkpoint metadata is hidden from default Activity cards. Active saved cooldowns have a visible waiting card. Malformed metadata disables the affected retry and reports an error while preserving the TUI and raw history; a readable independent slot remains usable.
+Version-1 and version-2 checkpoint blobs use the private content-addressed trace store with checksum validation. Branch-visible `continuation.state` events reference the newest saved blob or explicitly close that slot. Workflow and manager slots are independent. The payload includes exact messages, model/purpose, frame, completed checks, attempt and interaction identity, a validation fingerprint and optional cooldown deadline. Keys and unanswered approvals are excluded. Routine checkpoint metadata is hidden from default Activity cards. Active saved cooldowns have a visible waiting card. Malformed metadata disables the affected retry and reports an error while preserving the TUI and raw history; a readable independent slot remains usable.
 
 Every physical retry uses a new usage record and exact conversation trace. A saved checkpoint is not a billed dispatch. Remaining Retry-After is persisted at each physical rejection, including before automatic backoff, and is not shortened by restarting. Cancellation of a local HTTP request cannot prove that remote processing/billing stopped; an explicit retry can therefore incur additional billing. Known returned usage and earlier tool results remain in history.
 
 Successful recovery records `attempt.continued` and reopens the same attempt. Completed checks and tool effects remain historical evidence, and newly executed work still goes through ordinary verification. No full conversation compaction or general tool replay is introduced.
 
 Regression coverage includes an actual child-process restart with updated dotenv credentials, exact request comparison and proof that earlier tools and the original attempt are retained. Files changed during restored cooldowns, retry prompts or automatic backoff prevent dispatch and retain the checkpoint.
+
+## Stop at coding boundaries (GL-019)
+
+`k` stops active local inference, tool execution/approval waits and retry waits; it does not undo applied edits or establish that remote billing stopped. After a tool returns with confirmed cleanup, stopping saves its recorded outcome and the next coding conversation. Continuing uses that outcome without repeating the tool or reopening its unanswered approval. A new model-requested tool call still requires the normal permissions. An uncertain native write or unconfirmed sandbox cleanup cannot become a resumable boundary.
+
+If a response completed just before Stop but its action was not executed, its exact response and model-event identity are retained. Explicit continuation processes that action once under normal input/permission guards, then sends the updated conversation on the next request. Retained unexecuted coding responses use checkpoint version 2 so older binaries refuse them rather than apply obsolete replay semantics. Ordinary request checkpoints retain version 1. The saved response slot is closed before processing its action; a crash inside an action does not offer blind automatic replay. A checkpoint is not an instruction-level snapshot of an in-progress tool.
+
+The visible `[t] Continue saved work` control handles both cases. Workspace/config/attempt validation, explicit owner recovery and refusal on drift still apply. A cancelled approval remains unanswered; none is saved as an affirmative decision. Full process restarts never automatically resume execution.
+
+To queue instructions during execution, use the existing Conversation routing/accepted guidance inbox described in [manager delivery](42-idle-manager-delivery.md). FIFO guidance is consumed only at a new coding-request boundary. An in-flight or saved exact request remains frozen; pending live-owner guidance is not silently rebound to another owner/attempt after a stop or restart. Inspect retained delivery state and explicitly submit/accept a fresh route when needed. Direct Step sends while running still retain the draft and refuse a competing worker. This work adds no concurrent executor, automatic tool retry or arbitrary command replay.

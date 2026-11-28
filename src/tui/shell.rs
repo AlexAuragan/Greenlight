@@ -886,7 +886,7 @@ impl App {
                 ));
                 self.clear_diagnostic();
                 self.result_open = false;
-                self.notice = "Validating saved request and workspace. Exact messages and attempt will be retained; earlier tools will not run again. Credentials reload from current settings; remote billing may be uncertain.".into();
+                self.notice = "Validating saved work and workspace. Continue the saved request or unexecuted response in the same attempt; earlier tools will not run again. Credentials reload from current settings; remote billing may be uncertain.".into();
             }
             RetrySavedManager => {
                 self.retry_saved_manager(root, store);

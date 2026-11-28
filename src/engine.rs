@@ -1279,6 +1279,11 @@ impl Engine {
                 .retry_cancel
                 .load(std::sync::atomic::Ordering::SeqCst)
             {
+                // A tool result/correction is already in messages. Preserve the
+                // next boundary rather than replaying its previous action.
+                if self.continuation.borrow().is_none() && replay.is_none() {
+                    self.checkpoint_interrupted_coding(s, &step.id, model, &messages, None)?;
+                }
                 bail!(crate::provider_failure::Failure::local(
                     crate::provider_failure::Kind::Cancelled
                 ));
@@ -1297,6 +1302,18 @@ impl Engine {
             }
             let replaying = replay.is_some();
             let (raw, model_event) = if let Some(response) = replay.take() {
+                if self
+                    .continuation
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|cp| cp.purpose == "coding")
+                {
+                    // This response already completed. Consume its saved slot
+                    // before its action; the next call needs the updated context.
+                    // A crash inside that action must not offer automatic replay.
+                    self.store.close_continuation(s, false)?;
+                    self.continuation.borrow_mut().take();
+                }
                 response
             } else {
                 *self.frame.borrow_mut() = crate::continuation::Frame::Coding {
@@ -1337,6 +1354,13 @@ impl Engine {
                 .retry_cancel
                 .load(std::sync::atomic::Ordering::SeqCst)
             {
+                self.checkpoint_interrupted_coding(
+                    s,
+                    &step.id,
+                    model,
+                    &messages,
+                    Some((raw.clone(), model_event)),
+                )?;
                 bail!(crate::provider_failure::Failure::local(
                     crate::provider_failure::Kind::Cancelled
                 ));

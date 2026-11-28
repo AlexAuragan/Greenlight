@@ -1,5 +1,11 @@
 # Validation
 
+## GL-019 interrupted coding continuation — 2026-11-28
+
+Implemented on the existing GL-018 review branch, pending merge. Confirmed coding boundaries now retain completed tool outcomes and completed-but-unexecuted responses when Stop arrives. Retained responses are consumed before executing their actions; the next request uses updated context. Version-2 response checkpoints prevent older binaries from applying obsolete replay semantics; ordinary version-1 saved requests remain compatible. The existing request validation, input/permission gates, uncertain-write/cleanup quarantine and owner-bound FIFO guidance inbox remain authoritative. The workflow control now reads `[t] Continue saved work`.
+
+Mocked regressions reopen an engine after cancelling an unanswered write approval (no tool replay or invented decision), reopen after response completion before artifact action (one action, updated next-request context), and refuse a resumable boundary with unconfirmed cleanup. **601 ordinary tests pass**, twelve opt-in tests ignored; strict all-target Clippy, formatting and locked offline build pass. No paid requests are used. See [semantics and queue/restart limits](38-provider-continuations.md#stop-at-coding-boundaries-gl-019).
+
 ## GL-018 restore assessment — 2026-11-28
 
 Assessment complete on `fix/restore-failure-review`, pending merge. Current evidence supports guarded native per-file restore rather than full-workspace capture or atomic multi-file compensation. Previews now state the partial-application boundary; failure text clarifies that a filesystem operation can publish before returning an error, so changed-file counts cover confirmed mutations. The existing TUI injection now checks a three-file restore stops after the second journal failure, leaving the third file untouched. A new final-completion-publication failure test verifies applied/journaled files remain restored without publishing a fork. See the [assessment and reopen criteria](58-restore-failure-assessment.md).
