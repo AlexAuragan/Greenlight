@@ -100,6 +100,9 @@ enum Commands {
         /// Explicitly fetch reviewed public pins and provision Node/pre-commit offline
         #[arg(long)]
         public_dependencies: bool,
+        /// Run focused npm/Python-hook dependency projects plus isolation preflight
+        #[arg(long, requires = "public_dependencies")]
+        dependency_projects: bool,
         /// Seed fixture caches from externally obtained pinned files; not a broker download
         #[arg(long, requires = "public_dependencies")]
         artifact_directory: Option<PathBuf>,
@@ -574,6 +577,7 @@ async fn main() -> Result<()> {
             cold,
             keep_failures,
             public_dependencies,
+            dependency_projects,
             artifact_directory,
         } => {
             let report = sandbox_validation::run(
@@ -581,6 +585,7 @@ async fn main() -> Result<()> {
                 cold,
                 keep_failures,
                 public_dependencies,
+                dependency_projects,
                 artifact_directory.as_deref(),
             )
             .await?;

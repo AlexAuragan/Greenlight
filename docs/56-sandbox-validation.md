@@ -200,3 +200,52 @@ The [full cache-footprint report](benchmarks/sandbox-cache-footprint-2026-11-26.
 These values describe files remaining in `/cache` after command completion, before normal disposable-cache removal. They are not permanent project-cache growth, bytes written, peak storage, total device occupancy or resource limits. The report keeps original integer byte counters, counts and scan-unavailability fields. This remains shared-cloud/debug evidence with builds/tests overlapping part of collection.
 
 Validation passes 593 ordinary tests (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. Both live regressions were also run explicitly: persisted failed setup/check receipts keep their observations, and an over-depth cache returns an unavailable footprint while its underlying check remains clean/passed with live inputs matched. Unit tests cover sparse files, hard links, outside symlinks, sockets, replaced-root anchors, measured empty caches, entry/depth/time budgets and summary coverage without zero-filling. No model calls, public downloads, host installations or security-configuration changes were required for this validation.
+
+## Focused dependency projects
+
+`--dependency-projects` selects isolation preflight plus two richer dependency cases. It requires `--public-dependencies` and replaces the normal 14-case selection for this invocation, rather than repeating the completed baseline:
+
+```sh
+greenlight sandbox-benchmark --public-dependencies --dependency-projects \
+  --artifact-directory /absolute/path/to/reviewed-artifacts \
+  --warm 1 --cold 1 > dependency-project-smoke.json
+```
+
+Omit `--artifact-directory` to exercise actual broker fetching on a compatible direct-DNS/HTTPS network. The cloud network limitation still applies. Default counts (30 warm / 5 cold, plus one warmup) produce 108 observations across the three selected cases. Public artifact verification/copying and fresh installation are included in timings. No host runtime installation or package execution is performed.
+
+The compiled [source corpus](../src/sandbox_validation_projects.json) and [artifact manifest](../src/sandbox_validation_dependencies.json) are fixture revision v3. Reports identify focused mode and include only the selected artifact groups. Older compressed reports retain their original corpus revisions and are not backfilled. Node remains pinned at 22.15.0; the Python bundle targets CPython 3.13/Linux x86_64. These are reproducible validation versions, not deployment recommendations.
+
+### npm graph and offline miss
+
+The project locks `is-odd` 3.0.1 with transitive `is-number` 6.0.0. Their exact registry tarball URLs and published SHA-512 integrity values are in `package-lock.json`; preparation additionally pins each tarball's SHA-256. Task-tool downloads were checked against both hashes. The sandbox seeds a fresh npm content cache from read-only `/deps`, then runs `npm ci --offline --ignore-scripts --no-audit --no-fund` against the lock.
+
+`npm test` actually exercises both modules and writes a private success marker only after assertions pass. The fixture's preinstall marker must stay absent. This validates the fixture's disabled lifecycle script; it is not a new global package-manager policy.
+
+A second private project receives a cache containing only `is-odd`. Its offline install must fail specifically with `ENOTCACHED` for `is-number`. Any unexpected success or unrelated error fails the benchmark. This tests missing-transitive-dependency feedback without permitting network access or claiming the project's source is defective. Generated `node_modules` remains inside the disposable copy and is excluded from live-source imports by the existing scope policy.
+
+### Python hook environment from pinned upstream source
+
+The Python case uses upstream pyupgrade 3.19.1, revision `ce40a160603ab0e7d9c627ae33d7ef3906e2d2b2`. Its codeload archive SHA-256 is `d6fce02b9ceb5ca96f269089b3beb36447e84802472ae1d41a7f2206ebc28cca`. The bundle includes pre-commit's complete pinned wheel set plus setuptools 80.9.0, wheel 0.45.1, packaging 25.0 and tokenize-rt 6.1.0. Exact wheel URLs/digests come from their versioned PyPI metadata.
+
+Inside the sandbox, setup extracts that archive and creates a fresh Git repository with deterministic fixture author/date and tag `fixture-source-v3.19.1`. It is a **reconstructed local mirror**, not the upstream repository's original Git history/commit identity. The source identity comes from the declared upstream revision and verified archive digest. Git templates/hooks/global configuration and original project metadata stay excluded.
+
+The source configuration points pre-commit at `file:///cache/hook-repo` with a real `language: python` hook. Only file-protocol Git is allowed; pip uses `PIP_NO_INDEX` and `/deps` as its offline wheel source. Pre-commit clones the local mirror, builds the pinned source and creates its own Python virtualenv. The fixture locates that environment and checks the installed pyupgrade/tokenize-rt versions, so a system executable cannot silently substitute for hook installation.
+
+The positive check passes against the original Python fixture. A negative fixture must then be rewritten and rejected by the real hook; the benchmark checks both the framework's modification diagnostic and changed bytes before restoring the original disposable source. The final receipt must still report no source changes and matched live inputs. No live project file is written.
+
+Hook environment installation happens on the first pre-commit invocation inside `check_execution`; `offline_setup` covers the framework and reconstructed mirror. Each sample starts fresh. This validates the framework's repository-install/build/environment path using an offline mirror, not a live GitHub clone or arbitrary online dependency resolution. Original staged/history/worktree semantics remain unsupported, and other package graphs/platforms still need their own complete recipes.
+
+### Recorded dependency-project results — 2026-11-28
+
+The [focused full report](benchmarks/sandbox-dependency-projects-2026-11-28.json.gz) passes **3/3 cases, 108 samples**: isolation plus the two new dependency projects, each with five cold samples, one separately recorded warmup and 30 warm samples. This supplements the historical 14-case baseline instead of claiming it was rerun. Every sample confirmed cleanup, every attempted footprint was complete, and no job fixtures were retained.
+
+| Dependency project | Cold p50 / p95, ms | Warm p50 / p95, ms | Warm check-execution p50 / p95, ms |
+| --- | --- | --- | --- |
+| npm_dependency_project | 5683.0 / 5742.3 | 5813.2 / 6351.3 | 848.4 / 916.8 |
+| python_hook_project | 10237.2 / 10365.8 | 9764.7 / 10314.4 | 6471.1 / 7049.5 |
+
+Every npm sample exercised the positive graph and the specific missing-transitive `ENOTCACHED` failure, with the lifecycle marker absent. Every Python sample verified the hook environment's actual versions, observed the real rewrite rejection, restored the disposable fixture and returned a clean aggregate receipt. Successful aggregate benchmark commands include assertions about these expected internal failures; they do not recategorize a failed application check as passed.
+
+The cloud run used reviewed externally obtained artifacts, the production broker's verified cache path, fresh offline setup and real Bubblewrap outside the outer tool wrapper. Source bytes were downloaded/verified by task tooling; package/hook code executed only inside the sandbox. This is **not** a successful direct broker fetch, live GitHub clone, original Git-history check, or general package resolver. Reports retain selected pins, source revision/hash, executable hash, phase/output/resource/footprint observations and all-attempt distributions. Timings are debug/shared-host evidence, not a controlled release performance comparison.
+
+Validation passes 594 ordinary tests (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. The existing recipe regression now covers all four provisioning profiles, and a new lock/manifest test checks the two-module npm graph's URLs/versions and integrity metadata. CLI parsing rejects focused dependency mode without explicit public-dependency consent. The normal 14-case selection remains available without this flag.

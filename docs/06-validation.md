@@ -1,5 +1,9 @@
 # Validation
 
+## Focused npm/Python-hook dependency projects (GL-035) — 2026-11-28
+
+Implemented on the existing review branch, pending merge. A locked npm transitive graph and a real pre-commit Python hook environment now have focused provision/install/run fixtures, including a specific offline dependency miss and an actual rewrite rejection followed by source restoration. The focused matrix passes **3/3 cases, 108 samples**, all cleanup confirmed and footprint observations complete. The suite passes **594 tests** (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. Artifact digests, mirror provenance, exact hook versions and scope are in the [full report/guide](56-sandbox-validation.md#recorded-dependency-project-results--2026-11-28). The historical 14-case baseline was not repeated. Direct broker networking, live GitHub cloning and original Git state are not claimed by these externally provisioned local-mirror results. GL-035 remains open.
+
 ## End-of-command private-cache footprint (GL-035) — 2026-11-26
 
 Implemented on the existing review branch, pending merge. Optional bounded, anchored metadata observations report unique regular-file logical/allocation totals while skipping links and special files. Incomplete scans claim no total and never change check outcomes; observation precedes the final live-source recheck. The full provisioned matrix passes **14/14 cases, 504 samples**, with all cleanup confirmed and every attempted footprint available. The suite passes **593 tests** (ten live/profiling tests ignored), strict all-target Clippy, formatting and offline build. Explicit live persistence and over-budget/nonfatal-check regressions pass. See [scope and full report](56-sandbox-validation.md#recorded-cache-footprint-results--2026-11-26). This measures end-of-command cache files before disposal, not bytes written or permanent project storage. GL-035 remains open.

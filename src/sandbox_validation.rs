@@ -19,7 +19,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const REVISION: &str = "sandbox-fixtures-v2";
+const REVISION: &str = "sandbox-fixtures-v3";
+const PROJECT_FILES: &str = include_str!("sandbox_validation_projects.json");
 const PUBLIC_PINS: &str = include_str!("sandbox_validation_dependencies.json");
 const PREFIX: &str = "greenlight-validation-";
 const PINNED: &[u8] = b"trusted local dependency fixture\n";
@@ -35,6 +36,8 @@ enum Scenario {
     Hook,
     PreparedNode,
     PreparedHook,
+    NpmProject,
+    PythonHookProject,
     Venv,
     Formatter,
     Drift,
@@ -73,6 +76,7 @@ pub struct Report {
     bubblewrap_version: String,
     pub gate_status: String,
     public_dependencies: bool,
+    dependency_projects: bool,
     public_pins: serde_json::Value,
     artifact_origin: &'static str,
     warm_samples: u8,
@@ -181,7 +185,7 @@ fn expectation(scenario: Scenario) -> &'static str {
         Scenario::NetworkIpc => {
             "Host TCP/Unix positive controls work; sandbox cannot reach either sentinel"
         }
-        Scenario::PreparedNode | Scenario::PreparedHook => "Pinned artifact preparation verifies; fresh offline provisioned runtime check passes without live edits (artifact_origin distinguishes download from external supply)",
+        Scenario::PreparedNode | Scenario::PreparedHook | Scenario::NpmProject | Scenario::PythonHookProject => "Pinned artifact preparation verifies; fresh offline provisioned runtime check passes without live edits (artifact_origin distinguishes download from external supply)",
         Scenario::Rust | Scenario::Python | Scenario::Node | Scenario::Hook => {
             "Fixed offline check passes without changing live source"
         }
@@ -204,7 +208,7 @@ fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 fn files() -> BTreeMap<String, String> {
-    BTreeMap::from([
+    let mut files = BTreeMap::from([
         ("data.txt".into(),"original\n".into()), ("other.txt".into(),"unchanged\n".into()),
         ("values.txt".into(),"fixture_value\n".repeat(10_000)),
         ("Cargo.toml".into(),"[package]\nname = \"greenlight-validation-fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n".into()),
@@ -214,7 +218,12 @@ fn files() -> BTreeMap<String, String> {
         ("app.js".into(),"if (2+2 !== 4) throw Error('fixture'); console.log('fixture ok');\n".into()),
         ("scripts/check.py".into(),"from pathlib import Path\nassert Path('data.txt').read_text() == 'original\\n'\n".into()),
         (".pre-commit-config.yaml".into(),"repos:\n  - repo: local\n    hooks:\n      - id: fixture\n        name: local system fixture\n        language: system\n        entry: python3 scripts/check.py\n        pass_filenames: false\n        always_run: true\n".into()),
-    ])
+    ]);
+    files.extend(
+        serde_json::from_str::<BTreeMap<String, String>>(PROJECT_FILES)
+            .expect("compiled project fixture files"),
+    );
+    files
 }
 struct Fixture {
     store: Store,
@@ -335,7 +344,10 @@ fn recipe(command: impl Into<String>, requires: &[&str], git: bool) -> Recipe {
 fn public_recipe(scenario: Scenario) -> Result<Recipe> {
     let pins: BTreeMap<String, Vec<crate::check_dependencies::Artifact>> =
         serde_json::from_str(PUBLIC_PINS)?;
-    let (mut recipe, key, setup) = if matches!(scenario, Scenario::PreparedNode) {
+    let (mut recipe, mut key, mut setup) = if matches!(
+        scenario,
+        Scenario::PreparedNode | Scenario::NpmProject
+    ) {
         (recipe("/cache/node/bin/node --version && /cache/node/bin/node --check app.js && /cache/node/bin/node app.js", &["tar", "xz"], false), "node", "mkdir /cache/node && tar -xJf /deps/node-v22.15.0-linux-x64.tar.xz --strip-components=1 -C /cache/node".to_string())
     } else {
         let artifacts = &pins["precommit"];
@@ -355,6 +367,20 @@ fn public_recipe(scenario: Scenario) -> Result<Recipe> {
         let setup = format!("python3 -m venv --without-pip /cache/venv && printf '%s\\n' {} > /cache/requirements.lock && PYTHONPATH=/deps/pip-25.1.1-py3-none-any.whl /cache/venv/bin/python -m pip --isolated install --no-index --no-deps --require-hashes --find-links=/deps -r /cache/requirements.lock", quote(&lock));
         (recipe("/cache/venv/bin/pre-commit --version && test ! -e .git/original && test -z \"$(git remote)\" && /cache/venv/bin/pre-commit run --all-files", &["python3", "git"], true), "precommit", setup)
     };
+    if matches!(scenario, Scenario::NpmProject) {
+        key = "npm_project";
+        setup.push_str(r#" && export PATH=/cache/node/bin:$PATH && npm --version && npm cache add /deps/is-odd-3.0.1.tgz --offline --ignore-scripts --cache=/cache/npm && npm cache add /deps/is-number-6.0.0.tgz --offline --ignore-scripts --cache=/cache/npm && npm ci --offline --ignore-scripts --no-audit --no-fund --cache=/cache/npm"#);
+        recipe.command = r#"export PATH=/cache/node/bin:$PATH && test ! -e /cache/unexpected-lifecycle && npm test --offline --ignore-scripts && test -s /cache/npm-test-ran && mkdir /cache/missing-project && cp package.json package-lock.json /cache/missing-project/ && npm cache add /deps/is-odd-3.0.1.tgz --offline --ignore-scripts --cache=/cache/empty-npm && if npm ci --prefix /cache/missing-project --offline --ignore-scripts --no-audit --no-fund --cache=/cache/empty-npm > /cache/missing-npm.log 2>&1; then echo 'Unexpected success without dependencies'; exit 92; else grep ENOTCACHED /cache/missing-npm.log && grep is-number /cache/missing-npm.log; fi && test ! -e /cache/unexpected-lifecycle && printf 'Offline missing-dependency failure confirmed\n'"#.into();
+        recipe.requires.push("grep".into());
+    }
+    if matches!(scenario, Scenario::PythonHookProject) {
+        key = "python_hook";
+        recipe
+            .requires
+            .extend(["tar".into(), "cmp".into(), "grep".into()]);
+        setup.push_str(r#" && mkdir /cache/hook-repo && tar -xzf /deps/pyupgrade-ce40a160603ab0e7d9c627ae33d7ef3906e2d2b2.tar.gz --strip-components=1 -C /cache/hook-repo && test ! -e /cache/hook-repo/.git && git -C /cache/hook-repo -c init.templateDir= -c core.hooksPath=/dev/null init -q && git -C /cache/hook-repo -c core.hooksPath=/dev/null add -f -- . && GIT_AUTHOR_DATE=2025-03-01T00:00:00Z GIT_COMMITTER_DATE=2025-03-01T00:00:00Z git -C /cache/hook-repo -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null commit -qm 'Pinned pyupgrade archive fixture' && git -C /cache/hook-repo tag fixture-source-v3.19.1"#);
+        recipe.command = r#"export PATH=/cache/venv/bin:$PATH PIP_FIND_LINKS=/deps PIP_NO_INDEX=1 VIRTUALENV_NO_PERIODIC_UPDATE=1 VIRTUALENV_DOWNLOAD=0 GIT_ALLOW_PROTOCOL=file && test ! -e .git/original && pre-commit run --config project-hooks.yaml --all-files && /cache/venv/bin/python verify-hook-environment.py && cp test_fixture.py /cache/original-python && printf "name = 'world'\nmessage = '{}'.format(name)\n" > test_fixture.py && cp test_fixture.py /cache/bad-python && if pre-commit run --config project-hooks.yaml --files test_fixture.py > /cache/negative-hook.log 2>&1; then echo 'Unexpected pass for outdated Python syntax'; exit 93; else grep 'files were modified' /cache/negative-hook.log; fi && ! cmp -s /cache/bad-python test_fixture.py && cp /cache/original-python test_fixture.py && printf 'Python hook rewrite failure confirmed and fixture restored\n'"#.into();
+    }
     recipe.preparation = Some(crate::check_dependencies::Preparation {
         artifacts: pins[key].clone(),
         run: Some(setup),
@@ -468,7 +494,7 @@ async fn perform(fixture: &Fixture, scenario: Scenario) -> Result<Observation> {
             let receipt = check(fixture,&recipe,&stop).await?;
             Ok(from_receipt(&receipt,clean_pass(&receipt)))
         }
-        Scenario::PreparedNode | Scenario::PreparedHook => {
+        Scenario::PreparedNode | Scenario::PreparedHook | Scenario::NpmProject | Scenario::PythonHookProject => {
             let recipe = public_recipe(scenario)?;
             let supplied_started = Instant::now();
             if let Some(directory) = &fixture.artifact_directory {
@@ -818,6 +844,7 @@ pub async fn run(
     cold: u8,
     keep_failures: bool,
     public_dependencies: bool,
+    dependency_projects: bool,
     artifact_directory: Option<&Path>,
 ) -> Result<Report> {
     if !(1..=100).contains(&warm) || !(1..=20).contains(&cold) {
@@ -826,17 +853,28 @@ pub async fn run(
     if public_dependencies && std::env::consts::ARCH != "x86_64" {
         bail!("Public runtime fixtures are pinned for Linux x86_64; no alternative artifact is selected automatically");
     }
+    if dependency_projects && !public_dependencies {
+        bail!("Dependency projects require explicit public-dependencies mode");
+    }
     if artifact_directory.is_some() && !public_dependencies {
         bail!("External artifact directories require explicit public-dependencies mode");
     }
-    let scenarios: Vec<_> = SCENARIOS
-        .iter()
-        .map(|&(scenario, name)| match (public_dependencies, scenario) {
-            (true, Scenario::Node) => (Scenario::PreparedNode, "public_node_offline"),
-            (true, Scenario::Hook) => (Scenario::PreparedHook, "public_precommit_offline"),
-            _ => (scenario, name),
-        })
-        .collect();
+    let scenarios: Vec<_> = if dependency_projects {
+        vec![
+            (Scenario::Isolation, "isolation_startup"),
+            (Scenario::NpmProject, "npm_dependency_project"),
+            (Scenario::PythonHookProject, "python_hook_project"),
+        ]
+    } else {
+        SCENARIOS
+            .iter()
+            .map(|&(scenario, name)| match (public_dependencies, scenario) {
+                (true, Scenario::Node) => (Scenario::PreparedNode, "public_node_offline"),
+                (true, Scenario::Hook) => (Scenario::PreparedHook, "public_precommit_offline"),
+                _ => (scenario, name),
+            })
+            .collect()
+    };
     let public = files();
     let mut report = Report {
         schema: "greenlight.sandbox-validation.v1",
@@ -852,8 +890,13 @@ pub async fn run(
         bubblewrap_version: "unavailable".into(),
         gate_status: "passed".into(),
         public_dependencies,
+        dependency_projects,
         artifact_origin: if artifact_directory.is_some() { "Externally supplied files, size/SHA-256 verified and seeded into disposable fixture caches. Broker cache reuse only; not a broker DNS/TLS/download success." } else if public_dependencies { "Production broker direct public HTTPS preparation; failures remain failures." } else { "Synthetic local fixture only; no public artifacts." },
-        public_pins: if public_dependencies { serde_json::from_str(PUBLIC_PINS)? } else { serde_json::Value::Null },
+        public_pins: if public_dependencies {
+            let mut pins: serde_json::Value = serde_json::from_str(PUBLIC_PINS)?;
+            pins.as_object_mut().unwrap().retain(|key,_| if dependency_projects { key=="npm_project" || key=="python_hook" } else { key=="node" || key=="precommit" });
+            pins
+        } else { serde_json::Value::Null },
         warm_samples: warm,
         cold_samples: cold,
         requested_counts_meet_recommendation: warm>=30 && cold>=5,
@@ -872,6 +915,9 @@ pub async fn run(
         report.cache_definitions.insert("warm", "Same synthetic project/state; verified public artifact objects reused. Installation, disposable check workspace/cache/venv recreated for every sample. Fetch verification and offline setup included in elapsed time.");
         report.cache_definitions.insert("cold", "Fresh project/state and artifact cache; actual public downloads, hash verification and offline setup included. OS/page/network caches not flushed; fixture creation excluded.");
         report.remaining_validation = vec!["Review public-runtime results before GL-035 closes", "Representative remote pre-commit environments remain untested (local/system hook only)", "Original Git staged/history/worktree semantics remain unsupported, not tested as equivalent"];
+    }
+    if dependency_projects {
+        report.remaining_validation = vec!["Review dependency-project results before GL-035 closes", "Network Git clone/registry discovery are deliberately not enabled: hook source uses a pinned archive and a reconstructed local mirror", "Original project staged/history/worktree semantics remain unsupported"];
     }
     if artifact_directory.is_some() {
         report.cache_definitions.insert("cold", "Fresh project/state, externally supplied pinned artifacts copied/verified into cache during each sample. No broker download measured; OS/page caches not flushed.");
@@ -1053,7 +1099,12 @@ mod tests {
     }
     #[test]
     fn public_recipes_use_pinned_artifacts_and_only_bootstrap_requirements() {
-        for scenario in [Scenario::PreparedNode, Scenario::PreparedHook] {
+        for scenario in [
+            Scenario::PreparedNode,
+            Scenario::PreparedHook,
+            Scenario::NpmProject,
+            Scenario::PythonHookProject,
+        ] {
             let recipe = public_recipe(scenario).unwrap();
             recipe.validate().unwrap();
             assert!(!recipe
@@ -1063,6 +1114,35 @@ mod tests {
             let prep = recipe.preparation.unwrap();
             assert!(!prep.artifacts.is_empty());
             assert!(prep.run.unwrap().contains("/cache/"));
+        }
+    }
+
+    #[test]
+    fn npm_lock_graph_matches_the_fixed_artifact_manifest() {
+        let files = files();
+        let package: serde_json::Value = serde_json::from_str(&files["package.json"]).unwrap();
+        let lock: serde_json::Value = serde_json::from_str(&files["package-lock.json"]).unwrap();
+        let pins: BTreeMap<String, Vec<crate::check_dependencies::Artifact>> =
+            serde_json::from_str(PUBLIC_PINS).unwrap();
+        assert_eq!(
+            package["dependencies"],
+            lock["packages"][""]["dependencies"]
+        );
+        assert_eq!(lock["packages"].as_object().unwrap().len(), 3);
+        for (path, metadata) in lock["packages"].as_object().unwrap() {
+            let Some(module) = path.strip_prefix("node_modules/") else {
+                continue;
+            };
+            let filename = format!("{module}-{}.tgz", metadata["version"].as_str().unwrap());
+            let artifact = pins["npm_project"]
+                .iter()
+                .find(|a| a.name == filename)
+                .unwrap();
+            assert_eq!(metadata["resolved"].as_str().unwrap(), artifact.url);
+            assert!(metadata["integrity"]
+                .as_str()
+                .unwrap()
+                .starts_with("sha512-"));
         }
     }
 
@@ -1263,7 +1343,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires working Linux user namespaces, all declared runtimes and Python venv"]
     async fn integration_all_synthetic_validation_gates() {
-        let report = run(1, 1, false, false, None).await.unwrap();
+        let report = run(1, 1, false, false, false, None).await.unwrap();
         assert_eq!(
             report.gate_status,
             "passed",

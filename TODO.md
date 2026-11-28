@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 2026-11-26. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
+Updated 2026-11-28. This is the canonical open backlog; completed work is recorded in Git, the [decision log](docs/16-decision-log.md) and [runtime documentation](docs/README.md). IDs remain stable when priorities change. New findings use new IDs, rather than renumbering existing references.
 
 P0/P1 feature work, installer, TUI redesign and recovery improvements merged into master on 2026-11-19. This does not mean no defects remain. Implement one feature at a time, preserve audit evidence and distinguish model claims from recorded verification.
 
@@ -10,7 +10,7 @@ No open items in this section; completed supervised-workflow features are merged
 
 ## Sandbox verification follow-up
 
-- [ ] **GL-035** — **In progress on the review branch (2026-11-26)**: `sandbox-benchmark` covers 14 cases, with opt-in pinned Node/pre-commit provisioning and explicit external-artifact provenance. **14/14 cases pass the 504-sample externally provisioned run**, all cleanup confirmed, without host installation; full cold/warm evidence is recorded in the [validation guide](docs/56-sandbox-validation.md). Direct broker public fetching is still blocked by this cloud's DNS/proxy-only path; external downloads are not counted as broker success. Verification receipts and benchmark summaries retain reached phase timings, observed stdout/stderr latency and per-stage Linux reaped-child CPU/largest-child RSS/block-operation accounting and bounded retained-cache regular-file footprints, including relevant failures; approval waits remain separate. Finish a successful direct public fetch, representative remote-hook/npm dependency coverage, remaining shell/UI latency, non-verification phases, aggregate peak-memory/bytes-written measurements and evidence review before closing. See the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix).
+- [ ] **GL-035** — **In progress on the review branch (2026-11-28)**: historical isolation/runtime/edit-safety matrix **14/14 cases, 504 samples**; focused npm-transitive/Python-hook projects **3/3 cases, 108 samples**, including expected offline/rewrite failures and restored source. Cleanup confirmed throughout. Receipts/benchmarks retain reached phase timings, observed output latency, scoped Linux child-resource counters and bounded end-of-command cache footprints. The hook uses a reconstructed mirror of pinned upstream source, not a live GitHub clone or original Git history. **Remaining:** successful direct broker public fetching on a compatible network (this cloud's DNS/proxy-only route is blocked), remaining shell/UI latency and non-verification phases, aggregate peak-memory/bytes-written measurements, and final evidence review. See [results, exact scope and reproducible commands](docs/56-sandbox-validation.md) and the [benchmark matrix](docs/53-sandbox-and-verification-design.md#proposed-benchmark-matrix).
 
 ## Later: scale and integrations
 
