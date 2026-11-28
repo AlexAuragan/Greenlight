@@ -20,6 +20,7 @@ mod engine;
 mod file_discovery;
 #[cfg(test)]
 mod fs_race_tests;
+mod git_checkpoint;
 mod input_pins;
 mod locks;
 mod manager;
@@ -314,6 +315,22 @@ enum Commands {
     VerificationEvidence { session: String },
     /// Show configured session model budgets, reservations and model roles
     ModelBudget { session: String },
+    /// Record Git identity and workspace hashes without committing or restoring
+    Checkpoint {
+        session: String,
+        #[arg(long, default_value = "")]
+        label: String,
+    },
+    /// List observational checkpoint event IDs on the active branch
+    Checkpoints { session: String },
+    /// Inspect a branch-visible observational checkpoint
+    CheckpointShow { session: String, event: i64 },
+    /// Save a Git-compatible native-journal patch; never applies or stages it
+    PatchExport {
+        session: String,
+        #[arg(long)]
+        checkpoint: Option<i64>,
+    },
     /// List native agent edits on the active branch
     Changes { session: String },
     /// Show a unified diff for one native agent write
@@ -922,6 +939,44 @@ async fn main() -> Result<()> {
             let store = store::Store::open(&root)?;
             let selected = store.session(&session)?;
             println!("{}", store.save_verification_export(&selected)?.display());
+        }
+        Commands::Checkpoint { session, label } => {
+            let store = store::Store::open(&root)?;
+            let selected = store.session(&session)?;
+            println!(
+                "Checkpoint #{} (observation only; no Git commit or rollback)",
+                store.record_git_checkpoint(&root, &selected, &label)?
+            );
+        }
+        Commands::Checkpoints { session } => {
+            let store = store::Store::open(&root)?;
+            for (id, _, kind, data) in store.history(&store.session(&session)?)? {
+                if kind == "workspace.checkpoint" {
+                    let value: serde_json::Value = serde_json::from_str(&data)?;
+                    println!("#{id} {}", serde_json::to_string(&value["label"])?);
+                }
+            }
+        }
+        Commands::CheckpointShow { session, event } => {
+            let store = store::Store::open(&root)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &store.git_checkpoint(&store.session(&session)?, event)?
+                )?
+            );
+        }
+        Commands::PatchExport {
+            session,
+            checkpoint,
+        } => {
+            let store = store::Store::open(&root)?;
+            println!(
+                "{}",
+                store
+                    .save_native_patch(&store.session(&session)?, checkpoint)?
+                    .display()
+            );
         }
         Commands::Changes { session } => {
             let engine = engine::Engine::open(&root)?;

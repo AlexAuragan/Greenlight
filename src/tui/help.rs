@@ -14,6 +14,8 @@ Tab still cycles files. Hunk navigation changes no files or review decisions.
 Edits g opens optional grouped review; [ / ] select groups, t toggles step/attempt.
 Grouped review is a frozen read-only snapshot; reopen it to refresh. C/E exports its full text.
 V exports historical verification evidence (also More / Details). No checks are rerun.
+K records an idle Git/workspace identity checkpoint; no commit or rollback.
+J exports the native journal as a Git-compatible patch; manual/shell changes excluded.
 
 Artifacts
 e edits the selected artifact into a new version; N adds a version-specific comment.

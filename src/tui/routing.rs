@@ -920,6 +920,8 @@ impl App {
         }
         let workspace_actions = [
             shell::Action::ExportVerification,
+            shell::Action::ExportNativePatch,
+            shell::Action::RecordCheckpoint,
             shell::Action::RouteStatus,
             shell::Action::Preview,
             shell::Action::Expand,

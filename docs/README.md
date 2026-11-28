@@ -27,6 +27,7 @@ Use these documents for current behavior. The [indexed backlog](../TODO.md) trac
 | Conversation routing, live guidance and clarification replies | [Manager guidance delivery](42-idle-manager-delivery.md) |
 | Per-file restore failures and rollback assessment | [Restore failure assessment](58-restore-failure-assessment.md) |
 | File-body retention decision and recovery limits | [Snapshot evaluation](45-file-body-snapshot-evaluation.md) |
+| Git-aware identity checkpoints and native patch export | [Git observations and patches](59-git-checkpoints-and-native-patches.md) |
 | Historical restart checkpoints and recorded branch comparisons | [Historical restarts](44-historical-restart-and-branches.md) |
 | Optional background summaries and saved evidence | [Optional summaries](43-optional-summaries.md) |
 | Read-only project/pipeline questions | [Manager Q&A](21-manager-qa.md) |

@@ -1,5 +1,11 @@
 # Validation
 
+## GL-020 Git observations and native patch export — 2026-11-28
+
+Implemented on the existing GL-018/019 review branch, pending merge. Explicit idle checkpoints record bounded Git HEAD/ref/index identity and the existing hash-only workspace manifest; no Git executable/configuration is used. CLI checkpoint/list/show and checkpoint-relative native patch export are available; More exposes `[K] Record checkpoint` and `[J] Export native patch` (all native history). Exports use continuous branch-visible native text records, refuse unsafe/binary content, gaps, omitted baselines and configured budget overflow, and publish exclusively to a new private export file. They never stage/apply, overwrite source, or expand native restore coverage. Project-root Git directories are supported; gitfiles/external worktree metadata remain explicitly unsupported.
+
+Regressions apply patches with real Git in disposable directories (creation/deletion/empty/quoted/EOF cases), preserve staged index bytes and manual worktree contents even with invalid Git config, verify HEAD/packed-ref/symlink handling, refuse invalid baselines/foreign identities/budgets/unsafe content, and exercise both TUI actions. **609 ordinary tests pass**, twelve opt-in tests ignored; strict all-target Clippy, formatting and locked offline build pass. CLI help and TUI exposure are checked. See [commands, guarantees and limits](59-git-checkpoints-and-native-patches.md).
+
 ## GL-019 interrupted coding continuation — 2026-11-28
 
 Implemented on the existing GL-018 review branch, pending merge. Confirmed coding boundaries now retain completed tool outcomes and completed-but-unexecuted responses when Stop arrives. Retained responses are consumed before executing their actions; the next request uses updated context. Version-2 response checkpoints prevent older binaries from applying obsolete replay semantics; ordinary version-1 saved requests remain compatible. The existing request validation, input/permission gates, uncertain-write/cleanup quarantine and owner-bound FIFO guidance inbox remain authoritative. The workflow control now reads `[t] Continue saved work`.

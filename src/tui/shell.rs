@@ -221,6 +221,8 @@ impl App {
             Action::Provider,
             Action::ConversationDump,
             Action::ExportVerification,
+            Action::ExportNativePatch,
+            Action::RecordCheckpoint,
             Action::RouteStatus,
         ];
         if self.session().is_some_and(|s| s.status == "completed")
@@ -1186,6 +1188,26 @@ impl App {
                 self.notice = "Full recorded file diff; no files changed.".into();
             }
             ExportVerification => self.export_verification(store),
+            ExportNativePatch => {
+                let result = self
+                    .session()
+                    .context("No selected session")
+                    .and_then(|s| store.save_native_patch(s, None));
+                self.notice = match result {
+                    Ok(path) => format!("Native-history patch saved: {}. Shell/manual changes excluded; nothing staged or applied.", path.display()),
+                    Err(error) => format!("Native patch export failed: {error:#}"),
+                };
+            }
+            RecordCheckpoint => {
+                let result = self
+                    .session()
+                    .context("No selected session")
+                    .and_then(|s| store.record_git_checkpoint(root, s, "TUI checkpoint"));
+                self.notice = match result {
+                    Ok(event) => format!("Checkpoint #{event} recorded: Git identity/workspace hashes only; no Git commit or rollback."),
+                    Err(error) => format!("Checkpoint operation failed; inspect history/recovery: {error:#}"),
+                };
+            }
             EditArtifact | CommentArtifact => {
                 if let Err(error) = self.prepare_artifact_review(store, action == CommentArtifact) {
                     self.notice = format!("Artifact review unavailable: {error:#}");

@@ -180,6 +180,7 @@ pub(super) fn conversational_label(kind: &str) -> &str {
         "event.invalid" => "Malformed event",
         "workspace.restore-failed" => "Restore failed",
         "workspace.restore-completed" => "Restore completed",
+        "workspace.checkpoint" => "Checkpoint recorded",
         "runner.error" => "Worker error",
         "step.deviation" => "Needs attention",
         "verification.failed" => "Verification failed",

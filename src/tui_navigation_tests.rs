@@ -921,3 +921,48 @@ fn malformed_checkpoint_metadata_preserves_the_tui_and_raw_history() {
     key(&mut app, &store, root.path(), KeyCode::Char('t'));
     assert!(app.runner.is_none());
 }
+
+#[test]
+fn checkpoint_and_native_patch_controls_are_explicit_and_preserve_live_files() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let session = store.create("demo", "goal", "step").unwrap();
+    store
+        .add_change(&session, "step", "a.txt", Some("old\n"), "native\n")
+        .unwrap();
+    std::fs::write(root.path().join("a.txt"), "manual contents remain\n").unwrap();
+    let mut app = App::new(Some(&session.id));
+    app.refresh(&store).unwrap();
+    app.activate(shell::Action::More, root.path(), &store)
+        .unwrap();
+    let shown = screen(&mut app, 140, 50);
+    assert!(shown.contains("Record checkpoint"));
+    assert!(shown.contains("Export native patch"));
+    app.activate(shell::Action::RecordCheckpoint, root.path(), &store)
+        .unwrap();
+    assert!(app.notice.contains("no Git commit or rollback"));
+    app.activate(shell::Action::ExportNativePatch, root.path(), &store)
+        .unwrap();
+    assert!(app.notice.contains("nothing staged or applied"));
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("a.txt")).unwrap(),
+        "manual contents remain\n"
+    );
+    assert!(store
+        .history(&session)
+        .unwrap()
+        .iter()
+        .any(|e| e.2 == "workspace.checkpoint"));
+    let exports = store.directory.parent().unwrap().join("exports");
+    let patch = std::fs::read_to_string(
+        std::fs::read_dir(exports)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path(),
+    )
+    .unwrap();
+    assert!(patch.contains("+native"));
+    assert!(!patch.contains("manual contents remain"));
+}

@@ -553,6 +553,11 @@ pub fn describe(id: i64, kind: &str, raw: &str, tool: Option<&ToolEvidence>) -> 
             "Recorded native write · d opens journal diff",
             Tone::Info,
         ),
+        "workspace.checkpoint" => card(
+            "Checkpoint recorded",
+            "Git identity and workspace hashes only · no commit or rollback",
+            Tone::Info,
+        ),
         "workspace.restored" => card(
             format!("File restored · {}", short(raw)),
             "Recorded restore · d opens journal diff",
