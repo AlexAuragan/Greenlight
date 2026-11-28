@@ -364,7 +364,7 @@ async fn main() -> Result<()> {
             "stdout".into()
         };
         if result.gate_status != "passed" {
-            bail!("Sandbox validation {}. Report: {destination}; no host fallback. GL-035 remains open.",result.gate_status);
+            bail!("Sandbox validation {}. Report: {destination}; no host fallback. Inspect the report before treating this run as validation.",result.gate_status);
         }
         return Ok(());
     }

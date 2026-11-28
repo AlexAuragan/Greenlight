@@ -127,3 +127,7 @@ GL-012 uses a static supported argv/option subset, fixed system executables and 
 ## 2026-11-23 — Merge supervised review and inspection stack
 
 Merged GL-009 through GL-017, the GL-031 design and GL-032 implementation into `master` after review and 546 passing serial tests. Preserve existing grant/deny precedence and explicit user control; summaries, grouped review and role/budget defaults remain optional. Corrected artifact review feedback for post-publication ownership-cleanup failure. GL-027 and GL-033 remain deferred sandbox work, and live namespace validation is still host-blocked.
+
+## 2026-11-28 — Close the functional sandbox-validation slice
+
+Accept the user-host v4 direct-fetch smoke as supplied compatible-host evidence, keeping the earlier cloud DNS failures and v3 Python-wheel failure intact. GL-035 completion means reviewed functional containment/offline dependency/result-integrity coverage, not every proposed performance metric. Move interactive/non-verification profiling into GL-025 and supported exclusive whole-tree memory/write accounting into GL-023, with explicit acceptance details in TODO. The current non-delegated cloud cannot supply trustworthy exclusive peak accounting; child RSS/block counters/final cache footprints remain narrower observations. Original Git semantics remain GL-020. See the [closure rationale and evidence](57-sandbox-validation-review.md).

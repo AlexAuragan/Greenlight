@@ -777,7 +777,6 @@ fn record_changes(
         if budget > MAX_EDITS {
             receipt.edits.clear();
             receipt.modifications = "unknown".into();
-            receipt.modifications = "unknown".into();
             receipt
                 .diagnostic
                 .push_str("\nGenerated edits exceed 4 MiB retention budget; import unavailable.");

@@ -1,5 +1,7 @@
 # Synthetic sandbox validation (GL-035)
 
+**Current status (2026-11-28):** functional GL-035 validation is complete after the user-host direct-fetch v4 smoke; UI profiling and aggregate accounting remain explicit GL-025/GL-023 work. Historical reports and pending-status notes below are not backfilled.
+
 For current acceptance status and the distinction between completed subsets, host blockers and remaining measurements, see the [GL-035 review](57-sandbox-validation-review.md). Historical reports below retain their original scope and fields.
 
 Implemented on `docs/sandbox-verification-plan`, pending merge. This runner tests production sandbox/verification/import paths against disposable trusted fixtures. It does not use an LLM or an API key, load project `.env`, edit the current project or execute fixture programs on the host as a fallback. The default mode does not download dependencies; optional public provisioning is described below.
@@ -297,3 +299,9 @@ A checkpoint with `gate_status: "running"` is unfinished evidence. `current_phas
 The invocation supervisor now enters a separate process group, so terminal Ctrl+C reaches Greenlight without also killing its cleanup owner. Closing Greenlight's control pipe then triggers the existing owned-child teardown and reaping. This improves interruption cleanup; it does not make a partial report proof of confirmed cleanup.
 
 Validation for this diagnostic change: 597 ordinary tests pass (12 ignored); strict Clippy, formatting and offline build pass. A live focused 1/1 run with externally supplied verified artifacts passed all three cases/nine samples with confirmed cleanup. A separate controlled SIGINT check preserved valid startup JSON, and a symlink report target was rejected without changing its destination. This validates reporting/cleanup behavior, not the unresolved user-host stall or fresh direct downloads.
+
+## User-host direct v4 confirmation — 2026-11-28
+
+The final user-supplied report has `current_phase: Finished` and `gate_status: passed`. All three focused cases passed cold/warmup/warm, with cleanup confirmed for all nine samples and no retained fixtures. npm project totals were 3.33–3.86 seconds per sample; Python hook totals were 11.28–12.60 seconds. These are debug-build smoke observations, not controlled release latency guarantees. The report uses direct production-broker public preparation, and its public pins match the current recipes. The Python version (3.14.10) was supplied separately by the user rather than inferred from a benchmark field.
+
+The [sanitized summary](benchmarks/sandbox-user-v4-smoke-summary-2026-11-28.json) retains case outcomes, timings, identity hashes and scope. Its source-report hash identifies the original attachment, which is not published with personal host paths/diagnostics. This result closes the pending user-host v4 smoke; it does not establish the cause of the preceding interrupted startup run. The [closure review](57-sandbox-validation-review.md#closure-review-and-scope-revision--2026-11-28) records the explicit GL-023/GL-025 measurement follow-ups.

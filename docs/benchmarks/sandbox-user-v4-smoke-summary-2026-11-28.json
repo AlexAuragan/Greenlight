@@ -1,0 +1,116 @@
+{
+  "schema": "greenlight.user-validation-summary.v1",
+  "evidence_source": "User-supplied v4 checkpoint JSON; not independently collected by the cloud runner",
+  "source_report_sha256": "76072a0bd4072cca9ee7786e3f7e512092ffec1c6a1033e33c313e7f1a53b321",
+  "personal_host_details_omitted": true,
+  "reported_python": "3.14.10",
+  "fixture_revision": "sandbox-fixtures-v4",
+  "fixture_sha256": "665626252bc22ef1cf29017c888af24fdf3d87d4d8259f39b40c582d350b097b",
+  "binary_sha256": "f7f1b80f29e244b09d267bae20e9c3038d6926653ea2c98adedda1fdb64501c3",
+  "build_profile": "debug",
+  "artifact_origin": "Production broker direct public HTTPS preparation; failures remain failures.",
+  "public_pins_match_reviewed_recipes": true,
+  "overall_gate": "passed",
+  "current_phase": "Finished",
+  "requested_counts_meet_recommendation": false,
+  "recommended_sample_count_met": false,
+  "retained_fixture_count": 0,
+  "cases": [
+    {
+      "name": "isolation_startup",
+      "gate": "passed",
+      "samples": [
+        {
+          "cache": "cold",
+          "index": 1,
+          "elapsed_ms": 7.273417,
+          "gate": "passed",
+          "observed": "exit status: 0",
+          "cleanup_confirmed": true
+        },
+        {
+          "cache": "warmup",
+          "index": 0,
+          "elapsed_ms": 13.973951999999999,
+          "gate": "passed",
+          "observed": "exit status: 0",
+          "cleanup_confirmed": true
+        },
+        {
+          "cache": "warm",
+          "index": 1,
+          "elapsed_ms": 14.195503,
+          "gate": "passed",
+          "observed": "exit status: 0",
+          "cleanup_confirmed": true
+        }
+      ]
+    },
+    {
+      "name": "npm_dependency_project",
+      "gate": "passed",
+      "samples": [
+        {
+          "cache": "cold",
+          "index": 1,
+          "elapsed_ms": 3816.088361,
+          "gate": "passed",
+          "observed": "check=passed modifications=none launch=started",
+          "cleanup_confirmed": true
+        },
+        {
+          "cache": "warmup",
+          "index": 0,
+          "elapsed_ms": 3857.2505650000003,
+          "gate": "passed",
+          "observed": "check=passed modifications=none launch=started",
+          "cleanup_confirmed": true
+        },
+        {
+          "cache": "warm",
+          "index": 1,
+          "elapsed_ms": 3328.8827410000004,
+          "gate": "passed",
+          "observed": "check=passed modifications=none launch=started",
+          "cleanup_confirmed": true
+        }
+      ]
+    },
+    {
+      "name": "python_hook_project",
+      "gate": "passed",
+      "samples": [
+        {
+          "cache": "cold",
+          "index": 1,
+          "elapsed_ms": 12595.298391,
+          "gate": "passed",
+          "observed": "check=passed modifications=none launch=started",
+          "cleanup_confirmed": true
+        },
+        {
+          "cache": "warmup",
+          "index": 0,
+          "elapsed_ms": 12579.604224,
+          "gate": "passed",
+          "observed": "check=passed modifications=none launch=started",
+          "cleanup_confirmed": true
+        },
+        {
+          "cache": "warm",
+          "index": 1,
+          "elapsed_ms": 11279.118268999999,
+          "gate": "passed",
+          "observed": "check=passed modifications=none launch=started",
+          "cleanup_confirmed": true
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Focused 1 cold / 1 warmup / 1 warm per case; not a 30/5 performance distribution",
+    "Fresh direct public broker provisioning and offline execution passed on the user host; cloud direct DNS failures remain historical evidence",
+    "The earlier interrupted startup stall was not reproduced or explained by this successful report",
+    "Original Git history/staged/worktree semantics, general registry discovery and live network cloning are not covered"
+  ]
+}

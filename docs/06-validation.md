@@ -1,5 +1,11 @@
 # Validation
 
+## Sandbox stack closure review — 2026-11-28
+
+The final review records the supplied user-host direct-fetch v4 smoke: **3/3 cases, nine samples**, all cleanup confirmed; reviewed public pins match and the sanitized summary omits personal paths/diagnostics. This completes GL-035's functional scope. UI/non-verification profiling remains GL-025; supported exclusive process-tree memory/write accounting remains GL-023, with explicit rationale and acceptance details in the [closure review](57-sandbox-validation-review.md#closure-review-and-scope-revision--2026-11-28) and TODO. Historical cloud DNS/native-runtime failures and older matrix revisions remain unchanged.
+
+Final checks: **597 ordinary tests pass, twelve opt-in tests ignored**; strict all-target Clippy, formatting and locked offline build pass. Both selected live Bubblewrap integrations pass: synthetic Git/formatter cannot change live source; staged dependency files stay read-only and every check gets a fresh disposable venv. No provider calls or host-security changes were used. The first parallel suite exposed a test fixture's implicit lock-release assumption; the fixture now explicitly unlocks, and the complete parallel suite passes. Production quarantine rules are unchanged. The final review also removes one duplicate edit-overflow assignment and makes non-passing benchmark diagnostics reference the actual report rather than a hard-coded backlog status.
+
 ## Python 3.14 fixture portability — 2026-11-28
 
 Fixed the CPython 3.13-specific PyYAML pin exposed by the user's Python 3.14.10 run. v4 builds a pure-Python wheel from pinned source/build tools offline, checks no C extension is used, and keeps all artifact limits unchanged. The focused Python 3.13 smoke passes all three cases (nine observations); a separately staged exact Python **3.14.10** regression passes the complete hook case with unchanged source and confirmed cleanup. Ordinary tests pass **595** (twelve opt-in tests ignored); strict Clippy, formatting and offline build pass. User-reported v3 downloads are transport successes, but that hook run was blocked by ABI incompatibility. See [evidence and scope](56-sandbox-validation.md#python-minor-portability-fix--fixture-v4-2026-11-28). No raw user host report is published; user-host v4 rerun remains pending.

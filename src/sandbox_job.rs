@@ -276,6 +276,9 @@ mod tests {
         file.write_all_at(b"complete", 0).unwrap();
         file.try_lock().unwrap();
         assert!(ensure_clean(&state).unwrap_err().is::<CleanupIncomplete>());
+        // Model a released lock explicitly. Other parallel tests may fork while
+        // this descriptor is open; their pre-exec copy can outlive drop(file).
+        file.unlock().unwrap();
         drop(file);
         ensure_clean(&state).unwrap();
         assert_eq!(jobs.entries().unwrap().count(), 0);

@@ -50,6 +50,8 @@ The GL-011 audit measured 443 included files and about 26.6 MB of bodies in this
 
 ### Proposed benchmark matrix
 
+**Scope review, 2026-11-28:** the matrix below remains the original proposal. GL-035 now closes the functional sandbox-validation slice using the [reviewed evidence](57-sandbox-validation-review.md#closure-review-and-scope-revision--2026-11-28). Human-action/render/shutdown and non-verification timings remain GL-025; exclusive aggregate process-tree peak-memory/write accounting remains GL-023. Their acceptance details are retained in the canonical TODO; executor output latency, child RSS and cache footprint do not stand in for them.
+
 Use trusted synthetic fixtures first, then representative Rust, Python, Node, raw Git-hook and `pre-commit` projects. Run on a namespace-capable Linux host and this restricted host. Pin tool versions, source/hook revisions and cache state. Use at least 30 warm and 5 cold samples where practical; report failures alongside p50/p95, not just successful timings.
 
 | Scenario | Record | Required interpretation / acceptance |
