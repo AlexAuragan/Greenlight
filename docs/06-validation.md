@@ -1,5 +1,11 @@
 # Validation
 
+## GL-018 restore assessment — 2026-11-28
+
+Assessment complete on `fix/restore-failure-review`, pending merge. Current evidence supports guarded native per-file restore rather than full-workspace capture or atomic multi-file compensation. Previews now state the partial-application boundary; failure text clarifies that a filesystem operation can publish before returning an error, so changed-file counts cover confirmed mutations. The existing TUI injection now checks a three-file restore stops after the second journal failure, leaving the third file untouched. A new final-completion-publication failure test verifies applied/journaled files remain restored without publishing a fork. See the [assessment and reopen criteria](58-restore-failure-assessment.md).
+
+**598 ordinary tests pass**, twelve opt-in tests ignored; the restore-filtered suite passes 22 tests. Strict all-target Clippy and formatting pass. No new storage, migration, automatic rollback, provider request or broader restore authority was introduced.
+
 ## Sandbox stack closure review — 2026-11-28
 
 Merged the reviewed GL-027/033/034/035/036 sandbox stack into `master` on 2026-11-28 by fast-forward, preserving the exact tested code. The final review records the supplied user-host direct-fetch v4 smoke: **3/3 cases, nine samples**, all cleanup confirmed; reviewed public pins match and the sanitized summary omits personal paths/diagnostics. This completes GL-035's functional scope. UI/non-verification profiling remains GL-025; supported exclusive process-tree memory/write accounting remains GL-023, with explicit rationale and acceptance details in the [closure review](57-sandbox-validation-review.md#closure-review-and-scope-revision--2026-11-28) and TODO. Historical cloud DNS/native-runtime failures and older matrix revisions remain unchanged.

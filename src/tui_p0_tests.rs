@@ -385,7 +385,7 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
     let store = Store::open(root.path()).unwrap();
     let mut session = store.create("demo", "goal", "edit").unwrap();
     let checkpoint = store.history(&session).unwrap()[0].0;
-    for name in ["a.txt", "b.txt"] {
+    for name in ["a.txt", "b.txt", "c.txt"] {
         store
             .add_change(&session, "edit", name, Some("old"), "new")
             .unwrap();
@@ -423,7 +423,16 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
         store.session(&session.id).unwrap().active_branch,
         session.active_branch
     );
-    assert_eq!(store.workspace_edits(&session).unwrap().len(), 3);
+    assert_eq!(store.workspace_edits(&session).unwrap().len(), 4);
+    // The journal failure occurs after b's mutation. Keep a/b's applied
+    // contents visible, but never continue to the later c target.
+    for name in ["a.txt", "b.txt"] {
+        assert_eq!(fs::read_to_string(root.path().join(name)).unwrap(), "old");
+    }
+    assert_eq!(
+        fs::read_to_string(root.path().join("c.txt")).unwrap(),
+        "new"
+    );
     let history = store.history(&session).unwrap();
     assert_eq!(
         history
@@ -436,6 +445,9 @@ fn partial_restore_is_reported_and_does_not_fork_or_claim_success() {
         .iter()
         .any(|(_, _, k, _)| k == "workspace.restore-failed"));
     assert!(!history.iter().any(|(_, _, k, _)| k == "branch.forked"));
+    assert!(!history
+        .iter()
+        .any(|(_, _, k, _)| k == "workspace.restore-completed"));
 }
 
 #[test]

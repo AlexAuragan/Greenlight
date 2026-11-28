@@ -213,7 +213,7 @@ impl RestorePlan {
             output.push_str(&diff);
         }
         output.push_str(
-            "\nOnly recorded native writes and prior restores are covered. Shell/manual changes cannot be reconstructed.\n"
+            "\nOnly recorded native writes and prior restores are covered. Shell/manual changes cannot be reconstructed.\nFiles are restored one at a time; a failure can leave a partial restore. Review workspace/history before retrying.\n"
         );
         output
     }
@@ -226,7 +226,7 @@ impl RestorePlan {
         self.apply_inner(root, store, session, true)
     }
 
-    /// Use the same guarded restore transaction while a TUI owns stdout.
+    /// Use the same guarded per-file restore path while a TUI owns stdout.
     pub fn apply_silent(self, root: &Path, store: &Store, session: &Session) -> Result<()> {
         self.apply_inner(root, store, session, false)
     }
@@ -267,6 +267,9 @@ impl RestorePlan {
         }
 
         let directory = crate::anchored_fs::Dir::open(root)?;
+        // Filesystem changes and SQLite publication are not one transaction.
+        // Keep successful earlier restores; compensating writes could overwrite
+        // a new external edit or fail again. Never auto-retry a partial restore.
         let mut applied = 0;
         for item in self.items {
             let mut changed = false;
@@ -296,7 +299,7 @@ impl RestorePlan {
             })();
             if let Err(error) = result {
                 let changed_count = applied + usize::from(changed);
-                let message = format!("Restore failed after {changed_count} file(s) changed ({applied} journaled), at {}: {error:#}. Filesystem may be partially restored. Inspect workspace and history; do not retry blindly.",item.relative);
+                let message = format!("Restore failed after {changed_count} file(s) changed ({applied} journaled), at {}: {error:#}. Filesystem may be partially restored. Counts cover confirmed mutations; a failed filesystem operation may also have changed its target. Inspect workspace and history; do not retry blindly.",item.relative);
                 let payload = serde_json::json!({"changed_files":changed_count,"journaled_files":applied,"path":item.relative,"error":message}).to_string();
                 if let Err(log_error) =
                     store.event(session, None, "workspace.restore-failed", &payload)
@@ -451,6 +454,46 @@ mod tests {
             "one"
         );
     }
+    #[test]
+    fn failed_completion_publication_keeps_journaled_files_and_does_not_fork() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path()).unwrap();
+        let mut session = store.create("test", "goal", "step").unwrap();
+        let checkpoint = store.history(&session).unwrap()[0].0;
+        let branch = session.active_branch.clone();
+        for path in ["a.txt", "b.txt"] {
+            store
+                .add_change(&session, "step", path, Some("old"), "new")
+                .unwrap();
+            fs::write(root.path().join(path), "new").unwrap();
+        }
+        let plan = RestorePlan::prepare(root.path(), &store, &session, checkpoint).unwrap();
+        store.db.execute_batch("CREATE TRIGGER reject_restore_completion BEFORE INSERT ON events WHEN NEW.kind='workspace.restore-completed' BEGIN SELECT RAISE(ABORT,'injected completion failure'); END;").unwrap();
+        let error = store
+            .restore_and_fork(root.path(), &mut session, plan, checkpoint, "step", false)
+            .unwrap_err();
+        assert!(format!("{error:#}")
+            .contains("2 files restored and journaled, but completion could not be recorded"));
+        for path in ["a.txt", "b.txt"] {
+            assert_eq!(fs::read_to_string(root.path().join(path)).unwrap(), "old");
+        }
+        assert_eq!(store.workspace_edits(&session).unwrap().len(), 4);
+        assert_eq!(session.active_branch, branch);
+        assert_eq!(store.session(&session.id).unwrap().active_branch, branch);
+        let history = store.history(&session).unwrap();
+        assert_eq!(
+            history
+                .iter()
+                .filter(|e| e.2 == "workspace.restored")
+                .count(),
+            2
+        );
+        assert!(!history.iter().any(|e| matches!(
+            e.2.as_str(),
+            "workspace.restore-completed" | "branch.forked"
+        )));
+    }
+
     #[test]
     fn snapshots_reject_large_files_without_changing_them() {
         let root = tempfile::tempdir().unwrap();

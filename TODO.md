@@ -14,7 +14,6 @@ Functional sandbox validation is merged into `master` (2026-11-28). Remaining re
 
 ## Later: scale and integrations
 
-- [ ] **GL-018** — Revisit full-workspace / multi-file atomic rollback only if measured drift and restoration failures justify the extra complexity; document the current restore's partial-error handling.
 - [ ] **GL-019** — Extend the implemented model preview/future-request stop controls with safe in-flight cancel/interrupt/queue semantics and durable continuation across process restarts.
 - [ ] **GL-020** — Safe Git-aware checkpoints and patch export; do not imply native restore captures arbitrary workspace changes.
 - [ ] **GL-021** — Parallel/subworkflow orchestration with explicit session ownership and approval routing.
@@ -29,6 +28,8 @@ Functional sandbox validation is merged into `master` (2026-11-28). Remaining re
 GL-007 defines the coordination contract; GL-028 implements project exclusion and recovery. GL-021 parallel orchestration needs a new explicit concurrency design rather than bypassing this lease. GL-012/GL-032 already implement bounded read-only inspection and safe pipe-only classification. Broader argument-varying executable grants and verification execution profiles still require scoped design; unsupported commands retain exact approval and the existing sandbox boundary. Keep docs, embedded prompts and the decision log synchronized with implementation.
 
 ## Completed recovery and code improvements
+
+- [x] **GL-018** — **Assessment complete on the review branch (2026-11-28):** retain guarded per-file native restoration; current evidence does not justify full-workspace capture or atomic multi-file rollback. Documented partial application, journal/completion/fork publication failures and crash-window limits; clarified preview/diagnostic guidance and strengthened three-file partial-failure/final-completion regressions. No automatic compensation or broader body capture. [Evidence, recovery guidance and reopen criteria](docs/58-restore-failure-assessment.md).
 
 - [x] **GL-035** — **Merged into `master` (2026-11-28), functional scope:** historical provisioned isolation/runtime/edit-safety matrix **14/14 cases, 504 samples**; focused npm/Python-hook matrix **3/3 cases, 108 samples**; v4 pure-Python portability regression on exact Python 3.14.10; user-host fresh direct-fetch v4 smoke **3/3 cases, nine samples**, all cleanup confirmed. The native matrix's two unavailable tools and cloud direct-DNS failure remain recorded, not relabelled as passes. Startup checkpoint reporting and Ctrl+C ownership are tested; the earlier user stall remains unexplained. **Scope revision:** UI/non-verification profiling is GL-025; exclusive whole-tree memory/write accounting is GL-023. Existing child/cache observations are narrower metrics, not substitutes. See [acceptance, remaining limits and rationale](docs/57-sandbox-validation-review.md) and [sanitized user evidence](docs/benchmarks/sandbox-user-v4-smoke-summary-2026-11-28.json).
 

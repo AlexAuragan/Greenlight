@@ -282,3 +282,5 @@ In Edits, `g` or More → Grouped review opens a historical combined diff reader
 ## Model roles and session budgets
 
 Usage and Technical details show configured session model budgets and accounted/reserved usage; request details retain individual dispatch reservations. Budget stops have their own activity/blocker message and supersede an earlier provider error. After changing only budget settings, a saved request can be retried with its exact original messages; other continuation checks still apply. Active workers retain startup policy, so restart them after configuration changes. Model-role defaults and estimate limitations are described in [roles and budgets](52-model-roles-and-session-budgets.md).
+
+The [GL-018 restore assessment](58-restore-failure-assessment.md) details partial application, publication/crash limits and inspection steps. Restore previews warn that files are applied one at a time; a failure is not automatically compensated.
